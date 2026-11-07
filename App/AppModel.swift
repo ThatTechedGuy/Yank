@@ -11,6 +11,7 @@
 // this class is main-thread only without spelling it out. CaptureService requires that.
 import ClipCore
 import ClipSystem
+import KeyboardShortcuts
 import SwiftUI
 
 @Observable final class AppModel {
@@ -22,17 +23,25 @@ import SwiftUI
     private(set) var startupError: String?
 
     private var capture: CaptureService?
+    /// The panel's window, created once and kept hidden until ⇧⌘V. Nil if the store failed.
+    private var panel: PanelWindow?
 
     init() {
         // Open the database before anything else starts. Nothing in the app works without it, and it
         // is a local file, so opening it here is quick. If it fails we keep the error so the menu can
         // show it instead of crashing. (`do { try ... } catch` is Swift's try/catch.)
         do {
-            let store = try Store(folder: Store.defaultFolder)
+            let options = LaunchOptions()
+            let store = try Store(folder: options.storeFolder)
             let capture = CaptureService(
                 clipboard: SystemClipboard(), frontmostApp: FrontmostAppReader(), store: store)
             self.capture = capture
             clipboardAccess = capture.clipboardAccess
+            // The panel and its state. Built now, while nothing is urgent, so that the first
+            // ⇧⌘V only has to put an existing window on screen.
+            let panel = PanelWindow(model: PanelModel(store: store))
+            self.panel = panel
+            watchShortcut()
             // After every save, re-read the number the menu shows. Asking the database instead of
             // adding one keeps the menu right when a save was really a repeat (the item moved to the
             // top, the count did not grow). `[weak self]` stops this callback from keeping the model
@@ -51,6 +60,18 @@ import SwiftUI
             // inside `poll()` holds the model for as long as the app runs anyway, which is fine for
             // the one object that lives as long as the app does.
             Task { [weak self] in
+                // Debug-only: fill the database with fake items, and show the panel at once if
+                // asked, before the first count so the menu shows the seeded number.
+                #if DEBUG
+                    if let count = options.seedCount {
+                        do {
+                            try await store.seed(count: count)
+                        } catch {
+                            Log.store.error("could not seed: \(error, privacy: .public)")
+                        }
+                    }
+                    if options.showPanel { panel.show() }
+                #endif
                 self?.itemCount = (try? await store.count()) ?? 0
                 await self?.poll()
             }
@@ -58,6 +79,36 @@ import SwiftUI
             Log.store.error("could not open the store: \(error, privacy: .public)")
             startupError = "Could not open the database: \(error.localizedDescription)"
         }
+    }
+
+    /// Shows or hides the panel on every press of ⇧⌘V, from any app, for as long as Yank runs.
+    private func watchShortcut() {
+        Task { [weak self] in
+            // Each press is one value of an endless async stream (≈ `for await` over an event
+            // iterator). `.keyDown` only: a shortcut also reports its release, which we ignore.
+            for await _ in KeyboardShortcuts.events(.keyDown, for: .togglePanel) {
+                self?.togglePanel()
+            }
+        }
+    }
+
+    /// Opens the panel, or closes it if it is open, and logs how long opening took: the app has
+    /// a speed limit for this, and the log is how to check it.
+    private func togglePanel() {
+        guard let panel else { return }
+        if panel.isVisible {
+            panel.hide()
+            return
+        }
+        // A timing marker around the whole open, from key press to the window on screen.
+        let clock = ContinuousClock()
+        let start = clock.now
+        let state = Log.timing.beginInterval("Open panel")
+        panel.show()
+        Log.timing.endInterval("Open panel", state)
+        let elapsed = clock.now - start
+        let ms = elapsed.formatted(.units(allowed: [.milliseconds], fractionalPart: .show(length: 1)))
+        Log.ui.info("panel opened in \(ms, privacy: .public)")
     }
 
     /// Checks the clipboard four times a second until the app quits, saving every new copy.

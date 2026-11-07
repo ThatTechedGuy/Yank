@@ -6,10 +6,12 @@
 # Build output. ≈ node_modules/.cache, .next/ or Android's build/ folders.
 #   DerivedData/  Xcode's build folder when it's kept inside the project
 #   build/        our build folder (scripts pass -derivedDataPath build)
+#   build-*/      the same for a git worktree (-derivedDataPath build-stage-4, say)
 #   .build/       SwiftPM's build folder from `swift build` / `swift test`
 #   .swiftpm/     SwiftPM's local Xcode settings
 DerivedData/
 build/
+build-*/
 .build/
 .swiftpm/
 # Per-user Xcode state: window layout, breakpoints, last-opened files.

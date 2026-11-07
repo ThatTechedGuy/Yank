@@ -34,11 +34,16 @@ public enum Log {
     public static let paste = Logger(subsystem: subsystem, category: "paste")
     /// Windows, the panel and the menu bar.
     public static let ui = Logger(subsystem: subsystem, category: "ui")
+    /// Every SQL statement the database runs, with its duration. Debug builds only: the Store
+    /// installs the trace that writes here, so a release build never logs a statement.
+    public static let sql = Logger(subsystem: subsystem, category: "sql")
 
     // Timing markers: a named interval with a start and an end, so a tool can measure how long
     // something took (opening the panel, a search). ≈ `performance.mark`/`measure` on the web,
     // or Android's `Trace.beginSection`. Instruments draws them on a timeline; from Terminal,
     // `log show --signpost --predicate 'subsystem == "com.thattechedguy.Yank"'` lists them.
+    // `TimingSignposter` wraps Apple's `OSSignposter` so a debug build can also show the last
+    // durations in its Developer window; see that file.
     /// Timing markers, for measuring the app against its speed limits.
-    public static let timing = OSSignposter(subsystem: subsystem, category: "timing")
+    public static let timing = TimingSignposter(subsystem: subsystem, category: "timing")
 }

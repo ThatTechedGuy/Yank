@@ -28,7 +28,27 @@ public final class Store: Sendable {
     /// Runs on the caller's thread; the app calls it on the main thread at launch.
     public init(folder: URL) throws {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        pool = try DatabasePool(path: folder.appending(path: "yank.sqlite").path)
+        var configuration = Configuration()
+        #if DEBUG
+            // In a debug build, log every SQL statement the database runs, with how long it took,
+            // under the "sql" category. It is the only way to see the SQL GRDB builds from the
+            // record calls below. `prepareDatabase` runs once for each connection the pool opens,
+            // and `trace` asks SQLite to call back after each statement (`.profile` = with its
+            // duration). The logged SQL is the statement as prepared, with `?` where the values
+            // go, so clipboard contents never reach the log; that is why it can be public.
+            // SQLite measures the duration with a millisecond clock, so it is logged as whole
+            // milliseconds; "0 ms" means under one.
+            configuration.prepareDatabase { db in
+                db.trace(options: .profile) { event in
+                    guard case .profile(let statement, let duration) = event else { return }
+                    Log.sql.info(
+                        "\(duration * 1000, format: .fixed(precision: 0), privacy: .public) ms \(statement.sql, privacy: .public)"
+                    )
+                }
+            }
+        #endif
+        pool = try DatabasePool(
+            path: folder.appending(path: "yank.sqlite").path, configuration: configuration)
         files = try LargeDataFiles(folder: folder.appending(path: "LargeData"))
         try Migrations.migrator.migrate(pool)
         // A data file that no row points at can only come from a crash in the middle of a save or

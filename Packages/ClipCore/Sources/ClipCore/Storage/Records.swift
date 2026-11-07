@@ -21,6 +21,12 @@ extension ClipboardItem: FetchableRecord, PersistableRecord {
     static var newestFirst: QueryInterfaceRequest<ClipboardItem> {
         order(ClipboardItemColumns.copiedAt.desc, ClipboardItemColumns.id.desc)
     }
+
+    /// An item's row in the search index. The index has no id column of its own: SQLite gives
+    /// every row a hidden `rowid`, and the sync triggers keep it equal to the item's `id`, so
+    /// that is the link. ≈ a one-to-one relation in Prisma, declared so the Store can `JOIN`
+    /// the two tables with the query builder instead of writing the join by hand.
+    static let searchIndex = hasOne(clipboardItemSearchIndex, using: ForeignKey(["rowid"], to: ["id"]))
 }
 
 // Named columns of `clipboardItem` for `filter` and `order`, so the Store never repeats a column

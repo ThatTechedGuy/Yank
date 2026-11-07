@@ -96,6 +96,26 @@ enum Migrations {
                 t.column("linkPageTitle")
             }
         }
+
+        // Search also matches the app an item was copied from ("safari" finds Safari copies),
+        // so the index needs the app's name. An FTS5 table cannot gain a column, so the index
+        // is dropped and made again; GRDB fills the new one from every existing row. The
+        // sync triggers from v1 live on clipboardItem, not on the index, so dropping the index
+        // leaves them behind and they must be removed by hand before new ones are created.
+        migrator.registerMigration("v2") { db in
+            try db.drop(table: "clipboardItemSearchIndex")
+            try db.dropFTS5SynchronizationTriggers(forTable: "clipboardItemSearchIndex")
+            try db.create(virtualTable: "clipboardItemSearchIndex", using: FTS5()) { t in
+                t.synchronize(withTable: "clipboardItem")
+                t.tokenizer = .unicode61()
+                t.prefixes = [2, 3]
+                t.column("cardText")
+                t.column("title")
+                t.column("imageText")
+                t.column("linkPageTitle")
+                t.column("sourceAppName")
+            }
+        }
         return migrator
     }
 }

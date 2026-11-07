@@ -4,6 +4,7 @@
 // fake repository in Android tests). Swift ships no mocking library, and a protocol this small
 // does not need one.
 import Foundation
+import Testing
 
 @testable import ClipCore
 
@@ -82,4 +83,11 @@ extension ClipboardItemData {
 struct TemporaryFolder {
     let url = URL.temporaryDirectory.appending(path: "YankTests-\(UUID().uuidString)")
     func remove() { try? FileManager.default.removeItem(at: url) }
+}
+
+// Tags label tests so a run can pick or skip them. `.slow` marks tests that take seconds
+// (seeding 100,000 items) instead of milliseconds; `scripts/test.sh --fast` skips them, the full
+// run includes them. (`@Tag` ≈ a Jest `describe` name you can filter on, or a JUnit category.)
+extension Tag {
+    @Tag static var slow: Self
 }

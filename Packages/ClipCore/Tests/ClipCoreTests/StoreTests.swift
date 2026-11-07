@@ -128,14 +128,19 @@ struct StoreTests {
         }
     }
 
+    /// The card texts `query` finds, in result order; nil when the text is not a search.
+    func found(_ query: String, in store: Store) async throws -> [String]? {
+        try await store.search(query, limit: 50)?.map(\.cardText)
+    }
+
     @Test func theSearchIndexFollowsTheItemTable() async throws {
         try await withStore { store in
             try await store.save(copy([.text("quarterly report draft")]))
             // Search must find a copy the moment it is saved. The index is kept up to date by
             // SQLite triggers, not by the save code, so this checks the triggers fired on a plain
             // INSERT: a hit for a prefix of a word in the copy, none for a word that isn't there.
-            #expect(try await store.searchHitCount("quart") == 1)
-            #expect(try await store.searchHitCount("yearly") == 0)
+            #expect(try await found("quart", in: store) == ["quarterly report draft"])
+            #expect(try await found("yearly", in: store) == [])
         }
     }
 
@@ -147,8 +152,90 @@ struct StoreTests {
             try await store.save(copy([.png([1]), .text("alpha")]))
             try await store.save(copy([.png([1]), .text("beta")]))
             #expect(try await store.count() == 1)
-            #expect(try await store.searchHitCount("beta") == 1)
-            #expect(try await store.searchHitCount("alpha") == 0)
+            #expect(try await found("beta", in: store) == ["beta"])
+            #expect(try await found("alpha", in: store) == [])
+        }
+    }
+
+    // Whatever the user types must give a sensible answer: SQLite's search language has its
+    // own meaning for quotes, `*`, OR and NOT, and a typed one must never cause an error or a
+    // wrongly empty list. Each argument is one run of the test (`arguments:` ≈ `test.each`).
+    @Test(arguments: ["\"hello", "don't", "c++", "OR", "NOT", "hello NOT", "meeting?"])
+    func typedPunctuationAndOperatorsAreOrdinaryWords(typed: String) async throws {
+        try await withStore { store in
+            try await store.save(copy([.text("hello don't c++ OR NOT meeting")]))
+            #expect(try await found(typed, in: store) == ["hello don't c++ OR NOT meeting"])
+        }
+    }
+
+    // Nothing typed, one letter, or nothing searchable means "not a search yet": the caller
+    // shows the full list instead of a (slow) match on one letter or an empty result.
+    @Test(arguments: ["", "s", " s ", "*", "\"", "  "])
+    func tooLittleToSearchIsNotASearch(typed: String) async throws {
+        try await withStore { store in
+            try await store.save(copy([.text("something")]))
+            #expect(try await found(typed, in: store) == nil)
+        }
+    }
+
+    @Test func resultsComeBestMatchFirstThenNewest() async throws {
+        try await withStore { store in
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            // Two items with one mention of "budget", saved a second apart, and an older one
+            // that says it three times. The strong match must come first even though it is the
+            // oldest; the two equal matches fall back to newest first. A fourth item without
+            // the word must not appear at all.
+            try await store.save(copy([.text("budget budget budget")], at: t0))
+            try await store.save(copy([.text("the budget for March")], at: t0 + 1))
+            try await store.save(copy([.text("budget review notes")], at: t0 + 2))
+            try await store.save(copy([.text("lunch on Friday")], at: t0 + 3))
+            #expect(
+                try await found("bud", in: store) == [
+                    "budget budget budget", "budget review notes", "the budget for March",
+                ])
+        }
+    }
+
+    @Test func searchMatchesTheSourceAppsName() async throws {
+        try await withStore { store in
+            let safari = SourceApp(bundleId: "com.apple.Safari", name: "Safari")
+            try await store.save(CapturedCopy(data: [.text("a headline")], sourceApp: safari, copiedAt: .now))
+            try await store.save(copy([.text("a note")]))
+            #expect(try await found("safari", in: store) == ["a headline"])
+            // Several words all have to match, across columns: the app's name and the text.
+            #expect(try await found("saf head", in: store) == ["a headline"])
+            #expect(try await found("saf note", in: store) == [])
+        }
+    }
+
+    // The limit the panel has to meet: results within 33 ms at 100,000 items, p95. Two- and
+    // three-letter searches are the slow case, because a short prefix matches a large share of
+    // the history and SQLite then has to rank all of it. Tagged `.slow` so `test.sh --fast`
+    // can leave it out: seeding 100,000 items takes a few seconds.
+    @Test(.tags(.slow)) func slowSearchOverAHundredThousandItemsStaysWithinItsLimit() async throws {
+        try await withStore { store in
+            try await store.seed(count: 100_000)
+            let clock = ContinuousClock()
+            var durations: [Duration] = []
+            // "sa" matches every text item (half of them say "Sample"), "me" and "mee" every
+            // "meeting", "saf" every Safari copy by app name: each is a large share of the
+            // history, too many to score, so they come newest first. "pages 1" matches about
+            // 1,400 links, few enough to score. Twenty runs so the 95th percentile means
+            // something.
+            for query in ["sa", "me", "mee", "saf", "pages 1"] {
+                for _ in 0..<4 {
+                    let start = clock.now
+                    let results = try await store.search(query, limit: 200)
+                    durations.append(clock.now - start)
+                    #expect(results?.count == 200)
+                }
+            }
+            // p95 of 20 runs: the second slowest must be within the limit.
+            let p95 = durations.sorted()[durations.count - 2]
+            #expect(p95 < .milliseconds(33), "p95 was \(p95), all: \(durations.sorted())")
+            // The broad search was not scored, so its results are simply newest first.
+            let times = try await store.search("sa", limit: 200)?.map(\.copiedAt) ?? []
+            #expect(times == times.sorted(by: >))
         }
     }
 

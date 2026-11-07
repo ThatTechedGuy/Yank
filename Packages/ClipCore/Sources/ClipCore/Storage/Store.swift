@@ -19,7 +19,7 @@ import GRDB
 //
 // `final class ... : Sendable`: a class (a reference type, shared by pointer) that the compiler
 // lets us use from any thread, because every field is a `let` and is itself safe to share.
-/// Saves and lists clipboard items. One instance per app.
+/// Saves, lists and searches clipboard items. One instance per app.
 public final class Store: Sendable {
     private let pool: DatabasePool
     private let files: LargeDataFiles
@@ -195,18 +195,48 @@ public final class Store: Sendable {
         }
     }
 
-    // Only tests call this today: it proves the search index is kept up to date by the triggers
-    // in Migrations, so a real search can rely on it. `internal` (Swift's default, written out
-    // here on purpose) means tests can see it through `@testable import` but the app cannot.
-    /// How many items match a search such as "quart" (a prefix) or "draft report".
-    internal func searchHitCount(_ query: String) async throws -> Int {
+    /// Up to this many matches are sorted best match first; more than this and they come
+    /// newest first instead. SQLite scores every matching row one by one, about 1 µs each on
+    /// an M-series Mac, so scoring 50,000 matches of a two-letter search over a big history
+    /// would take 50 ms, past the speed limit; 5,000 takes about 6 ms. A search that broad is
+    /// a prefix of a very common word, where the score says little anyway and newest first is
+    /// what the user expects of a history.
+    static let rankedMatchLimit = 5_000
+
+    /// The items that match what the user typed, at most `limit` of them: best match first
+    /// when the match is narrow enough to score (see `rankedMatchLimit`), newest first among
+    /// equals and otherwise. Matches the card text, a title, text read out of an image, a
+    /// link's page title and the source app's name, each word as a prefix ("qua" finds
+    /// "quarterly"), and every word must match.
+    ///
+    /// Returns `nil` when the text is not a search yet: fewer than two letters, or nothing
+    /// searchable in it (only spaces or punctuation). The caller shows the full list then.
+    /// Two letters is where the index's prefix tables begin; a single letter would match most
+    /// of the history, which is the one slow case.
+    public func search(_ query: String, limit: Int) async throws -> [ClipboardItem]? {
         // Full-text search has no `filter` equivalent: SQLite's `MATCH` takes a search pattern
-        // in its own little language. `FTS5Pattern` builds that pattern safely from the user's
-        // words (each word becomes a prefix, so "qua" finds "quarterly"), and `matching` is the
-        // query builder's way of applying it. An empty query makes no pattern, so nothing matches.
-        guard let pattern = FTS5Pattern(matchingAllPrefixesIn: query) else { return 0 }
+        // in its own little language, with special words (OR, NOT) and symbols (quotes, *).
+        // `FTS5Pattern` turns anything the user typed into a safe pattern, so "don't" or "c++"
+        // or a stray quote can never break the query or be misread as an operator.
+        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2,
+            let pattern = FTS5Pattern(matchingAllPrefixesIn: query)
+        else { return nil }
         return try await pool.read { db in
-            try clipboardItemSearchIndex.all().matching(pattern).fetchCount(db)
+            // Counting the matches first is cheap (the index answers it without scoring), and
+            // it decides whether scoring all of them would fit in the speed limit.
+            let matches = try clipboardItemSearchIndex.all().matching(pattern).fetchCount(db)
+            // The index is joined to the item table (`joining(required:)` = INNER JOIN) with the
+            // MATCH in the join condition, which is how SQLite wants a full-text query over a
+            // separate content table. The `TableAlias` names the index's side of the join, so
+            // the ordering can reach its `rank` column: FTS5's score, lowest first = best match.
+            let index = TableAlias()
+            let byScore: [any SQLOrderingTerm] = matches <= Self.rankedMatchLimit ? [index[Column.rank]] : []
+            return
+                try ClipboardItem
+                .joining(required: ClipboardItem.searchIndex.aliased(index).matching(pattern))
+                .order(byScore + [ClipboardItemColumns.copiedAt.desc, ClipboardItemColumns.id.desc])
+                .limit(limit)
+                .fetchAll(db)
         }
     }
 

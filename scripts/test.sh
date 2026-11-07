@@ -17,7 +17,13 @@ cd "$(dirname "$0")/.."
 scripts/check-imports.sh
 # 2. Unit and integration tests in the local package. `swift test` builds and runs every test
 #    target in Package.swift. The parentheses run it in a subshell so the `cd` doesn't leak.
-(cd Packages/ClipCore && swift test)
+#    In --fast mode the tests whose names start with "slow" (they seed 100,000 items) are
+#    skipped; `--skip` matches test names by regular expression.
+if [[ "${1:-}" == "--fast" ]]; then
+    (cd Packages/ClipCore && swift test --skip '/slow')
+else
+    (cd Packages/ClipCore && swift test)
+fi
 
 # In --fast mode we are done: skip the UI tests, which need a full app build and a launch.
 # ("${1:-}" is the first argument, or "" if there is none; plain "$1" would trip `set -u`.)

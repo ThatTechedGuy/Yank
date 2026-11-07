@@ -132,8 +132,7 @@ ViewModel) that owns the list and the selected item. The list is one live GRDB q
 new copy appears on the strip while it is open. Paging is "one growing query": the model starts with 200
 items and, when a card near the end appears on screen (`cardDidAppear`), raises the limit by 200 and
 restarts the query. Hiding the panel resets the limit and the selection. ←/→ move the selection, Tab
-toggles between the search field and the row, ⌘1–⌘9 are shown in the footers (they do nothing until paste
-exists). Cards show the kind (SF Symbol + label), the text or a description, a relative time
+toggles between the search field and the row, ⌘1–⌘9 are shown in the footers. Cards show the kind (SF Symbol + label), the text or a description, a relative time
 ("2 minutes ago", refreshed every minute by `TimelineView`) and the source app.
 
 The ⇧⌘V shortcut is `KeyboardShortcuts.Name.togglePanel` in `App/ShortcutNames.swift`; `AppModel` loops
@@ -173,6 +172,86 @@ is "Always"; that is the system's choice, not a bug.
 - Copy something while the panel is open: the new card appears at the left.
 - Stage 1 carry-overs: a 200 MB image copied from Preview (read time in the log), a large range copied in
   Numbers (does the read stall?), and a real Finder ⌘C of several files (are they saved as file items?).
+
+## Pasting (stage 3)
+
+Return pastes the selected card into the app you were using; ⇧Return pastes it as plain text. ⌘1–⌘9 paste
+the card with that number on its badge, a double-click pastes the clicked card, and ⇧ works with both. The
+work is split the same way as capture: `PasteService` in ClipCore decides *what* happens, two ports say
+*which system calls* it needs, ClipSystem implements them, and the app wires them up.
+
+**What a paste does** (`Packages/ClipCore/Sources/ClipCore/Services/PasteService.swift`). It reads the
+item's stored types from the Store; for a plain-text paste it keeps only `public.utf8-plain-text` (and
+keeps everything when the item has no text, so a plain-text paste of an image still pastes the image). It
+adds Yank's own marker type (`com.thattechedguy.yank.own-paste`, an empty extra type on the first
+pasteboard item) so the capture loop recognises the write and does not save it again, writes the lot to
+the clipboard, moves the item to the top of the history (`Store.moveToTop`, which sets `copiedAt` to
+now), hides the panel, and then, if the destination is the active app and macOS allows it, presses ⌘V.
+Errors are logged under the `paste` category, never shown: by then the item is on the clipboard, so the
+user can always press ⌘V themselves.
+
+**Why hiding waits.** The panel is the key window while it is open, so a ⌘V pressed straight after
+`orderOut` could still land in our own search box. `PanelWindow.hide()` is therefore `async`: it orders
+the window out and suspends until AppKit calls `resignKey()`, which is the moment the keyboard has moved
+on. (A `CheckedContinuation` is the Swift way to turn "AppKit will call me back" into something you can
+`await`, like wrapping a callback in a Promise.) On macOS 26 the call arrives before `orderOut` returns,
+so there is no delay to tune; the wait is there in case a later macOS does it a moment afterwards. A real
+paste into TextEdit was checked on the runner with the posted ⌘V: both Return and ⇧Return landed.
+
+**Pressing ⌘V** (`Packages/ClipCore/Sources/ClipSystem/KeyPresser.swift`). macOS key events carry a
+*key code* (the physical key), not a letter, and the key that types "v" moves with the keyboard layout.
+`KeyPresser` asks Text Input Services for the current layout and translates key codes 0–127 with
+`UCKeyTranslate`, ⌘ held, until one produces "v"; then it posts a key down and key up with the ⌘ flag
+through `CGEvent`. Holding ⌘ during the lookup is what makes "Dvorak – QWERTY ⌘" work: that layout types
+Dvorak letters but keeps QWERTY positions for ⌘ shortcuts. Posting events needs the Accessibility
+permission; `SystemAccessibilityStatus` wraps `AXIsProcessTrusted` and the "ask the user" variant.
+
+**The hint.** When the panel opens, `PanelModel.didShow()` checks whether Return could press ⌘V
+(destination is the active app and Accessibility is granted). If not, a one-line hint and an "Allow…"
+button appear next to the search field; the button shows macOS's own permission dialog. Nothing else ever
+prompts. The check runs on every open, so granting the permission is noticed on the next ⇧⌘V.
+
+**Settings** (`App/Features/Paste/PasteSettings.swift`). "Paste items: to active app / to clipboard
+only" and "Always paste as plain text" live in `UserDefaults` under the keys `pasteDestination`
+(`activeApp` / `clipboardOnly`) and `alwaysPlainText`. The Settings window (later) edits the same keys
+with `@AppStorage`, which is SwiftUI's view wrapper over the same store. Until then, set them for one run
+from the command line, because macOS lets any `-key value` launch argument override a default:
+`build/Build/Products/Debug/Yank.app/Contents/MacOS/Yank --seed 20 --show-panel -pasteDestination clipboardOnly -alwaysPlainText YES`.
+
+**Tests.** `PasteServiceTests` (fakes for the clipboard, key presser and permission): plain text keeps one
+type and falls back to all; the marker is always written; ⌘V is pressed once when allowed, never in
+clipboard-only mode or without the permission; the item moves to the top. `KeyPresserTests` find the V key
+on the real US, Dvorak and Dvorak – QWERTY ⌘ layouts (key codes 9, 47 and 9). `SystemClipboardTests`
+write items and read them back. `PanelTests` presses Return and ⌘2 in clipboard-only mode and checks the
+clipboard's change count and types (not its contents: reading them from the test process would trigger
+the "Paste from Other Apps" prompt).
+
+**Measurements (M-series Mac, debug build, 10,000 items).** Panel open 21.6 ms the first time, 1.8 ms
+after. Idle CPU with the panel closed: 0.0–0.1% over 60 s (`top -l 7 -s 10`). Memory: 29 MB resident at
+rest, 59 MB (peak 66 MB, `footprint`) after opening the panel. A copy made with the panel closed was saved
+0.7 s after it was written (0.3 s settle wait plus up to 0.25 s of polling). All within the limits.
+
+**Maintaining it.** To add a way to paste (a menu item, a gesture), call `model.paste(_:plainText:)` or
+`model.pasteSelected(plainText:)`; the model adds the settings and the service does the rest. To change
+what "plain text" keeps, edit the filter in `PasteService.paste`. A new setting goes in `PasteSettings`
+with its key, and the service gets it as a parameter, so ClipCore never reads `UserDefaults`. If a layout
+ever has no key that types "v" with ⌘ held, `KeyPresser` throws `KeyPressError.noKeyTypesV` and the paste
+is logged; the fallback would be the Sauce package, which was not needed.
+
+**Hand checks still open** (needs someone at the Mac; quit Paste first, because it uses ⇧⌘V too):
+
+- Accessibility allowed: in Notes, ⇧⌘V, pick a card, Return. Pasted at the cursor. Same in Safari.
+- Accessibility off: same steps; the item is on the clipboard, the panel closes, the hint is shown, ⌘V
+  pastes it. Click "Allow…" and check macOS's dialog opens.
+- Dvorak and Dvorak – QWERTY ⌘ layouts: still pastes, no stray character.
+- `-pasteDestination clipboardOnly`: Return puts the item on the clipboard and presses nothing.
+- ⇧Return and ⇧-double-click paste formatted text (copied from Safari) into TextEdit without formatting;
+  with `-alwaysPlainText YES`, Return does too.
+- ⌘3 pastes the third card. (After a search, ⌘1 pastes the first result: once search exists.)
+- Stage 2 carry-overs: ⇧⌘V from Safari, Finder and a full-screen app; Esc and click-outside; a real
+  mouse wheel; scrolling to the end of 100,000 items; copying while the panel is open.
+- Stage 1 carry-overs: a 200 MB image from Preview, a large range in Numbers, a real Finder ⌘C of several
+  files.
 
 ## Sandbox and copied files (stage 0 spike)
 

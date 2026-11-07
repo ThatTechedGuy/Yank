@@ -1,7 +1,7 @@
 // The panel as a user meets it: it opens with the cursor in search, the arrow keys move the
-// selection, Return and ⌘1–⌘9 paste, and Esc closes it. The app is launched with a fake
-// history so the test never depends on what this Mac has really copied. (See LaunchTests for
-// what XCTest and XCUIApplication are.)
+// selection, Return and ⌘1–⌘9 paste, Space shows the selected card's preview, and Esc closes
+// it. The app is launched with a fake history so the test never depends on, or touches, what
+// this Mac has really copied. (See LaunchTests for what XCTest and XCUIApplication are.)
 import XCTest
 
 final class PanelTests: XCTestCase {
@@ -107,6 +107,33 @@ final class PanelTests: XCTestCase {
         search.typeKey("a", modifierFlags: .command)
         search.typeKey(.delete, modifierFlags: [])
         XCTAssertTrue(waitUntil { cards.count > 5 })
+    }
+
+    @MainActor
+    func testSpaceShowsTheSelectedCardsPreviewAndEscClosesIt() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--seed", "20", "--show-panel"]
+        app.launch()
+        let search = app.textFields["search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        let cards = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'card-'"))
+        XCTAssertTrue(cards.element(boundBy: 0).waitForExistence(timeout: 5))
+
+        // The newest fake item is a text, so Space opens the large preview with its counts
+        // ("Sample item 0: meeting moved to 3 pm Thursday." is 46 characters, 9 words). The
+        // search box is empty, so the Space is not typed into it.
+        app.typeKey(.space, modifierFlags: [])
+        let detail = app.staticTexts["preview-detail"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 5))
+        XCTAssertEqual(detail.value as? String ?? detail.label, "46 characters · 9 words")
+        XCTAssertEqual(search.value as? String, "")
+
+        // Esc closes the preview and keeps the panel; a second Esc hides the panel.
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(detail.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(search.exists)
+        app.typeKey(.escape, modifierFlags: [])
+        XCTAssertTrue(search.waitForNonExistence(timeout: 5))
     }
 
     /// Polls `condition` for up to five seconds. The cards change a moment after a keystroke

@@ -11,22 +11,31 @@
 // screen and order it front", which is what makes opening fast.
 import AppKit
 import ClipCore
+import ClipSystem
+import QuickLookUI
 import SwiftUI
 
 final class PanelWindow: NSPanel {
-    /// The panel's height in points. Paste's default; resizing comes later.
-    static let height: CGFloat = 332
+    /// Where the height the user dragged the panel to is remembered between launches.
+    /// `UserDefaults` is the app's key-value settings file, ≈ AsyncStorage or SharedPreferences.
+    static let heightKey = "panelHeight"
 
     private let model: PanelModel
+    /// The panel's height in points: Paste's 332 at first, then whatever the user dragged it to,
+    /// always within `PanelHeight`'s range. 0 from the defaults means "never saved".
+    private var height: CGFloat = {
+        let saved = UserDefaults.standard.double(forKey: PanelWindow.heightKey)
+        return PanelHeight.clamped(saved == 0 ? PanelHeight.initial : saved)
+    }()
 
-    init(model: PanelModel) {
+    init(model: PanelModel, thumbnails: ThumbnailCache, appIcons: SourceAppIcons) {
         self.model = model
         // The style says what kind of window this is. `borderless`: no title bar, no close
         // buttons, no frame. `nonactivatingPanel`: it can take keyboard focus (become the "key
         // window") without making Yank the active app, so the app behind keeps its active
         // title bar and gets the paste later. (`defer: false` means create the window now.)
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 800, height: Self.height),
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: height),
             styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         // Which "layer" of the screen it sits on, like a z-index. `mainMenu` is above normal
         // windows and above the Dock, so nothing covers the panel.
@@ -45,11 +54,16 @@ final class PanelWindow: NSPanel {
         animationBehavior = .none
         // The SwiftUI content. `NSHostingView` is the bridge that draws a SwiftUI view inside
         // an AppKit window, like a React Native root view inside a native Activity. The view
-        // gets a `dismiss` callback for Esc, so SwiftUI never has to know about the window.
-        // `[weak self]` keeps the view from holding the window alive in a loop.
+        // gets a `dismiss` callback for Esc and a `resize` one for the drag handle, so SwiftUI
+        // never has to know about the window; the caches the cards draw from go in through
+        // the environment. `[weak self]` keeps the view from holding the window alive in a loop.
         contentView = NSHostingView(
             rootView: PanelView(
-                model: model, dismiss: { [weak self] in Task { await self?.hide() } }))
+                model: model, dismiss: { [weak self] in Task { await self?.hide() } },
+                resize: { [weak self] in self?.resize(to: $0) }
+            )
+            .environment(thumbnails)
+            .environment(\.sourceAppIcons, appIcons))
     }
 
     /// Set while `hide()` is waiting for AppKit to tell us the keyboard has moved on. (A
@@ -72,7 +86,7 @@ final class PanelWindow: NSPanel {
         let screen = NSScreen.screens.first { $0.frame.contains(mouse) } ?? NSScreen.main
         if let area = screen?.visibleFrame {
             setFrame(
-                NSRect(x: area.minX, y: area.minY, width: area.width, height: Self.height),
+                NSRect(x: area.minX, y: area.minY, width: area.width, height: height),
                 display: false)
         }
         // Order it in front of every other window and make it the key window (the one that
@@ -98,6 +112,17 @@ final class PanelWindow: NSPanel {
             orderOut(nil)
         }
         model.didHide()
+    }
+
+    /// Makes the panel the given height, within the allowed range, keeping its bottom edge
+    /// where it is, and remembers the height for the next launch. The drag handle calls this
+    /// on every pointer move; the SwiftUI content follows the window's new size on its own.
+    func resize(to requested: CGFloat) {
+        let clamped = PanelHeight.clamped(requested)
+        guard clamped != height else { return }
+        height = clamped
+        setFrame(NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: clamped), display: true)
+        UserDefaults.standard.set(Double(clamped), forKey: Self.heightKey)
     }
 
     // A mouse wheel only rolls up and down, but the row only goes sideways, so rolling the
@@ -132,14 +157,85 @@ final class PanelWindow: NSPanel {
     // `hide()` ordered it out and is waiting for exactly this call: then the waiter is resumed
     // and nothing else is needed. Or the user clicked somewhere else (another app's window, the
     // desktop, the menu bar) and that place took the keyboard: that is the "click outside"
-    // signal, so the panel hides. `super` keeps the parent's own behaviour.
+    // signal, so the panel hides. `super` keeps the parent's own behaviour. Which window took
+    // over is only known a moment later, so the check waits one turn of the main loop
+    // (`DispatchQueue.main.async` ≈ `setTimeout(0)`). Two exceptions: the large preview is a
+    // window of our own and becomes the key window, so the panel stays. And the Quick Look
+    // panel, which is the system's, takes the keyboard from nobody: Yank is never the active
+    // app, so keystrokes would fall through to the app behind. The panel takes the keyboard
+    // back instead (Quick Look tries twice, once when it opens and once when its content
+    // loads), and Esc, Space and the arrows keep working. A mouse button held down somewhere
+    // outside both panels at that moment is a real click elsewhere, and the panel hides as
+    // usual.
     override func resignKey() {
         super.resignKey()
-        resignKeyWaiter?.resume()
-        resignKeyWaiter = nil
-        if isVisible {
-            orderOut(nil)
-            model.didHide()
+        if let waiter = resignKeyWaiter {
+            resignKeyWaiter = nil
+            waiter.resume()
+            return
         }
+        DispatchQueue.main.async { [weak self] in
+            guard let self, isVisible, NSApp.keyWindow == nil else { return }
+            if QLPreviewPanel.sharedPreviewPanelExists(), let quickLook = QLPreviewPanel.shared(),
+                quickLook.isVisible, !clickedOutside(quickLook)
+            {
+                place(quickLook)
+                observe(quickLook)
+                makeKey()
+            } else {
+                orderOut(nil)
+                model.didHide()
+            }
+        }
+    }
+
+    /// Whether a mouse button is down right now somewhere outside this panel and Quick Look.
+    private func clickedOutside(_ quickLook: QLPreviewPanel) -> Bool {
+        let mouse = NSEvent.mouseLocation
+        return NSEvent.pressedMouseButtons != 0 && !frame.contains(mouse) && !quickLook.frame.contains(mouse)
+    }
+
+    /// A click inside the Quick Look panel (to scroll a long document, say) does make it the key
+    /// window. From then on it closes itself on Esc and on a click elsewhere, and this panel
+    /// hears nothing, so it listens to Quick Look instead: when it closes with the keyboard
+    /// going nowhere (Esc), the panel takes the keyboard back; when it loses the keyboard to
+    /// nobody in our app (a click elsewhere), the panel hides, as it would have anyway.
+    private var quickLookObservers: [any NSObjectProtocol] = []
+
+    private func observe(_ quickLook: QLPreviewPanel) {
+        guard quickLookObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        quickLookObservers = [
+            center.addObserver(forName: NSWindow.willCloseNotification, object: quickLook, queue: .main) {
+                [weak self] _ in
+                // Delivered on the main queue (`queue: .main`), which the compiler cannot see.
+                MainActor.assumeIsolated {
+                    guard let self, self.isVisible, NSApp.keyWindow == nil else { return }
+                    self.makeKey()
+                }
+            },
+            center.addObserver(forName: NSWindow.didResignKeyNotification, object: quickLook, queue: .main) {
+                [weak self] _ in
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, isVisible, NSApp.keyWindow == nil else { return }
+                    orderOut(nil)
+                    model.didHide()
+                }
+            },
+        ]
+    }
+
+    /// Moves the Quick Look panel to the middle of the space above this panel.
+    /// Quick Look opens it on the screen it last used, which with two displays can be the other
+    /// one; this is the only moment, just after it opened, that we hear about it.
+    private func place(_ quickLook: QLPreviewPanel) {
+        guard let screen else { return }
+        let above = NSRect(
+            x: screen.visibleFrame.minX, y: frame.maxY, width: screen.visibleFrame.width,
+            height: screen.visibleFrame.maxY - frame.maxY)
+        var target = quickLook.frame
+        target.size.height = min(target.height, above.height)
+        target.origin = NSPoint(x: above.midX - target.width / 2, y: above.midY - target.height / 2)
+        quickLook.setFrame(target, display: true)
     }
 }

@@ -112,6 +112,68 @@ asked, which can stall the read. The read logs its duration; hand check by copyi
 and a big image, then `log show --last 5m --predicate 'subsystem == "com.thattechedguy.Yank"' --info`. The
 decision goes here.
 
+## The panel and the card row (stage 2)
+
+Press ⇧⌘V in any app and a strip of cards appears along the bottom of the screen the mouse is on; press it
+again, press Esc, or click anywhere else to hide it. The window is `PanelWindow` in `App/Features/Panel/`,
+an `NSPanel` (AppKit's class for floating helper windows) with the `nonactivatingPanel` style: it can take
+key presses without making Yank the active app, so the app you were in stays in front and its menu bar
+stays put. That is the one thing SwiftUI's own `Window` cannot do, so the window is AppKit and only its
+content is SwiftUI (`PanelView`, hosted with `NSHostingView`). It floats above everything (`level =
+.mainMenu`), appears on every Space and over full-screen apps, and hides itself when it stops being the key
+window (`resignKey`), which is what "click outside" means to AppKit. A mouse's vertical wheel is turned
+into sideways scrolling in `sendEvent` by swapping the axes of the underlying `CGEvent`; trackpad events
+report "precise" deltas and are left alone, because a two-finger swipe already goes sideways.
+
+The content is a search field (empty for now, the search itself comes later), a horizontal `LazyHStack`
+of `ItemCard`s inside a `ScrollView`, and `PanelModel`, an `@Observable` class (≈ a store in Zustand or a
+ViewModel) that owns the list and the selected item. The list is one live GRDB query,
+`Store.observeItems(limit:)` (a `ValueObservation`): the database tells the model when rows change, so a
+new copy appears on the strip while it is open. Paging is "one growing query": the model starts with 200
+items and, when a card near the end appears on screen (`cardDidAppear`), raises the limit by 200 and
+restarts the query. Hiding the panel resets the limit and the selection. ←/→ move the selection, Tab
+toggles between the search field and the row, ⌘1–⌘9 are shown in the footers (they do nothing until paste
+exists). Cards show the kind (SF Symbol + label), the text or a description, a relative time
+("2 minutes ago", refreshed every minute by `TimelineView`) and the source app.
+
+The ⇧⌘V shortcut is `KeyboardShortcuts.Name.togglePanel` in `App/ShortcutNames.swift`; `AppModel` loops
+over `KeyboardShortcuts.events(.keyDown, for:)` and toggles the panel. The shortcut is recorded in
+UserDefaults by the package, so a Settings recorder later changes it without code. Paste.app uses the same
+keys: quit Paste before trying Yank.
+
+**Debug launch flags** (`App/LaunchOptions.swift`, compiled out of release builds): `--seed N` wipes a
+separate fake-history database (`Application Support/Yank-seed/`, never the real one) and fills it with N
+items of every kind; `--show-panel` opens the panel as soon as the app is ready. `AppUITests/PanelTests`
+uses both. Try 100,000 items with
+`build/Build/Products/Debug/Yank.app/Contents/MacOS/Yank --seed 100000 --show-panel`.
+
+**Measurements (M-series Mac, debug build).** Opening is timed in `AppModel.togglePanel` from the key
+event to just after `makeKeyAndOrderFront`, and logged as "panel opened in X ms" (also an `OSSignposter`
+interval "Open panel" for Instruments). 10,000 items: 32.5 ms for the first open, then under 1 ms. 100,000
+items: 19.5 ms, then under 1 ms. Memory (`footprint Yank`) with 100,000 items and the panel open: 72 MB,
+peak 82 MB. Limits are 50 ms, 100 MB at 10k and 200 MB at 100k. Caveat: the timer stops when the window
+is ordered front, not when its first frame is drawn, so it understates what the eye sees by a few ms.
+
+**Decision: keep the SwiftUI card row.** `LazyHStack` with a 200-item growing query is well inside the
+limits at 100,000 items, so there is no reason to build an AppKit `NSCollectionView` row. Revisit only if
+cards gain thumbnails that make scrolling stutter.
+
+**Maintaining it.** To show a new field on a card, add it to `ItemCard` (the data is the whole
+`ClipboardItem`, so nothing else changes). To change the page size, edit `PanelModel.pageSize`. To change
+the height, edit `PanelWindow.height`. New Swift files need `xcodegen` again. `scrollIndicators(.hidden)`
+is set on the row, but macOS still draws a scroll bar when System Settings › Appearance › Show scroll bars
+is "Always"; that is the system's choice, not a bug.
+
+**Hand checks still open** (needs someone at the Mac; quit Paste first):
+
+- ⇧⌘V from Safari, Finder and a full-screen app: the panel appears along the bottom of the screen with the
+  mouse, the other app stays active, Esc and a click outside hide it.
+- A real mouse's wheel scrolls the row sideways; a trackpad swipe still works.
+- Open the panel with 100,000 items (`--seed 100000 --show-panel`) and scroll to the far end: it keeps up.
+- Copy something while the panel is open: the new card appears at the left.
+- Stage 1 carry-overs: a 200 MB image copied from Preview (read time in the log), a large range copied in
+  Numbers (does the read stall?), and a real Finder ⌘C of several files (are they saved as file items?).
+
 ## Sandbox and copied files (stage 0 spike)
 
 Question: when the user copies a file in Finder, can the sandboxed app, reading the clipboard on a timer

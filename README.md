@@ -59,7 +59,57 @@ scripts/test.sh --fast   # import check + package tests, a few seconds, no app l
 scripts/test.sh          # also the UI tests; quits a running Yank first and reopens it after
 ```
 
-UI tests drive the real app and may write to your clipboard.
+UI tests drive the real app and may write to your clipboard. They use XCTest, not Swift Testing, because
+`XCUIApplication` (launch an app, click its menus) exists only in XCTest; checked against the Xcode 27.2
+SDK, where `Testing.framework` has no UI-driving API. Package tests use Swift Testing.
+
+To test the privacy rules by hand without a password manager, put a marked copy on the clipboard and
+check that the count in the menu doesn't move:
+
+```sh
+osascript <<'EOS'
+use framework "AppKit"
+set pb to current application's NSPasteboard's generalPasteboard()
+pb's clearContents()
+pb's setString:"secret" forType:"public.utf8-plain-text"
+pb's setString:"" forType:"org.nspasteboard.ConcealedType"
+EOS
+```
+
+## How a copy is saved (stage 1)
+
+`AppModel` polls `NSPasteboard.general.changeCount` four times a second. When it changes,
+`CaptureService` records the frontmost app, waits 0.3 s for the source app to finish writing, then runs
+`PrivacyRules` on the type names only: a marker type (`org.nspasteboard.ConcealedType` and friends) or an
+app on the user's ignored list (empty until Settings exist) means the data is never read. There is no
+built-in list of password managers: 1Password, the Bitwarden desktop app and KeePassXC set the marker
+themselves; Apple Passwords is reported to; Enpass is unverified, and the Bitwarden browser extension
+cannot set it (the copy comes from the browser, so an ignored-apps entry would not catch it either).
+The rules and the read happen in one `SystemClipboard.read` call: the rules see the type names first and
+only if they allow it is the data of those same items read, so a copy that lands in between cannot slip
+past the check. `Store.save` then hashes the defining content (`DuplicateKey`), works out the kind
+(`ItemKind.detect`), builds the card text and writes one `clipboardItem` row plus one `clipboardItemData`
+row per type, in a single transaction. Data over 1 MB goes to a file `LargeData/<random UUID>.bin` next to
+the database; the row stores the file name. Files are written before the transaction and deleted after it
+commits, so a crash can only leave an unused file, never a row pointing at a missing one; `Store.init`
+sweeps unused files. A repeat copy moves the existing item to the top instead of adding a row, and the menu
+re-reads the count from the database so it stays right. Whatever is on the clipboard when the app launches
+is not saved.
+
+Data lives in the sandbox container: `~/Library/Containers/com.thattechedguy.Yank/Data/Library/Application
+Support/Yank/` (`yank.sqlite` plus `LargeData/`). Delete that folder to start fresh.
+
+**Clipboard permission.** On macOS 15.4 and later the first read shows "Yank would like to paste from
+<app>". Choose **Allow**; then open System Settings › Privacy & Security › Paste from Other Apps and set
+Yank to **Allow** once, so it never asks again. While it is set to Ask or Deny, the menu says so and offers
+a button to that page. (The button's `x-apple.systempreferences:` URL is a community-documented scheme,
+not an Apple API, so re-check it after macOS updates.)
+
+**Big or lazy copies on the main thread:** not measured yet. Two cases matter: a 200 MB image, and a
+"lazy" copy, where the source app (Numbers, Excel, a browser) promises types and only renders the data when
+asked, which can stall the read. The read logs its duration; hand check by copying a large range in Numbers
+and a big image, then `log show --last 5m --predicate 'subsystem == "com.thattechedguy.Yank"' --info`. The
+decision goes here.
 
 ## Sandbox and copied files (stage 0 spike)
 

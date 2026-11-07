@@ -14,7 +14,14 @@ import GRDB
 // `PersistableRecord`: GRDB can write one back with `update(db)` (it already is `Encodable`).
 // The table name comes from the type name: "clipboardItem". Inserts don't use this type, see
 // `NewClipboardItem` below.
-extension ClipboardItem: FetchableRecord, PersistableRecord {}
+extension ClipboardItem: FetchableRecord, PersistableRecord {
+    /// Every item, newest copied first: the order the panel shows them in. The `id` tie-break
+    /// keeps two items copied in the same second in a fixed order, so paging never shows one
+    /// twice or skips one.
+    static var newestFirst: QueryInterfaceRequest<ClipboardItem> {
+        order(ClipboardItemColumns.copiedAt.desc, ClipboardItemColumns.id.desc)
+    }
+}
 
 // Named columns of `clipboardItem` for `filter` and `order`, so the Store never repeats a column
 // name as a string and a typo shows up in one place. (Swift keeps a public type's generated

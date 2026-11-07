@@ -139,9 +139,26 @@ public final class Store: Sendable {
     /// ≈ `SELECT * ... ORDER BY copiedAt DESC, id DESC LIMIT ? OFFSET ?`.
     public func items(limit: Int, offset: Int = 0) async throws -> [ClipboardItem] {
         try await pool.read { db in
-            try ClipboardItem.order(ClipboardItemColumns.copiedAt.desc, ClipboardItemColumns.id.desc)
-                .limit(limit, offset: offset).fetchAll(db)
+            try ClipboardItem.newestFirst.limit(limit, offset: offset).fetchAll(db)
         }
+    }
+
+    /// The newest `limit` items, delivered now and again every time they change, so the panel
+    /// shows a new copy the moment it is saved without asking for the list again.
+    ///
+    /// This is a live query: GRDB watches the tables the fetch read and re-runs it after every
+    /// write that touches them, on its own background thread, then hands the fresh list to
+    /// whoever is looping over the result with `for try await`. ≈ Room's `Flow<List<T>>` or a
+    /// Supabase subscription. The loop ends when the task running it is cancelled, which also
+    /// stops the watching. `removeDuplicates` skips a delivery when a write changed nothing the
+    /// list shows (for example, bytes of an item below the limit), so the panel is not redrawn
+    /// for nothing. (`some AsyncSequence<...>` hides GRDB's own type: callers only see "a
+    /// sequence of item lists that can fail", so the app never has to import GRDB.)
+    public func observeItems(limit: Int) -> some AsyncSequence<[ClipboardItem], any Error> {
+        ValueObservation
+            .tracking { db in try ClipboardItem.newestFirst.limit(limit).fetchAll(db) }
+            .removeDuplicates()
+            .values(in: pool)
     }
 
     /// How many items are saved. The menu shows this number.
@@ -192,3 +209,74 @@ public final class Store: Sendable {
         try files.delete(fileNames)
     }
 }
+
+// Fake history for trying the panel with thousands of items. Only debug builds contain this
+// code (`#if DEBUG` ≈ `__DEV__`), so the app you use every day can never run it, and it always
+// works on its own database (`seedFolder`), never on your real history. It lives in this file
+// because it needs the Store's private database handle: thousands of rows have to go in as one
+// transaction, and only Storage/ may talk to GRDB.
+#if DEBUG
+    extension Store {
+        /// Where the fake history lives: a folder next to the real one, so the two never mix.
+        public static var seedFolder: URL {
+            URL.applicationSupportDirectory.appending(path: "Yank-seed")
+        }
+
+        /// Replaces everything in this store with `count` fake items, all small, with a mix of
+        /// kinds and apps and times spread over the past, newest first by id. One transaction,
+        /// so 100,000 items take a second or two instead of minutes of single saves.
+        public func seed(count: Int) async throws {
+            try await pool.write { db in
+                try ClipboardItem.deleteAll(db)
+                let now = Date()
+                let apps = ["Safari", "TextEdit", "Terminal", "Notes", "Finder", "Mail"]
+                for i in 0..<count {
+                    let app = apps[i % apps.count]
+                    // Half the items are text; the rest cycle through link, file, colour and
+                    // image, so a seeded panel shows every kind of card. The image is a real
+                    // one-pixel PNG, so anything that decodes it later works on seeded data too.
+                    let (kind, text, type, data): (ItemKind, String, String, Data) =
+                        switch i % 8 {
+                        case 1:
+                            (.link, "https://example.com/pages/\(i)", ClipboardType.url, Data())
+                        case 3:
+                            (.file, "report-\(i).pdf", ClipboardType.fileURL, Data())
+                        case 5:
+                            (.color, "#2B59D6", ClipboardType.color, Data())
+                        case 7:
+                            (.image, "", "public.png", Self.onePixelPNG)
+                        default:
+                            (
+                                .text, "Sample item \(i): meeting moved to 3 pm Thursday.",
+                                ClipboardType.plainText, Data()
+                            )
+                        }
+                    // Items 97 seconds apart, so a 100,000-item history spans about four months.
+                    let copiedAt = now.addingTimeInterval(-97 * Double(i))
+                    let item = try NewClipboardItem(
+                        kind: kind, cardText: text, sourceAppBundleId: "com.example.\(app)",
+                        sourceAppName: app, createdAt: copiedAt, copiedAt: copiedAt,
+                        contentFingerprint: "seed-\(i)"
+                    ).insertAndFetch(db, as: ClipboardItem.self)
+                    try ClipboardItemDataRow(
+                        clipboardItemId: item.id, pasteboardItemIndex: 0, position: 0, type: type,
+                        data: data.isEmpty ? Data(text.utf8) : data, largeDataFileName: nil
+                    ).insert(db)
+                }
+            }
+            // The rows that pointed at any old large-data files are gone, so the files can go.
+            try files.sweep(keeping: [])
+            Log.store.info("seeded \(count) fake items")
+        }
+
+        /// A valid 1 × 1 PNG (one blue pixel), 70 bytes: the smallest real image a fake item can
+        /// carry.
+        private static let onePixelPNG = Data([
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
+            0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,
+            0x15, 0xC4, 0x89, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0xD0,
+            0x8E, 0xBC, 0xF6, 0x1F, 0x00, 0x04, 0x67, 0x02, 0x5A, 0xFC, 0x60, 0x66, 0xFC, 0x00, 0x00,
+            0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ])
+    }
+#endif

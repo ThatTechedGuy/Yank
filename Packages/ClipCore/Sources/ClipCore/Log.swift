@@ -34,4 +34,11 @@ public enum Log {
     public static let paste = Logger(subsystem: subsystem, category: "paste")
     /// Windows, the panel and the menu bar.
     public static let ui = Logger(subsystem: subsystem, category: "ui")
+
+    // Timing markers: a named interval with a start and an end, so a tool can measure how long
+    // something took (opening the panel, a search). ≈ `performance.mark`/`measure` on the web,
+    // or Android's `Trace.beginSection`. Instruments draws them on a timeline; from Terminal,
+    // `log show --signpost --predicate 'subsystem == "com.thattechedguy.Yank"'` lists them.
+    /// Timing markers, for measuring the app against its speed limits.
+    public static let timing = OSSignposter(subsystem: subsystem, category: "timing")
 }

@@ -151,4 +151,51 @@ struct StoreTests {
             #expect(try await store.searchHitCount("alpha") == 0)
         }
     }
+
+    @Test func pagesComeBackNewestFirstWithNoGaps() async throws {
+        try await withStore { store in
+            // Seven items with the same copy time: the hardest case for paging, because the time
+            // alone cannot order them. Two pages of three plus one of one must still cover each
+            // item exactly once, newest first (the last saved has the highest id, so it is first).
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            for i in 0..<7 { try await store.save(copy([.text("item \(i)")], at: t0)) }
+            let pages = try await [
+                store.items(limit: 3, offset: 0), store.items(limit: 3, offset: 3),
+                store.items(limit: 3, offset: 6),
+            ]
+            #expect(pages.map(\.count) == [3, 3, 1])
+            let texts = pages.flatMap { $0 }.map(\.cardText)
+            #expect(texts == (0..<7).reversed().map { "item \($0)" })
+        }
+    }
+
+    @Test func theLiveListDeliversANewCopyAndKeepsToItsLimit() async throws {
+        try await withStore { store in
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            try await store.save(copy([.text("old")], at: t0))
+            // `makeAsyncIterator` + `next()` is the hand-driven form of `for try await`: each
+            // `next()` waits for the next delivery. The first comes at once with what is saved
+            // now; the second only after the new copy is written.
+            var deliveries = store.observeItems(limit: 2).makeAsyncIterator()
+            #expect(try await deliveries.next()?.map(\.cardText) == ["old"])
+            try await store.save(copy([.text("new")], at: t0 + 1))
+            #expect(try await deliveries.next()?.map(\.cardText) == ["new", "old"])
+            // A third item pushes the oldest out: the live list never grows past its limit.
+            try await store.save(copy([.text("newest")], at: t0 + 2))
+            #expect(try await deliveries.next()?.map(\.cardText) == ["newest", "new"])
+        }
+    }
+
+    @Test func seedingReplacesTheHistoryWithFakeItemsOfEveryKind() async throws {
+        try await withStore { store in
+            try await store.save(copy([.text("real")]))
+            try await store.seed(count: 20)
+            #expect(try await store.count() == 20)
+            let items = try await store.items(limit: 20)
+            #expect(Set(items.map(\.kind)) == Set(ItemKind.allCases))
+            #expect(!items.map(\.cardText).contains("real"))
+            // Each fake item has data rows too, so a later paste of one has something to paste.
+            #expect(try await store.data(for: items[0].id).count == 1)
+        }
+    }
 }

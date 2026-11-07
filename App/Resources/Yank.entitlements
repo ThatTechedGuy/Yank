@@ -9,7 +9,7 @@
   its value: here <true/>, a boolean. project.yml points CODE_SIGN_ENTITLEMENTS at this file.
 
   Separate from these, some permissions are granted by the user in System Settings at runtime
-  (Accessibility to press ⌘V, "Paste from Other Apps"). Those are handled in code from stage 1.
+  (Accessibility to press ⌘V, "Paste from Other Apps"). Those are asked for in code, not here.
 -->
 <plist version="1.0">
 <dict>
@@ -17,18 +17,26 @@
 	  App Sandbox: the app runs in its own container, ~/Library/Containers/com.thattechedguy.Yank,
 	  and can't read or write anything else on disk unless the user hands it a file (via a picker,
 	  a drag, or the clipboard). ≈ Android's per-app private storage. Our database lives inside it.
+	  We want it because it limits what a bug in Yank could touch, and the Mac App Store requires it.
+	  macOS reads this key from the signature at launch and starts the process inside the container;
+	  the system itself refuses any file access outside it, so our code never has to check.
 	-->
 	<key>com.apple.security.app-sandbox</key>
 	<true/>
 	<!--
-	  Outgoing network connections. Needed only for link previews (fetching a page's title and
-	  icon, stage 9). ≈ android.permission.INTERNET. Local-network addresses are blocked in code.
+	  Outgoing network connections. ≈ android.permission.INTERNET. Needed for link previews, which
+	  fetch a copied page's title and icon; nothing else in Yank should ever use the network.
+	  Without this key the sandbox refuses every outgoing connection, so the fetch would fail at
+	  once. The key cannot narrow where the app connects, so local-network addresses must stay
+	  blocked in code.
 	-->
 	<key>com.apple.security.network.client</key>
 	<true/>
 	<!--
-	  Read files the user picks in an Open dialog. Used by Settings → Ignored apps to choose an
-	  app to ignore (stage 6). Read-only: Yank never writes outside its container.
+	  Read files the user picks in an Open dialog. Needed so the user can choose an app in a file
+	  picker and Yank can read its bundle to add it to the ignored-apps list; the sandbox blocks that
+	  read otherwise. macOS shows the Open dialog from outside the sandbox and hands the app only the
+	  file the user picked. Read-only: Yank never writes outside its container.
 	-->
 	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>

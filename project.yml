@@ -40,7 +40,8 @@ settings:
     # the same memory). It is stricter than TypeScript's `strict: true` because it also checks
     # threading, much like Kotlin coroutines would if they refused to compile unsafe sharing.
     SWIFT_VERSION: "6.0"
-    # Any warning fails the build. The plan's rule: "builds with zero warnings".
+    # Any warning fails the build, so warnings never pile up unread. The package has the same
+    # rule in Package.swift.
     SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
     # User-facing version (≈ Android `versionName`) and build number (≈ `versionCode`).
     MARKETING_VERSION: "0.1.0"
@@ -88,8 +89,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.thattechedguy.Yank
         # Swift 6.2+: code in this target runs on the main (UI) thread unless it says otherwise.
         # Android analogy: everything is implicitly `@UiThread`. UI code is the majority here,
-        # so this saves writing `@MainActor` on every view and model. The package modules keep
-        # Swift's normal default (no isolation), because they mostly do background work.
+        # so this saves writing `@MainActor` on every view and model, and it is what the
+        # clipboard APIs need. The package modules keep Swift's normal default (no fixed thread),
+        # because they mostly do background work.
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         # Info.plist is the app's metadata file. ≈ AndroidManifest.xml. Instead of keeping a
         # separate file, Xcode generates it from the INFOPLIST_KEY_* settings below.
@@ -97,7 +99,8 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Yank
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         # "Application is agent": no Dock icon and no app menu bar; we live in the menu bar
-        # only. Like an Android app that is only a foreground-service notification.
+        # only, so Yank never steals focus from the app the user is copying from. Like an Android
+        # app that is only a foreground-service notification.
         INFOPLIST_KEY_LSUIElement: YES
         # Entitlements = capabilities baked into the signature (sandbox, network...).
         # ≈ <uses-permission> entries in AndroidManifest.xml. See the file for details.

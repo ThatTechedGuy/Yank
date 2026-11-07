@@ -32,9 +32,12 @@ ties permissions such as Accessibility to it, so an unsigned or ad hoc build los
 
 ## Code style
 
-- **Comments teach.** The code is commented heavily on purpose, explaining Swift syntax and macOS ideas
-  and relating them to TypeScript, React/React Native and Android. This replaces the plan's house rule 2
-  ("comments only explain why") at the requester's request. New code follows the same style.
+- **Comments teach.** The code is commented heavily on purpose. Every comment says what the code does,
+  why it is needed and how it works, in simple plain English with no jargon, and relates Swift and macOS
+  ideas to TypeScript, React/React Native and Android where that helps. A note about Swift syntax is
+  allowed only as a short tail after that, never on its own. This replaces the plan's house rule 2
+  ("comments only explain why") at the requester's request. New code follows the same style. Comments
+  describe the code only: they never mention the plan, its stages or acceptance-criteria IDs.
 - **Formatting:** `swift format` (bundled with Xcode). `.swift-format` sets 4-space indents and 110-column
   lines; JSON allows no comments, so it is explained here. Format with
   `swift format --in-place --recursive App AppUITests Packages/ClipCore`, check with `swift format lint`.
@@ -66,7 +69,7 @@ rather than through a user paste, use that file?
 The file URL was put on the clipboard by another process (`osascript`), not by Finder itself, because this
 Mac's automation can't press ⌘C in Finder. A file outside the container was readable anyway, so reading
 the URL from the clipboard appears to give the app access to that file. The hand check of a real Finder ⌘C
-was inconclusive (screen sharing replaced the clipboard with text); stage 1's C1 AC3 repeats it.
+was inconclusive (screen sharing replaced the clipboard with text); the stage 1 hand check repeats it.
 
 **Decisions:**
 

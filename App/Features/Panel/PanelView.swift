@@ -24,8 +24,8 @@ struct PanelView: View {
         @Bindable var model = model
         VStack(spacing: 8) {
             HStack(spacing: 12) {
-                // The search box. A plain `TextField`; searching is not wired up yet, it only
-                // keeps the typed text.
+                // The search box. A plain `TextField` bound to the model's text; the model
+                // searches on every change, so there is nothing to wire here.
                 TextField("Search history…", text: $model.searchText)
                     .textFieldStyle(.roundedBorder)
                     .focused($focus, equals: .search)

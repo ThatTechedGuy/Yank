@@ -1,0 +1,2299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+</head>
+<body>
+<title>Clipboard Manager Plan</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a working plan document. Sticky contents rail on the left, one reading column on the right; diagrams sit in their own scroll boxes. */
+:root{
+  --bg:#F5F7FA; --surface:#FFFFFF; --ink:#162030; --muted:#566377; --line:#D7DDE6;
+  --accent:#2B59D6; --accent-soft:#E2E9FB; --code-bg:#EDF0F5;
+  --good:#1D774C; --good-soft:#DCF0E5; --warn:#935600; --warn-soft:#FAEACD; --bad:#B42318; --bad-soft:#F9DDD9;
+  --font-display:"Bricolage Grotesque", "Avenir Next", "Segoe UI", sans-serif;
+  --font-body:"Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+  --font-mono:"JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0E131A; --surface:#151C26; --ink:#E5EAF1; --muted:#9AA6B7; --line:#2A3443;
+  --accent:#86A6FF; --accent-soft:#1D2944; --code-bg:#1B2330;
+  --good:#5FCB94; --good-soft:#132D1F; --warn:#F1B65C; --warn-soft:#38290F; --bad:#FF8E7E; --bad-soft:#3A1A17; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0E131A; --surface:#151C26; --ink:#E5EAF1; --muted:#9AA6B7; --line:#2A3443;
+  --accent:#86A6FF; --accent-soft:#1D2944; --code-bg:#1B2330;
+  --good:#5FCB94; --good-soft:#132D1F; --warn:#F1B65C; --warn-soft:#38290F; --bad:#FF8E7E; --bad-soft:#3A1A17; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{background:var(--bg); color:var(--ink); font-family:var(--font-body); font-size:16px; line-height:1.6;
+  padding-left:max(16px, env(safe-area-inset-left, 0px)); padding-right:max(16px, env(safe-area-inset-right, 0px))}
+a{color:var(--accent)}
+a:focus-visible, input:focus-visible, summary:focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:4px}
+code{font-family:var(--font-mono); font-size:.86em; background:var(--code-bg); padding:.1em .35em; border-radius:4px; overflow-wrap:anywhere}
+pre{font-family:var(--font-mono); font-size:13px; background:var(--code-bg); padding:14px 16px; border-radius:8px; overflow-x:auto; line-height:1.55; margin:0}
+pre code{background:none; padding:0}
+kbd{font-family:var(--font-mono); font-size:.82em; font-weight:600; display:inline-block; min-width:1.9em; text-align:center; padding:.12em .45em;
+  border:1px solid var(--line); border-bottom-width:3px; border-radius:6px; background:var(--surface); color:var(--ink); white-space:nowrap}
+h1,h2,h3,h4{font-family:var(--font-display); text-wrap:balance; line-height:1.2; margin:0}
+h1{font-size:clamp(2rem, 5vw, 3rem); font-weight:700; letter-spacing:-.01em}
+h2{font-size:1.75rem; font-weight:700}
+h3{font-size:1.25rem; font-weight:700}
+h4{font-size:1.05rem; font-weight:500}
+p{margin:0}
+.eyebrow{font-family:var(--font-mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted)}
+.muted{color:var(--muted)}
+
+.shell{max-width:1180px; margin:0 auto; padding-block:40px 80px; display:grid; grid-template-columns:220px minmax(0,1fr); gap:48px}
+nav.toc{position:sticky; top:calc(env(safe-area-inset-top, 0px) + 24px); align-self:start; max-height:calc(100vh - 48px); overflow:auto; font-size:14px}
+nav.toc ol{list-style:none; margin:0; padding:0; display:grid; gap:2px}
+nav.toc a{display:block; padding:4px 10px; border-radius:6px; text-decoration:none; color:var(--muted)}
+nav.toc a:hover{background:var(--accent-soft); color:var(--ink)}
+nav.toc .grp{margin-top:14px; padding:0 10px 4px}
+main{min-width:0; display:grid; gap:56px}
+section{display:grid; gap:20px; scroll-margin-top:24px}
+.prose{max-width:68ch; display:grid; gap:12px}
+
+header.hero{display:grid; gap:18px}
+.hero p.lead{font-size:1.15rem; max-width:62ch}
+.chips{display:flex; flex-wrap:wrap; gap:8px}
+.chip{display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; font-size:14px; border:1px solid var(--line); background:var(--surface)}
+.chip b{font-weight:700}
+.shortcuts{display:grid; grid-template-columns:repeat(auto-fit, minmax(220px, 1fr)); gap:12px}
+.sc{background:var(--surface); border:1px solid var(--line); border-radius:10px; padding:14px 16px; display:grid; gap:8px}
+.sc .keys{display:flex; gap:4px}
+
+/* status pills */
+.pill{display:inline-block; font-family:var(--font-mono); font-size:11.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; padding:2px 8px; border-radius:999px; white-space:nowrap}
+.p-good{background:var(--good-soft); color:var(--good)}
+.p-warn{background:var(--warn-soft); color:var(--warn)}
+.p-bad{background:var(--bad-soft); color:var(--bad)}
+.p-acc{background:var(--accent-soft); color:var(--accent)}
+
+/* feature map */
+.fmap{display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px}
+.fgroup{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px; display:grid; gap:10px; align-content:start}
+.fgroup ul{list-style:none; margin:0; padding:0; display:grid; gap:6px}
+.fgroup li a{display:flex; gap:10px; align-items:baseline; text-decoration:none; color:var(--ink); padding:3px 0}
+.fgroup li a:hover span:last-child{text-decoration:underline}
+.fid{font-family:var(--font-mono); font-size:12.5px; font-weight:600; color:var(--accent); min-width:2.4em}
+.dropped .fid, .dropped span:last-child{color:var(--muted); text-decoration:line-through}
+
+/* feature cards */
+.feature{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:22px; display:grid; gap:14px; scroll-margin-top:24px}
+.feature header{display:flex; flex-wrap:wrap; align-items:baseline; gap:10px}
+.feature header .fid{font-size:14px}
+.feature.is-dropped{background:transparent; border-style:dashed}
+.ac{list-style:none; margin:0; padding:0; display:grid; gap:8px}
+.ac label{display:grid; grid-template-columns:20px minmax(0,1fr); gap:10px; align-items:start; cursor:pointer}
+.ac input{margin:4px 0 0; width:16px; height:16px; accent-color:var(--accent)}
+.ac b{font-family:var(--font-mono); font-size:12.5px; color:var(--muted); margin-right:6px}
+.ac input:checked + span{color:var(--muted)}
+.bul{margin:0; padding-left:1.2em; display:grid; gap:6px}
+.progress{display:flex; align-items:center; gap:12px; font-size:14px; color:var(--muted)}
+.bar{flex:1; max-width:280px; height:8px; background:var(--code-bg); border-radius:999px; overflow:hidden}
+.bar i{display:block; height:100%; width:0; background:var(--accent); border-radius:999px; transition:width .2s}
+@media (prefers-reduced-motion: reduce){ .bar i{transition:none} }
+
+/* diagrams */
+figure{margin:0; display:grid; gap:8px}
+figcaption{font-size:14px; color:var(--muted)}
+.scroll{overflow-x:auto; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:16px}
+.scroll svg{display:block; width:100%; height:auto}
+svg text{font-family:var(--font-body); fill:var(--ink)}
+svg .t-s{font-size:12px} svg .t-m{font-size:13.5px} svg .t-b{font-weight:700}
+svg .t-mono{font-family:var(--font-mono); font-size:11.5px; fill:var(--muted)}
+svg .t-muted{fill:var(--muted)}
+svg .t-acc{fill:var(--accent)} svg .t-good{fill:var(--good)} svg .t-bad{fill:var(--bad)} svg .t-warn{fill:var(--warn)}
+svg .b-plain{fill:var(--surface); stroke:var(--line); stroke-width:1.5}
+svg .b-gate{fill:var(--accent-soft); stroke:var(--accent); stroke-width:1.2}
+svg .b-good{fill:var(--good-soft); stroke:var(--good); stroke-width:1.2}
+svg .b-bad{fill:var(--bad-soft); stroke:var(--bad); stroke-width:1.2}
+svg .b-warn{fill:var(--warn-soft); stroke:var(--warn); stroke-width:1.2}
+svg .lane{fill:var(--code-bg); stroke:none}
+svg .ln{stroke:var(--muted); stroke-width:1.5; fill:none}
+svg .ln-acc{stroke:var(--accent); stroke-width:1.8; fill:none}
+svg .ln-dash{stroke:var(--muted); stroke-width:1.3; fill:none; stroke-dasharray:4 4}
+svg .grid{stroke:var(--line); stroke-width:1}
+svg .fill-acc{fill:var(--accent)} svg .fill-warn{fill:var(--warn)} svg .fill-good{fill:var(--good)}
+svg .ah{fill:var(--muted)} svg .ah-acc{fill:var(--accent)}
+
+/* mockup */
+.mock{background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:12px; display:grid; gap:10px; min-width:560px; box-shadow:0 10px 30px -18px rgba(0,0,0,.35)}
+.mock-top{display:flex; gap:8px; align-items:center}
+.mock-search{flex:1; border:1px solid var(--accent); border-radius:8px; padding:6px 10px; color:var(--muted); font-size:14px}
+.mock-btn{border:1px solid var(--line); border-radius:8px; padding:6px 10px; font-size:13px; color:var(--muted)}
+.mock-tabs{display:flex; gap:6px; font-size:13px}
+.mock-tabs span{padding:3px 10px; border-radius:999px; border:1px solid var(--line); color:var(--muted)}
+.mock-tabs span.on{background:var(--accent-soft); color:var(--accent); border-color:transparent}
+.mock-body{display:grid; grid-template-columns:minmax(0,1.2fr) minmax(0,1fr); gap:10px}
+.mock-list{display:grid; gap:4px}
+.mock-row{display:grid; grid-template-columns:28px 34px minmax(0,1fr) auto; gap:8px; align-items:center; padding:6px 8px; border-radius:8px; font-size:13.5px}
+.mock-row.sel{background:var(--accent-soft)}
+.mock-row .n{font-family:var(--font-mono); font-size:11px; color:var(--muted)}
+.mock-row .th{width:34px; height:26px; border-radius:5px; background:var(--code-bg); display:grid; place-items:center; font-size:10px; color:var(--muted); font-family:var(--font-mono)}
+.mock-row .when{font-size:12px; color:var(--muted)}
+.mock-row .txt{white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.mock-prev{border-left:1px solid var(--line); padding:6px 12px; display:grid; gap:6px; align-content:start; font-size:13.5px}
+.mock-prev .meta{font-size:12px; color:var(--muted)}
+
+/* docked card row mockup */
+.dock{display:grid; gap:10px; min-width:640px}
+.dock-screen{height:70px; border:1px dashed var(--line); border-radius:10px 10px 0 0; display:grid; place-items:center; color:var(--muted); font-size:13px}
+.dock-bar{background:var(--surface); border:1px solid var(--line); border-top:2px solid var(--accent); padding:10px 12px; display:grid; gap:10px; margin-top:-10px}
+.dock-top{display:flex; gap:10px; align-items:center; flex-wrap:wrap}
+.cards{display:flex; gap:10px; overflow:hidden}
+.card-i{flex:0 0 150px; height:150px; border:1px solid var(--line); border-radius:12px; background:var(--bg); display:grid; grid-template-rows:auto 1fr auto; padding:8px; gap:6px; font-size:12.5px; min-width:0}
+.card-i.sel{outline:2px solid var(--accent); outline-offset:1px}
+.card-i{padding:0; overflow:hidden}
+.card-i .ch{display:flex; justify-content:space-between; align-items:center; gap:6px; padding:6px 8px; font-size:11.5px; font-weight:700; color:#fff; background:var(--accent)}
+.card-i .ch .ico{width:16px; height:16px; border-radius:4px; background:rgba(255,255,255,.85); flex:none}
+.card-i .ch.h2{background:var(--good)} .card-i .ch.h3{background:var(--warn)} .card-i .ch.h4{background:var(--muted)}
+.card-i .cb{margin:0 8px} .card-i .cf{padding:0 8px 8px}
+.card-i .cb.img, .card-i .cb.swatch{margin:0 8px}
+.dock-grip{width:44px; height:5px; border-radius:3px; background:var(--line); margin:0 auto}
+.card-i .cb{overflow:hidden; line-height:1.4}
+.card-i .cb.img{border-radius:8px; background:repeating-linear-gradient(45deg, var(--code-bg), var(--code-bg) 6px, var(--line) 6px, var(--line) 12px)}
+.card-i .cb.swatch{border-radius:8px; background:#2B59D6}
+.card-i .cf{font-size:11px; color:var(--muted)}
+.card-i.cut{flex-basis:70px; opacity:.6}
+/* queue */
+.queue{display:flex; flex-wrap:wrap; align-items:center; gap:10px}
+.qitem{border:1px solid var(--line); background:var(--surface); border-radius:10px; padding:10px 14px; display:grid; gap:2px; min-width:90px}
+.qitem.next{border-color:var(--accent); background:var(--accent-soft)}
+.qitem small{font-size:12px; color:var(--muted)}
+.arrow{color:var(--muted); font-family:var(--font-mono)}
+
+/* tables */
+.tbl{overflow-x:auto; border:1px solid var(--line); border-radius:12px; background:var(--surface)}
+table{border-collapse:collapse; width:100%; font-size:14.5px}
+th,td{text-align:left; vertical-align:top; padding:10px 14px; border-bottom:1px solid var(--line)}
+th{font-family:var(--font-mono); font-size:12px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); font-weight:600; background:var(--code-bg)}
+tr:last-child td{border-bottom:none}
+td:first-child{font-weight:700}
+
+/* split bar */
+.split{display:grid; grid-template-columns:minmax(0,5fr) minmax(0,1fr); border-radius:10px; overflow:hidden; border:1px solid var(--line)}
+.split div{padding:12px 14px; display:grid; gap:4px; font-size:14px}
+.split .s-ui{background:var(--accent-soft)}
+.split .s-ak{background:var(--warn-soft)}
+.split b{font-family:var(--font-display)}
+
+.cols{display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px}
+.card{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:18px; display:grid; gap:8px; align-content:start}
+.tally{display:flex; flex-wrap:wrap; gap:16px; font-size:14px}
+.tally span{display:flex; align-items:center; gap:6px}
+.steps{list-style:none; margin:0; padding:0; display:grid; gap:12px; counter-reset:s}
+.steps li{display:grid; grid-template-columns:34px minmax(0,1fr); gap:12px; align-items:start}
+.steps li::before{counter-increment:s; content:counter(s); font-family:var(--font-display); font-weight:700; width:30px; height:30px; border-radius:50%; background:var(--accent-soft); color:var(--accent); display:grid; place-items:center}
+.callout{border:1px solid var(--warn); background:var(--warn-soft); border-radius:12px; padding:14px 16px; display:grid; gap:6px}
+.part{border-top:2px solid var(--ink); padding-top:14px; display:grid; gap:6px}
+
+.matrix td{text-align:center; vertical-align:middle}
+.matrix td:first-child, .matrix td:last-child{text-align:left}
+.matrix td:last-child{font-weight:400; color:var(--muted); font-size:13.5px}
+.dot{display:inline-block; width:11px; height:11px; border-radius:50%; background:var(--accent)}
+.dot.o{background:transparent; border:1.5px solid var(--line)}
+.feature h4{margin-bottom:6px}
+.feature .cols > div{min-width:0}
+svg a:focus-visible circle{stroke:var(--accent); stroke-width:3}
+@media (max-width: 900px){
+  .shell{grid-template-columns:minmax(0,1fr); gap:28px; padding-block:24px 60px}
+  nav.toc{position:static; max-height:none; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:12px}
+  nav.toc ol{grid-template-columns:repeat(auto-fill, minmax(150px,1fr))}
+}
+
+/* tabs */
+.tabs{display:flex; gap:4px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:5; padding:6px 0 0; margin-bottom:16px}
+.tabs button{font:inherit; font-family:var(--font-display); font-size:1rem; font-weight:700; background:none; border:0; border-bottom:3px solid transparent; padding:10px 14px; color:var(--muted); cursor:pointer; margin-bottom:-1px}
+.tabs button[aria-selected="true"]{color:var(--accent); border-color:var(--accent)}
+.tabs button:focus-visible{outline:2px solid var(--accent); outline-offset:-2px; border-radius:6px}
+.tab{display:none} .tab.on{display:grid; gap:56px}
+section, .feature, .part, figure[id], header.hero{scroll-margin-top:72px}
+p.prose{display:block}
+nav.toc .grp button{font:inherit; font-family:var(--font-mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); background:none; border:0; padding:0; cursor:pointer}
+nav.toc .grp button[aria-current="true"]{color:var(--accent)}
+/* requirements pictures */
+.cal{display:inline-grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--bad); color:#fff; font:700 11px var(--font-mono); vertical-align:middle; margin-right:2px}
+.legend{display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:6px 16px; font-size:14px}
+.keymap{display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px}
+.keymap .kr{display:grid; grid-template-columns:minmax(96px,auto) 1fr; gap:10px; align-items:center; font-size:14px; padding:6px 0; border-top:1px solid var(--line)}
+.keymap .keys{display:flex; flex-wrap:wrap; gap:3px; align-items:center; font-size:13px; color:var(--muted)}
+.kinds{display:grid; grid-template-columns:repeat(5,minmax(160px,1fr)); gap:14px; min-width:860px}
+.kinds > div{display:grid; gap:10px}
+.kinds .card-i{height:120px}
+.kinds dl{margin:0; font-size:13px; display:grid; gap:2px} .kinds dt{color:var(--muted); font-family:var(--font-mono); font-size:11px; letter-spacing:.05em; text-transform:uppercase; margin-top:4px} .kinds dd{margin:0}
+</style>
+
+<div class="shell">
+<nav class="toc" aria-label="Contents">
+  <div class="grp eyebrow"><button type="button" data-tab="tab-req">1 · Requirements</button></div>
+  <ol>
+    <li><a href="#top">Decisions and shortcuts</a></li>
+    <li><a href="#map">Feature map</a></li>
+    <li><a href="#glance">The app in pictures</a></li>
+    <li><a href="#core">Core C1–C10</a></li>
+    <li><a href="#nice">Nice-to-have N1–N13</a></li>
+    <li><a href="#extras">Extras E1–E4</a></li>
+    <li><a href="#everywhere">Applies everywhere</a></li>
+  </ol>
+  <div class="grp eyebrow"><button type="button" data-tab="tab-design">2 · Solution design</button></div>
+  <ol>
+    <li><a href="#stack">Tech stack</a></li>
+    <li><a href="#libs">Libraries</a></li>
+    <li><a href="#shape">Project layout</a></li>
+    <li><a href="#rings">Rings and modules</a></li>
+    <li><a href="#folders">Folder layout</a></li>
+    <li><a href="#ports">Ports</a></li>
+    <li><a href="#flows">How the parts talk</a></li>
+    <li><a href="#runtime">Who runs where</a></li>
+    <li><a href="#storage">Storage and schema</a></li>
+    <li><a href="#ui">Windows and UI parts</a></li>
+    <li><a href="#budgets">Speed and memory</a></li>
+    <li><a href="#security">Security</a></li>
+    <li><a href="#perms">Permissions</a></li>
+    <li><a href="#rules">House rules</a></li>
+    <li><a href="#glossary">Glossary</a></li>
+    <li><a href="#testing">Test strategy</a></li>
+  </ol>
+  <div class="grp eyebrow"><button type="button" data-tab="tab-plan">3 · Implementation plan</button></div>
+  <ol>
+    <li><a href="#next">Before slice 1</a></li>
+    <li><a href="#build">Road map</a></li>
+    <li><a href="#slices">Slices 0–12</a></li>
+    <li><a href="#risks">Open decisions</a></li>
+  </ol>
+</nav>
+
+<main>
+<div class="tabs" role="tablist" aria-label="Plan parts">
+  <button type="button" role="tab" data-tab="tab-req" aria-selected="true">1 · Requirements</button>
+  <button type="button" role="tab" data-tab="tab-design" aria-selected="false">2 · Solution design</button>
+  <button type="button" role="tab" data-tab="tab-plan" aria-selected="false">3 · Implementation plan</button>
+</div>
+
+<div class="tab on" id="tab-req">
+<header class="hero" id="top">
+  <div class="eyebrow">Clipboard Manager · v1 plan · 6 Nov 2026, revised 7 Nov 2026</div>
+  <h1>Clipboard Manager plan</h1>
+  <p class="lead">Three tabs. <strong>Requirements</strong>: what the app does, in pictures and hand checks. <strong>Solution design</strong>: stack, architecture, schema, speed and security. <strong>Implementation plan</strong>: 13 slices, each ending in a working app.</p>
+  <div class="chips" aria-label="Decisions">
+    <span class="chip"><b>Sync</b> none</span>
+    <span class="chip"><b>History</b> kept forever</span>
+    <span class="chip"><b>macOS</b> needs 26 or later, tested on 27</span>
+    <span class="chip"><b>Extra libraries</b> two (KeyboardShortcuts, GRDB)</span>
+    <span class="chip"><b>Security</b> sandboxed</span>
+    <span class="chip"><b>Panel</b> Paste-style card row along the bottom of the screen</span>
+  </div>
+  <div class="shortcuts" aria-label="Default shortcuts">
+    <div class="sc"><div class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>V</kbd></div><span>Open the panel</span></div>
+    <div class="sc"><div class="keys"><span class="muted">No default</span></div><span>Turn the paste stack on or off. Use the menu bar, or record a shortcut in Settings.</span></div>
+    <div class="sc"><div class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>V</kbd></div><span>Paste the next item from the stack</span></div>
+  </div>
+  <p class="muted">You can change all shortcuts in Settings. Each check below has a tick box. Your ticks are saved in this browser only. Use them while you test by hand.</p>
+  <div class="progress" aria-live="polite"><span>Checks done</span><div class="bar"><i id="pbar"></i></div><span id="ptext">0 of 0</span></div>
+</header>
+<section id="map" aria-labelledby="map-h">
+  <h2 id="map-h">Feature map</h2>
+  <div class="fmap">
+    <div class="fgroup">
+      <div class="eyebrow">Core · 10</div>
+      <ul>
+        <li><a href="#C1"><span class="fid">C1</span><span>Save what you copy</span></a></li>
+        <li><a href="#C2"><span class="fid">C2</span><span>Shortcut and panel</span></a></li>
+        <li><a href="#C3"><span class="fid">C3</span><span>Paste into the app you're using</span></a></li>
+        <li><a href="#C4"><span class="fid">C4</span><span>Paste as plain text</span></a></li>
+        <li><a href="#C5"><span class="fid">C5</span><span>Quick paste</span></a></li>
+        <li><a href="#C6"><span class="fid">C6</span><span>Search</span></a></li>
+        <li><a href="#C7"><span class="fid">C7</span><span>Card previews</span></a></li>
+        <li><a href="#C8"><span class="fid">C8</span><span>Privacy rules</span></a></li>
+        <li><a href="#C9"><span class="fid">C9</span><span>Keep forever, erase on request</span></a></li>
+        <li><a href="#C10"><span class="fid">C10</span><span>Menu bar and open at login</span></a></li>
+      </ul>
+    </div>
+    <div class="fgroup">
+      <div class="eyebrow">Nice-to-have · 7 of 8</div>
+      <ul>
+        <li><a href="#N1"><span class="fid">N1</span><span>Pause</span></a></li>
+        <li><a href="#N2"><span class="fid">N2</span><span>Hide during screen sharing</span></a></li>
+        <li><a href="#N3"><span class="fid">N3</span><span>Pinboards</span></a></li>
+        <li><a href="#N4"><span class="fid">N4</span><span>Filters (type and date)</span></a></li>
+        <li><a href="#N5"><span class="fid">N5</span><span>Large preview</span></a></li>
+        <li><a href="#N6"><span class="fid">N6</span><span>Paste stack</span></a></li>
+        <li class="dropped"><a href="#N7"><span class="fid">N7</span><span>Shortcuts app actions</span></a></li>
+        <li><a href="#N8"><span class="fid">N8</span><span>Item actions menu</span></a></li>
+      </ul>
+    </div>
+    <div class="fgroup">
+      <div class="eyebrow">Extras you added · 4</div>
+      <ul>
+        <li><a href="#E1"><span class="fid">E1</span><span>Link previews</span></a></li>
+        <li><a href="#E2"><span class="fid">E2</span><span>Text in images</span></a></li>
+        <li><a href="#E3"><span class="fid">E3</span><span>Item editing</span></a></li>
+        <li><a href="#E4"><span class="fid">E4</span><span>Welcome window</span></a></li>
+      </ul>
+    </div>
+    <div class="fgroup">
+      <div class="eyebrow">Added back · 5</div>
+      <ul>
+        <li><a href="#N9"><span class="fid">N9</span><span>Create a text item</span></a></li>
+        <li><a href="#N10"><span class="fid">N10</span><span>Rename and duplicate</span></a></li>
+        <li><a href="#N11"><span class="fid">N11</span><span>Select several items</span></a></li>
+        <li><a href="#N12"><span class="fid">N12</span><span>Drag cards out</span></a></li>
+        <li><a href="#N13"><span class="fid">N13</span><span>Resize the panel</span></a></li>
+      </ul>
+    </div>
+    <div class="fgroup">
+      <div class="eyebrow">Removed after the review</div>
+      <ul>
+        <li class="dropped"><a href="#E2"><span class="fid">E2</span><span>Spotlight indexing (was part of Text in images)</span></a></li>
+        <li class="dropped"><a href="#N7"><span class="fid">N7</span><span>Shortcuts app actions</span></a></li>
+        <li class="dropped"><a href="#N6"><span class="fid">N6</span><span>Paste-stack window</span></a></li>
+        <li class="dropped"><a href="#N4"><span class="fid">N4</span><span>Filter by app</span></a></li>
+      </ul>
+    </div>
+  </div>
+</section>
+<section id="glance" aria-labelledby="pics-h">
+  <h2 id="pics-h">The app in pictures</h2>
+  <p class="prose">Six pictures cover most of what the app does. The feature cards below point at them instead of repeating them.</p>
+
+  <figure id="pic-panel">
+    <div class="scroll" aria-hidden="true">
+      <div class="dock">
+        <div class="dock-screen">the app you were using stays in front, and keeps focus <i class="cal">1</i></div>
+        <div class="dock-bar">
+          <div class="dock-grip" title="drag to resize"></div><div style="text-align:center;margin-top:-8px"><i class="cal">2</i></div>
+          <div class="dock-top"><div class="mock-search" style="flex:1 1 220px"><i class="cal">3</i> Search history…</div><div class="mock-tabs"><span class="on">History</span><span>Snippets</span><span>Work</span><i class="cal">4</i></div><div class="mock-btn"><i class="cal">5</i> Filter ▾</div></div>
+          <div class="cards">
+            <div class="card-i sel"><div class="ch"><span><i class="cal">6</i> Text · 2 min</span><span class="ico"></span></div><div class="cb"><i class="cal">7</i> Meeting moved to 3 pm Thursday. Same room, bring the draft.</div><div class="cf"><i class="cal">8</i> ⌘1 · 52 characters</div></div>
+            <div class="card-i"><div class="ch h2"><span>Image · 8 min</span><span class="ico"></span></div><div class="cb img"></div><div class="cf">⌘2 · 1280 × 800</div></div>
+            <div class="card-i"><div class="ch h3"><span>Link · 1 h</span><span class="ico"></span></div><div class="cb"><strong>Apple</strong><br>apple.com</div><div class="cf">⌘3 · apple.com</div></div>
+            <div class="card-i"><div class="ch h4"><span>File · 3 h</span><span class="ico"></span></div><div class="cb">Q4-budget.numbers</div><div class="cf">⌘4 · 212 KB</div></div>
+            <div class="card-i"><div class="ch"><span>Colour · 1 d</span><span class="ico"></span></div><div class="cb swatch"></div><div class="cf">⌘5 · #2B59D6</div></div>
+            <div class="card-i cut"><div class="ch h2"><span>Text</span></div><div class="cb">npm run…</div><div class="cf">→</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <figcaption><strong>Picture 1 · The panel.</strong> ⇧⌘V slides it up along the bottom of the screen your mouse is on, full width, above the Dock. Its look follows Paste (your choice, 7 Nov 2026); we build it ourselves and copy none of Paste's assets.</figcaption>
+    <div class="legend">
+      <span><i class="cal">1</i> The app behind keeps focus; pastes land there (<a href="#C2">C2</a>, <a href="#C3">C3</a>)</span>
+      <span><i class="cal">2</i> Resize grip: 332 pt, 252–412 (<a href="#N13">N13</a>)</span>
+      <span><i class="cal">3</i> Search, cursor starts here (<a href="#C6">C6</a>)</span>
+      <span><i class="cal">4</i> History, then one tab per pinboard (<a href="#N3">N3</a>)</span>
+      <span><i class="cal">5</i> Filter by type and date (<a href="#N4">N4</a>)</span>
+      <span><i class="cal">6</i> Header tinted from the app icon: kind, age, app (<a href="#C1">C1</a>)</span>
+      <span><i class="cal">7</i> Preview; Space opens it large (<a href="#C7">C7</a>, <a href="#N5">N5</a>)</span>
+      <span><i class="cal">8</i> ⌘1–⌘9 paste this card; details (<a href="#C5">C5</a>)</span>
+    </div>
+  </figure>
+
+  <figure id="pic-keys">
+    <div class="keymap">
+      <div class="card"><div class="eyebrow">Open and close</div>
+        <div class="kr"><span class="keys"><kbd>⇧</kbd><kbd>⌘</kbd><kbd>V</kbd></span><span>Open the panel, from any app or Space</span></div>
+        <div class="kr"><span class="keys"><kbd>Esc</kbd></span><span>Close the panel, or the large preview</span></div>
+        <div class="kr"><span class="keys">click outside</span><span>Close the panel</span></div>
+        <div class="kr"><span class="keys"><kbd>⌘</kbd><kbd>,</kbd></span><span>Settings, in front of everything</span></div>
+      </div>
+      <div class="card"><div class="eyebrow">Move</div>
+        <div class="kr"><span class="keys"><kbd>←</kbd><kbd>→</kbd></span><span>Select the next card; the row scrolls to keep it in view</span></div>
+        <div class="kr"><span class="keys"><kbd>Tab</kbd></span><span>Between search and the cards</span></div>
+        <div class="kr"><span class="keys"><kbd>⌘</kbd><kbd>[</kbd> <kbd>⌘</kbd><kbd>]</kbd></span><span>Previous or next pinboard tab</span></div>
+        <div class="kr"><span class="keys"><kbd>Space</kbd></span><span>Large preview; Quick Look for files and images</span></div>
+      </div>
+      <div class="card"><div class="eyebrow">Paste</div>
+        <div class="kr"><span class="keys"><kbd>Return</kbd> or double-click</span><span>Paste into the app behind</span></div>
+        <div class="kr"><span class="keys"><kbd>⇧</kbd><kbd>Return</kbd></span><span>Paste as plain text</span></div>
+        <div class="kr"><span class="keys"><kbd>⌘</kbd><kbd>1</kbd>…<kbd>9</kbd></span><span>Paste the first nine visible cards</span></div>
+        <div class="kr"><span class="keys">drag a card</span><span>Drop into another app, like a paste</span></div>
+      </div>
+      <div class="card"><div class="eyebrow">Select several</div>
+        <div class="kr"><span class="keys"><kbd>⇧</kbd><kbd>←</kbd><kbd>→</kbd></span><span>Extend the selection</span></div>
+        <div class="kr"><span class="keys"><kbd>⌘</kbd>-click</span><span>Add or remove one card</span></div>
+        <div class="kr"><span class="keys"><kbd>⌘</kbd><kbd>A</kbd></span><span>Select every card in the current view</span></div>
+        <div class="kr"><span class="keys"><kbd>Delete</kbd></span><span>Delete the selection, after "Delete N items?"</span></div>
+      </div>
+      <div class="card"><div class="eyebrow">Organise and edit</div>
+        <div class="kr"><span class="keys"><kbd>⌘</kbd><kbd>K</kbd> or right-click</span><span>Item actions menu</span></div>
+        <div class="kr"><span class="keys"><kbd>⌘</kbd><kbd>P</kbd></span><span>Pin to a pinboard</span></div>
+        <div class="kr"><span class="keys"><kbd>⌘</kbd><kbd>E</kbd></span><span>Edit the item</span></div>
+        <div class="kr"><span class="keys"><kbd>⌘</kbd><kbd>N</kbd></span><span>New text item</span></div>
+      </div>
+      <div class="card"><div class="eyebrow">Paste stack (global)</div>
+        <div class="kr"><span class="keys">menu bar</span><span>Turn the stack on or off; no default key, record one in Settings</span></div>
+        <div class="kr"><span class="keys"><kbd>⌃</kbd><kbd>⌥</kbd><kbd>⌘</kbd><kbd>V</kbd></span><span>Paste the next queued item</span></div>
+      </div>
+    </div>
+    <figcaption><strong>Picture 2 · Every key.</strong> All of them can be changed in Settings. Everything is reachable with the keyboard alone and with VoiceOver.</figcaption>
+  </figure>
+
+  <figure id="pic-kinds">
+    <div class="scroll"><div class="kinds">
+      <div><div class="card-i"><div class="ch"><span>Text</span><span class="ico"></span></div><div class="cb">Meeting moved to 3 pm Thursday.</div><div class="cf">52 characters</div></div>
+        <dl><dt>Detected</dt><dd>anything else</dd><dt>Card</dt><dd>first lines, or your title</dd><dt>Space</dt><dd>full text, character and word counts</dd><dt>Pastes</dt><dd>all formats; ⇧ for plain</dd></dl></div>
+      <div><div class="card-i"><div class="ch h2"><span>Image</span><span class="ico"></span></div><div class="cb img"></div><div class="cf">1280 × 800</div></div>
+        <dl><dt>Detected</dt><dd>image type on the clipboard</dd><dt>Card</dt><dd>the image, 512 px preview</dd><dt>Space</dt><dd>full size in Quick Look</dd><dt>Extras</dt><dd>text inside is searchable (E2)</dd></dl></div>
+      <div><div class="card-i"><div class="ch h3"><span>Link</span><span class="ico"></span></div><div class="cb"><strong>Apple</strong><br>apple.com</div><div class="cf">apple.com</div></div>
+        <dl><dt>Detected</dt><dd><code>public.url</code>, or text that is one http(s) address</dd><dt>Card</dt><dd>page title and icon, else the address</dd><dt>Space</dt><dd>title and page image</dd><dt>Extras</dt><dd>preview fetched unless off or local (E1)</dd></dl></div>
+      <div><div class="card-i"><div class="ch h4"><span>File</span><span class="ico"></span></div><div class="cb">Q4-budget.numbers</div><div class="cf">212 KB</div></div>
+        <dl><dt>Detected</dt><dd>file URL on the clipboard</dd><dt>Card</dt><dd>Quick Look preview or Finder icon, name</dd><dt>Space</dt><dd>Quick Look</dd><dt>Note</dt><dd>only the location is saved; a missing file says so</dd></dl></div>
+      <div><div class="card-i"><div class="ch"><span>Colour</span><span class="ico"></span></div><div class="cb swatch"></div><div class="cf">#2B59D6</div></div>
+        <dl><dt>Detected</dt><dd>colour type on the clipboard</dd><dt>Card</dt><dd>the swatch</dd><dt>Space</dt><dd>swatch and hex</dd><dt>Pastes</dt><dd>the colour</dd></dl></div>
+    </div></div>
+    <figcaption><strong>Picture 3 · The five kinds of card.</strong> Every copy also keeps the source app's name and icon, and all the formats the app put on the clipboard.</figcaption>
+  </figure>
+
+  <figure id="pic-copy">
+      <div class="scroll">
+        <svg viewBox="0 0 700 560" role="img" aria-labelledby="cap-t" style="min-width:600px">
+          <title id="cap-t">What happens to every copy. The app checks for pause, its own pastes, privacy markers and ignored apps. Only then does it read the data and save it.</title>
+          <defs>
+            <marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+          </defs>
+          <rect x="60" y="10" width="300" height="40" rx="20" class="b-plain"/>
+          <text x="210" y="35" text-anchor="middle" class="t-m t-b">The clipboard changed</text>
+
+          <rect x="40" y="80" width="340" height="44" rx="8" class="b-gate"/>
+          <text x="210" y="107" text-anchor="middle" class="t-m">Is saving paused? (N1)</text>
+          <rect x="460" y="80" width="220" height="44" rx="8" class="b-bad"/>
+          <text x="570" y="107" text-anchor="middle" class="t-m t-b">Not saved</text>
+
+          <rect x="40" y="150" width="340" height="44" rx="8" class="b-gate"/>
+          <text x="210" y="177" text-anchor="middle" class="t-m">Did we paste it ourselves?</text>
+          <rect x="460" y="150" width="220" height="44" rx="8" class="b-gate"/>
+          <text x="570" y="171" text-anchor="middle" class="t-m t-b">Move that item to the top</text>
+          <text x="570" y="187" text-anchor="middle" class="t-s t-muted">C1 AC5</text>
+
+          <rect x="40" y="220" width="340" height="44" rx="8" class="b-gate"/>
+          <text x="210" y="241" text-anchor="middle" class="t-m">Did the app mark it as secret,</text>
+          <text x="210" y="257" text-anchor="middle" class="t-m">temporary or auto-generated?</text>
+          <rect x="460" y="220" width="220" height="44" rx="8" class="b-bad"/>
+          <text x="570" y="247" text-anchor="middle" class="t-m t-b">Not saved</text>
+
+          <rect x="40" y="290" width="340" height="44" rx="8" class="b-gate"/>
+          <text x="210" y="311" text-anchor="middle" class="t-m">Was it copied from an ignored app?</text>
+          <text x="210" y="327" text-anchor="middle" class="t-s t-muted">the list starts with common password managers</text>
+          <rect x="460" y="290" width="220" height="44" rx="8" class="b-bad"/>
+          <text x="570" y="317" text-anchor="middle" class="t-m t-b">Not saved</text>
+
+          <rect x="40" y="360" width="340" height="44" rx="8" class="b-plain"/>
+          <text x="210" y="387" text-anchor="middle" class="t-m">Read each format. Skip any over 256 MB.</text>
+
+          <rect x="40" y="430" width="340" height="44" rx="8" class="b-gate"/>
+          <text x="210" y="457" text-anchor="middle" class="t-m">Is it already in history?</text>
+          <rect x="460" y="430" width="220" height="44" rx="8" class="b-gate"/>
+          <text x="570" y="451" text-anchor="middle" class="t-m t-b">Move the saved item to the top</text>
+          <text x="570" y="467" text-anchor="middle" class="t-s t-muted">with the newer time, formats and app</text>
+
+          <rect x="40" y="500" width="340" height="50" rx="8" class="b-good"/>
+          <text x="210" y="522" text-anchor="middle" class="t-m t-b">Save it as a new item</text>
+          <text x="210" y="540" text-anchor="middle" class="t-s t-muted">then add its preview, image text and link title</text>
+
+          <path d="M210 50 V77" class="ln" marker-end="url(#m2)"/>
+          <path d="M210 124 V147" class="ln" marker-end="url(#m2)"/>
+          <path d="M210 194 V217" class="ln" marker-end="url(#m2)"/>
+          <path d="M210 264 V287" class="ln" marker-end="url(#m2)"/>
+          <path d="M210 334 V357" class="ln" marker-end="url(#m2)"/>
+          <path d="M210 404 V427" class="ln" marker-end="url(#m2)"/>
+          <path d="M210 474 V497" class="ln" marker-end="url(#m2)"/>
+          <g class="t-s t-muted"><text x="218" y="141">no</text><text x="218" y="211">no</text><text x="218" y="281">no</text><text x="218" y="351">no</text><text x="218" y="491">no</text></g>
+          <path d="M380 102 H457" class="ln" marker-end="url(#m2)"/>
+          <path d="M380 172 H457" class="ln" marker-end="url(#m2)"/>
+          <path d="M380 242 H457" class="ln" marker-end="url(#m2)"/>
+          <path d="M380 312 H457" class="ln" marker-end="url(#m2)"/>
+          <path d="M380 452 H457" class="ln" marker-end="url(#m2)"/>
+          <g class="t-s t-b"><text x="400" y="96" class="t-bad">yes</text><text x="400" y="166" class="t-acc">yes</text><text x="400" y="236" class="t-bad">yes</text><text x="400" y="306" class="t-bad">yes</text><text x="400" y="446" class="t-acc">yes</text></g>
+        </svg>
+      </div>
+      <figcaption><strong>Picture 4 · What happens to every copy.</strong> What happens to every copy. The privacy checks (C8) run first, before any data is read. How we tell an item is "already in history" is explained under <a href="#storage">Storage</a>.</figcaption>
+    </figure>
+
+  <figure id="pic-paste">
+      <div class="scroll">
+        <svg viewBox="0 0 860 250" role="img" aria-labelledby="paste-t" style="min-width:720px">
+          <title id="paste-t">How pasting works. The item goes on the clipboard and the panel hides. If Accessibility is allowed, the app presses Command-V for you. If not, the item stays on the clipboard and a message appears.</title>
+          <defs>
+            <marker id="m1" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+          </defs>
+          <rect x="10" y="30" width="140" height="64" rx="10" class="b-plain"/>
+          <text x="80" y="57" text-anchor="middle" class="t-m t-b">Return, double-click</text>
+          <text x="80" y="76" text-anchor="middle" class="t-s t-muted">or ⌘1–⌘9 (C5)</text>
+          <rect x="185" y="30" width="170" height="64" rx="10" class="b-plain"/>
+          <text x="270" y="55" text-anchor="middle" class="t-m t-b">Put item on clipboard</text>
+          <text x="270" y="74" text-anchor="middle" class="t-s t-muted">marked as ours, so we</text>
+          <text x="270" y="88" text-anchor="middle" class="t-s t-muted">don't save it again</text>
+          <rect x="390" y="30" width="150" height="64" rx="10" class="b-plain"/>
+          <text x="465" y="57" text-anchor="middle" class="t-m t-b">Hide the panel</text>
+          <text x="465" y="76" text-anchor="middle" class="t-s t-muted">the other app kept focus</text>
+          <rect x="575" y="30" width="130" height="64" rx="10" class="b-gate"/>
+          <text x="640" y="57" text-anchor="middle" class="t-m t-b">Accessibility</text>
+          <text x="640" y="76" text-anchor="middle" class="t-m t-b">allowed?</text>
+          <rect x="740" y="30" width="110" height="64" rx="10" class="b-good"/>
+          <text x="795" y="52" text-anchor="middle" class="t-m t-b">Press ⌘V</text>
+          <text x="795" y="70" text-anchor="middle" class="t-s t-muted">finds the V key on</text>
+          <text x="795" y="84" text-anchor="middle" class="t-s t-muted">your keyboard layout</text>
+          <rect x="575" y="160" width="275" height="64" rx="10" class="b-warn"/>
+          <text x="712" y="186" text-anchor="middle" class="t-m t-b">Leave it on the clipboard, show a message</text>
+          <text x="712" y="205" text-anchor="middle" class="t-s t-muted">you press ⌘V yourself (AC2)</text>
+          <rect x="10" y="160" width="345" height="64" rx="10" class="b-plain"/>
+          <text x="182" y="184" text-anchor="middle" class="t-m t-b">Plain text (C4)</text>
+          <text x="182" y="203" text-anchor="middle" class="t-s t-muted">If ⇧ is held, or "Always paste as plain text" is on,</text>
+          <text x="182" y="217" text-anchor="middle" class="t-s t-muted">only the plain-text format goes on the clipboard</text>
+          <path d="M150 62 H182" class="ln" marker-end="url(#m1)"/>
+          <path d="M355 62 H387" class="ln" marker-end="url(#m1)"/>
+          <path d="M540 62 H572" class="ln" marker-end="url(#m1)"/>
+          <path d="M705 62 H737" class="ln" marker-end="url(#m1)"/>
+          <text x="721" y="54" text-anchor="middle" class="t-s t-good t-b">yes</text>
+          <path d="M640 94 V157" class="ln" marker-end="url(#m1)"/>
+          <text x="652" y="130" class="t-s t-bad t-b">no</text>
+          <path d="M270 157 V97" class="ln-dash" marker-end="url(#m1)"/>
+          <text x="280" y="132" class="t-s t-muted">changes what goes on the clipboard</text>
+          <text x="740" y="120" class="t-s t-muted">The "to clipboard only"</text>
+          <text x="740" y="134" class="t-s t-muted">setting also goes here (AC4)</text>
+        </svg>
+      </div>
+      <figcaption><strong>Picture 5 · How a paste works.</strong> How pasting works. The panel never takes focus from the other app. So nothing needs to switch back before ⌘V is pressed.</figcaption>
+    </figure>
+
+  <figure id="pic-stack">
+    <div class="scroll">
+      <div class="queue" role="img" aria-label="A queue holding A, B and C. Each press of Control-Option-Command-V pastes the oldest item first.">
+        <span class="chip"><b>Menu bar</b> 3</span>
+        <span class="arrow">⌃⌥⌘V pastes →</span>
+        <div class="qitem next"><strong>A</strong><small>pasted 1st</small></div>
+        <div class="qitem"><strong>B</strong><small>pasted 2nd</small></div>
+        <div class="qitem"><strong>C</strong><small>pasted 3rd</small></div>
+        <span class="arrow">← every copy joins here while the stack is on</span>
+      </div>
+    </div>
+    <figcaption><strong>Picture 6 · The paste stack.</strong> Oldest first. The badge counts down and disappears when the queue is empty. The app's own pastes never join; turning the stack off clears the queue and keeps the items in history. The queue lives in the menu bar menu; there is no window for it.</figcaption>
+  </figure>
+</section>
+
+<div class="part" id="core"><div class="eyebrow">Part 1</div><h2>Core features</h2><p class="muted">Each check is one thing you do by hand. Tick it here; ticks are saved in this browser.</p></div>
+
+<section aria-label="Core features">
+  <article class="feature" id="C1">
+    <header><span class="fid">C1</span><h3>Save what you copy</h3></header>
+    <p class="prose">Every copy is saved with all its formats and the app it came from (picture 3). A repeat copy is not saved twice: the card moves to the top and takes the newer copy's formats and app, keeping its title and pinboard (picture 4).</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C1-1"><span><b>AC1</b>Copy a word in TextEdit. Within 1 s it is the top card, labelled Text from TextEdit.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C1-2"><span><b>AC2</b>Copy bold, coloured text. Paste it from the panel into TextEdit. Still bold and coloured.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C1-3"><span><b>AC3</b>One copy per kind in picture 3: image from Preview, file from Finder, apple.com from Safari's address bar and again as plain text from TextEdit (both are links), a colour from the colour picker. Each card shows the right kind.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C1-4"><span><b>AC4</b>Same text twice, five minutes apart: one card, with the second copy's time.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C1-4b"><span><b>AC4b</b>Same words from Safari, then Terminal: one card. It now says Terminal and pastes plain. Copy from Safari again: it says Safari and pastes formatted.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C1-5"><span><b>AC5</b>Paste from the panel: no new card, the item moves to the top.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C1-6"><span><b>AC6</b>Copy a 200 MB image from Preview: no freeze, image saved. One format over 256 MB is skipped and the item's other formats stay. One item never passes 1 GB.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="C2">
+    <header><span class="fid">C2</span><h3>Shortcut and panel</h3></header>
+    <p class="prose">Picture 1, driven by picture 2. Newest card on the left; the row scrolls sideways.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C2-1"><span><b>AC1</b>⇧⌘V in any app, a full-screen app, and another Space: the panel appears above the Dock on the mouse's screen, cursor in search.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C2-2"><span><b>AC2</b>Every key under Open, Move and Paste in picture 2 does what it says.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C2-2b"><span><b>AC2b</b>Trackpad sideways scroll and a mouse wheel both move the row.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C2-3"><span><b>AC3</b>The app behind keeps its active title bar; a paste goes into it.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C2-4"><span><b>AC4</b>Click outside: the panel closes.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C2-5"><span><b>AC5</b>Side by side with Paste, layout and behaviour match. You judge this.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="C3">
+    <header><span class="fid">C3</span><h3>Paste into the app you're using</h3></header>
+    <p class="prose">Picture 5. Needs Accessibility; without it the item goes to the clipboard and a one-line message says why.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C3-1"><span><b>AC1</b>Accessibility allowed. In Notes: ⇧⌘V, pick a card, Return. Pasted at the cursor.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C3-2"><span><b>AC2</b>Accessibility off, same steps: item on the clipboard, panel closes, message shown, ⌘V pastes it.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C3-3"><span><b>AC3</b>Dvorak layout: still pastes, no stray character.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C3-4"><span><b>AC4</b>Setting "Paste items: to active app / to clipboard only" changes what Return does.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="C4">
+    <header><span class="fid">C4</span><h3>Paste as plain text</h3></header>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C4-1"><span><b>AC1</b>⇧Return (or ⇧-double-click) pastes formatted text into TextEdit without formatting.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C4-2"><span><b>AC2</b>"Always paste as plain text" on: Return and ⇧Return both paste plain. No way to override.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="C5">
+    <header><span class="fid">C5</span><h3>Quick paste</h3></header>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C5-1"><span><b>AC1</b>⌘3 pastes the third visible card.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C5-2"><span><b>AC2</b>After a search, ⌘1 pastes the first result.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="C6">
+    <header><span class="fid">C6</span><h3>Search</h3></header>
+    <p class="prose">Filters as you type. Looks at text, text inside images (E2), link titles and the source app's name. One letter shows the full list; search starts at two.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C6-1"><span><b>AC1</b>Part of a word you copied: matches appear, best and newest first.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C6-2"><span><b>AC2</b>A word that only exists inside a copied screenshot: found.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C6-3"><span><b>AC3</b>"safari": items copied from Safari.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C6-4"><span><b>AC4</b>With 10,000 items, results update with no visible delay.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C6-5"><span><b>AC5</b><code>"hello</code>, <code>don't</code>, <code>c++</code>, <code>OR</code>, <code>NOT</code>: normal results, never an error or a wrongly empty list.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="C7">
+    <header><span class="fid">C7</span><h3>Card previews</h3></header>
+    <p class="prose">The "Card" row of picture 3.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C7-1"><span><b>AC1</b>Image cards show the image; file cards a Quick Look preview or the icon; text cards the first lines.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C7-2"><span><b>AC2</b>Scroll fast through 10,000 mixed cards: smooth; a blank card always fills in.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="C8">
+    <header><span class="fid">C8</span><h3>Privacy rules</h3></header>
+    <p class="prose">The top of picture 4: passwords, items marked secret or temporary, and ignored apps are never saved. The check runs before any data is read.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C8-1"><span><b>AC1</b>Copy a password from Apple Passwords or 1Password: nothing appears.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C8-2"><span><b>AC2</b>Items marked <code>org.nspasteboard.ConcealedType</code>, <code>TransientType</code> or <code>AutoGeneratedType</code> are never saved (the README has test commands).</span></label></li>
+      <li><label><input type="checkbox" id="ac-C8-3"><span><b>AC3</b>Settings → Ignored apps starts with common password managers. Add one with the app picker, remove one. Copies from an added app are not saved.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C8-4"><span><b>AC4</b>A Universal Clipboard copy from an iPhone is saved like any other.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="C9">
+    <header><span class="fid">C9</span><h3>Keep forever, erase on request</h3></header>
+    <p class="prose">Nothing is deleted on its own. Settings → "Erase history…" asks first and keeps pinboards.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C9-1"><span><b>AC1</b>Items from weeks ago are still there.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C9-2"><span><b>AC2</b>Erase and confirm: history empty; pinboards untouched, images included; the app's data on disk is smaller.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="C10">
+    <header><span class="fid">C10</span><h3>Menu bar and open at login</h3></header>
+    <p class="prose">No Dock icon. The menu bar menu: Open panel · New text item · Pause · Paste stack and its queue · Settings · Quit.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-C10-1"><span><b>AC1</b>No Dock icon. The menu works with the keyboard and VoiceOver.</span></label></li>
+      <li><label><input type="checkbox" id="ac-C10-2"><span><b>AC2</b>"Open at login" on, log out and in: the app is running.</span></label></li>
+    </ul>
+  </article>
+</section>
+
+<div class="part" id="nice"><div class="eyebrow">Part 1</div><h2>Nice-to-have</h2></div>
+
+<section aria-label="Nice-to-have features">
+  <article class="feature" id="N1">
+    <header><span class="fid">N1</span><h3>Pause</h3></header>
+    <p class="prose">Menu bar: pause saving for 15 minutes, 1 hour, or until you resume. The icon changes while paused.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N1-1"><span><b>AC1</b>Pause 15 minutes, copy something: not saved. Resume or wait: saved again.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N2">
+    <header><span class="fid">N2</span><h3>Hide during screen sharing</h3></header>
+    <p class="prose">Hidden from recordings and sharing by default; a setting shows it. Newer macOS may ignore this; slice 6 finds out.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N2-1"><span><b>AC1</b>A QuickTime screen recording doesn't show the panel. Turn the setting on: now it does.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N3">
+    <header><span class="fid">N3</span><h3>Pinboards</h3></header>
+    <p class="prose">Named lists of items to keep; an item sits on at most one. Tabs in picture 1, ⌘[ and ⌘] to switch.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N3-1"><span><b>AC1</b>Create "Snippets", pin an item with right-click or ⌘P: it is on that tab.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N3-2"><span><b>AC2</b>Rename it, then delete it: the app asks first, and its items return to history.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N3-3"><span><b>AC3</b>Pinned items survive Erase history.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N4">
+    <header><span class="fid">N4</span><h3>Filters</h3></header>
+    <div class="cols">
+      <div class="card"><div class="eyebrow">Type</div><div class="chips"><span class="chip">Text</span><span class="chip">Image</span><span class="chip">Link</span><span class="chip">File</span><span class="chip">Colour</span></div></div>
+      <div class="card"><div class="eyebrow">Date</div><div class="chips"><span class="chip">Today</span><span class="chip">Last 7 days</span><span class="chip">Last 30 days</span><span class="chip">Any time</span></div></div>
+    </div>
+    <p class="prose">Filters combine with search. No filter by app: typing the app's name in search does that.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N4-1"><span><b>AC1</b>Image + Last 7 days: only images from the past week.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N4-2"><span><b>AC2</b>Clear: the full list is back.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N5">
+    <header><span class="fid">N5</span><h3>Large preview</h3></header>
+    <p class="prose">The "Space" row of picture 3, shown above the row.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N5-1"><span><b>AC1</b>Long text card, Space: scroll through all of it. Space or Esc closes.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N5-2"><span><b>AC2</b>PDF file card, Space: Quick Look opens it.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N6">
+    <header><span class="fid">N6</span><h3>Paste stack</h3></header>
+    <p class="prose">Picture 6. No default key to turn it on, because ⌥⇧⌘V already means "Paste and Match Style" in Apple's apps. "Add to stack" in the actions menu adds an item by hand.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N6-1"><span><b>AC1</b>Stack on; copy A, B, C: badge shows 3. In TextEdit, ⌃⌥⌘V three times: A, B, C in that order. Badge gone.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N6-2"><span><b>AC2</b>Stack off: queue cleared, items still in history.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature is-dropped" id="N7">
+    <header><span class="fid">N7</span><h3>Shortcuts app actions</h3><span class="pill p-bad">Removed</span></header>
+    <p class="prose muted">About 100 lines for automations you don't use.</p>
+  </article>
+
+  <article class="feature" id="N8">
+    <header><span class="fid">N8</span><h3>Item actions menu</h3></header>
+    <div class="chips"><span class="chip">Paste</span><span class="chip">Paste as plain text</span><span class="chip">Copy</span><span class="chip">Pin to…</span><span class="chip">Add to stack</span><span class="chip">Edit (E3)</span><span class="chip">Rename… (N10)</span><span class="chip">Duplicate (N10)</span><span class="chip">Share…</span><span class="chip">Open with…</span><span class="chip">Show in Finder (files)</span><span class="chip">Delete</span></div>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N8-1"><span><b>AC1</b>Every action works, and ⌘K then the arrow keys reaches each one.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N9">
+    <header><span class="fid">N9</span><h3>Create a text item</h3></header>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N9-1"><span><b>AC1</b>⌘N in the panel (or the menu bar item), type "Hello", Save: new text card at the top.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N9-2"><span><b>AC2</b>⌘N, type, Cancel: no new card.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N10">
+    <header><span class="fid">N10</span><h3>Rename and duplicate</h3></header>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N10-1"><span><b>AC1</b>Rename an item "Home address": the card shows it and "home" finds it.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N10-2"><span><b>AC2</b>Rename to empty: the first line is back.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N10-3"><span><b>AC3</b>Duplicate: identical card at the top. Edit the copy with "Replace original": the first is unchanged.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N11">
+    <header><span class="fid">N11</span><h3>Select several items</h3></header>
+    <p class="prose">Keys under "Select several" in picture 2. Pasting several writes one clipboard item per card, left to right, like Paste; some apps paste only the first.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N11-1"><span><b>AC1</b>Three text cards, Return in TextEdit: all three, in order.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N11-2"><span><b>AC2</b>⌘-click two cards that aren't neighbours: both selected.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N11-3"><span><b>AC3</b>Five cards, Delete: "Delete 5 items?", confirm, all gone.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N11-4"><span><b>AC4</b>Three file cards pasted into a Finder folder: all three files copied.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N11-5"><span><b>AC5</b>A text card and an image card, Return in TextEdit: both, left one first.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N12">
+    <header><span class="fid">N12</span><h3>Drag cards into other apps</h3></header>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N12-1"><span><b>AC1</b>Text card into TextEdit: the text appears at the drop point.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N12-2"><span><b>AC2</b>Image card into Keynote: the image appears.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N12-3"><span><b>AC3</b>File card onto the Desktop: copied there. If the original is gone, the card says so and nothing is dragged.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N12-4"><span><b>AC4</b>Two selected text cards into TextEdit: both appear.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="N13">
+    <header><span class="fid">N13</span><h3>Resize the panel</h3></header>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-N13-1"><span><b>AC1</b>Drag the top edge up: panel and cards get taller.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N13-2"><span><b>AC2</b>Quit and reopen: same height.</span></label></li>
+      <li><label><input type="checkbox" id="ac-N13-3"><span><b>AC3</b>First launch 332 pt; never under 252 or over 412.</span></label></li>
+    </ul>
+  </article>
+</section>
+
+<div class="part" id="extras"><div class="eyebrow">Part 1</div><h2>Extras you added</h2></div>
+
+<section aria-label="Extra features">
+  <article class="feature" id="E1">
+    <header><span class="fid">E1</span><h3>Link previews</h3><span class="pill p-good">Starts on</span></header>
+    <p class="prose">Title and icon fetched in the background; off in Settings. Fetching can use up a one-time link, including an address copied as plain text, such as a magic link from an email. The setting says so.</p>
+    <div class="cols">
+      <div class="card"><div class="eyebrow">Never fetched: this Mac or your local network</div>
+        <div class="chips"><code>localhost</code><code>*.local</code><code>127.x</code><code>10.x</code><code>172.16–31.x</code><code>192.168.x</code><code>169.254.x</code><code>IPv6 loopback</code><code>IPv6 private</code></div></div>
+      <div class="card"><div class="eyebrow">Never fetched: protected items</div><ul class="bul"><li>Items from ignored apps</li><li>Items marked as secret</li></ul></div>
+    </div>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-E1-1"><span><b>AC1</b>Fresh install, copy https://www.apple.com: within seconds the card says "Apple" with the Apple icon.</span></label></li>
+      <li><label><input type="checkbox" id="ac-E1-1b"><span><b>AC1b</b>http://192.168.1.1/ and http://localhost:8080/: not fetched; the log says "skipped: local address".</span></label></li>
+      <li><label><input type="checkbox" id="ac-E1-2"><span><b>AC2</b>Previews off, copy a new link: address only, no network request (Little Snitch or the log).</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="E2">
+    <header><span class="fid">E2</span><h3>Text in images</h3></header>
+    <p class="prose">OCR on your Mac, in the background; the text is searchable (C6). No Spotlight indexing, so deleted items never linger there.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-E2-1"><span><b>AC1</b>Copy a screenshot of a web page, wait ~10 s, search a word from it: found.</span></label></li>
+      <li><label><input type="checkbox" id="ac-E2-2"><span><b>AC2</b>Delete it, search the word in Spotlight: nothing from this app.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="E3">
+    <header><span class="fid">E3</span><h3>Item editing</h3></header>
+    <p class="prose">⌘E or Edit. Text: bold, italic, underline, strikethrough (⌘B ⌘I ⌘U). Images: rotate, remove the background.</p>
+    <figure>
+      <div class="scroll">
+        <div class="queue" role="img" aria-label="Editing an item: Save as new item creates a new item at the top and keeps the original. Replace original changes the original after you confirm.">
+          <div class="qitem"><strong>Original</strong><small>web table, all formatting</small></div>
+          <span class="arrow">Save as new item (default) →</span>
+          <div class="qitem next"><strong>New item at the top</strong><small>your edited copy</small></div>
+          <span class="arrow">+</span>
+          <div class="qitem"><strong>Original</strong><small>unchanged</small></div>
+          <span class="arrow">or Replace original → confirm →</span>
+          <div class="qitem"><strong>Original, edited</strong><small>same card, no copy kept</small></div>
+        </div>
+      </div>
+      <figcaption>Replace asks first because it can't be undone and the editor can't keep everything, such as tables. Cancel creates nothing.</figcaption>
+    </figure>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-E3-1"><span><b>AC1</b>Bold a word, Save as new item, paste into TextEdit: bold. Original unchanged.</span></label></li>
+      <li><label><input type="checkbox" id="ac-E3-2"><span><b>AC2</b>Rotate an image right, save: new item rotated on the card and when pasted; original not.</span></label></li>
+      <li><label><input type="checkbox" id="ac-E3-3"><span><b>AC3</b>Remove the background from a photo of a person, paste into Keynote: transparent.</span></label></li>
+      <li><label><input type="checkbox" id="ac-E3-4"><span><b>AC4</b>Change things, Cancel: nothing changes, no new item.</span></label></li>
+      <li><label><input type="checkbox" id="ac-E3-5"><span><b>AC5</b>Copy a web table, fix a typo, Save as new item: the original still pastes with its formatting.</span></label></li>
+      <li><label><input type="checkbox" id="ac-E3-6"><span><b>AC6</b>Replace original: a confirmation; confirm: same card shows the edit, no new card. Cancel the confirmation: nothing changes.</span></label></li>
+    </ul>
+  </article>
+
+  <article class="feature" id="E4">
+    <header><span class="fid">E4</span><h3>Welcome window</h3></header>
+    <p class="prose">First launch only: shows the panel shortcut (changeable), a Grant Accessibility button with live status, and the Open at login switch.</p>
+    <ul class="ac">
+      <li><label><input type="checkbox" id="ac-E4-1"><span><b>AC1</b>Appears on a fresh install, never on later launches.</span></label></li>
+      <li><label><input type="checkbox" id="ac-E4-2"><span><b>AC2</b>Grant Accessibility, allow it in System Settings: the window shows it is allowed, no restart.</span></label></li>
+      <li><label><input type="checkbox" id="ac-E4-3"><span><b>AC3</b>Usable with VoiceOver and the keyboard alone.</span></label></li>
+    </ul>
+  </article>
+</section>
+
+<section id="everywhere" aria-labelledby="ev-h">
+  <h2 id="ev-h">Applies everywhere</h2>
+  <div class="cols">
+    <div class="card"><h4>Looks like a Mac app</h4>
+      <p>Standard controls, system colours, SF Symbols; light and dark; Reduce Motion and Increase Contrast respected. "Settings", not "Preferences".</p>
+      <ul class="ac"><li><label><input type="checkbox" id="ac-EV-1"><span><b>AC</b>Switch Light/Dark with the panel open: it changes at once and stays readable. Reduce Motion on: it appears without animation.</span></label></li></ul>
+    </div>
+    <div class="card"><h4>Accessibility</h4>
+      <p>Every control has a VoiceOver label. A card reads as "Card 1 of 120. Text from Safari, 2 minutes ago: Hello world". Everything works with the keyboard alone.</p>
+    </div>
+    <div class="card"><h4>Clipboard access (macOS 15.4+)</h4>
+      <p>On the first read macOS asks "ClipboardManager wants to paste from TextEdit" and lists the app under Privacy &amp; Security → Paste from Other Apps, set to Ask. Set it to Allow once. The app checks the setting on every tick; if it is Deny or still Ask, the panel and menu show a message with a button to that page. It never stops saving silently. Slice 1.</p>
+    </div>
+  </div>
+</section>
+
+</div>
+<div class="tab" id="tab-design">
+<div class="part"><h2>Stack and layout</h2></div>
+<section id="stack" aria-labelledby="stack-h">
+  <h2 id="stack-h">Tech stack</h2>
+  <div class="shortcuts">
+    <div class="sc"><div class="eyebrow">Language</div><strong>Swift 6.2</strong><span class="muted">strict concurrency on; app target main-actor by default</span></div>
+    <div class="sc"><div class="eyebrow">UI</div><strong>SwiftUI</strong><span class="muted">plus one AppKit <code>NSPanel</code> shell for the docked panel</span></div>
+    <div class="sc"><div class="eyebrow">Storage</div><strong>SQLite + FTS5</strong><span class="muted">through GRDB 7; formats over 1 MB as files</span></div>
+    <div class="sc"><div class="eyebrow">System services</div><strong>AppKit, CoreGraphics</strong><span class="muted"><code>NSPasteboard</code>, <code>NSWorkspace</code>, <code>CGEvent</code> for ⌘V</span></div>
+    <div class="sc"><div class="eyebrow">Shortcuts</div><strong>KeyboardShortcuts 3</strong><span class="muted">global keys and the recorder box</span></div>
+    <div class="sc"><div class="eyebrow">Previews and OCR</div><strong>ImageIO, Quick Look, Vision</strong><span class="muted">512 px thumbnails; on-device text recognition</span></div>
+    <div class="sc"><div class="eyebrow">Tests</div><strong>Swift Testing, XCTest UI</strong><span class="muted">unit and integration in the package; UI tests drive the real app</span></div>
+    <div class="sc"><div class="eyebrow">Build and target</div><strong>Xcode 26 · macOS 26+</strong><span class="muted">sandboxed, hardened runtime, signed for this Mac</span></div>
+  </div>
+</section>
+
+<section id="libs" aria-labelledby="libs-h">
+  <h2 id="libs-h">Libraries</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Need</th><th>Library</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td>Global shortcuts, and the recorder box in Settings</td><td><a href="https://github.com/sindresorhus/KeyboardShortcuts">KeyboardShortcuts</a> 3.1.0, MIT</td><td>Registers shortcuts and gives us the recorder box that warns about taken shortcuts. Works in the sandbox. Maccy uses it.</td></tr>
+      <tr><td>SQLite with full-text search</td><td><a href="https://github.com/groue/GRDB.swift">GRDB.swift</a> 7.12.0, MIT</td><td>Same SQLite as macOS, so same speed. Adds safe FTS5 search, upgrade steps, reads during writes, and live updates for the cards. SwiftData and Core Data have no fast full-text search, which we need at 100,000 items.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="prose">Skipped: Sauce (finding the V key is 30 lines with <code>UCKeyTranslate</code>), Defaults, LaunchAtLogin-Modern, Settings, Sparkle, and SwiftLint. macOS or SwiftUI already covers each.</p>
+</section>
+<section id="shape" aria-labelledby="shape-h">
+  <h2 id="shape-h">Project layout (with Xcode)</h2>
+  <div class="cols">
+    <pre><code>clipboard-manager/
+  ClipboardManager.xcodeproj   # the app: signing, sandbox permissions, Info.plist
+  App/                         # what you see: windows, menu bar, panel, editor
+  Packages/ClipCore/           # local package with two modules:
+    ClipCore                   #   rules, storage and services, no UI
+    ClipSystem                 #   code that talks to macOS
+  AppUITests/                  # tests that drive the real app
+  docs/</code></pre>
+    <div class="card">
+      <h4>Why three parts</h4>
+      <p>ClipCore holds the rules and has no UI, so we can test it quickly without starting the app. ClipSystem holds the code that talks to macOS. It sits in the package too, so its tests also run without the app. The app holds what you see, and what only Xcode handles: signing and permissions.</p>
+      <p class="muted">Part 3 explains this in detail, with a full folder list. This replaces the two-part layout from earlier versions of the plan.</p>
+    </div>
+  </div>
+</section>
+<div class="part"><h2>Code architecture</h2><p class="muted">Three rings; dependencies point inward; ports where our code meets macOS.</p></div>
+<section id="rings" aria-labelledby="rings-h">
+  <h2 id="rings-h">Our rings</h2>
+  <p class="prose">This is Clean Architecture made small. There are three rings. Arrows mean "depends on". They always point inward.</p>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 1000 470" role="img" aria-labelledby="rings-t" style="min-width:860px">
+        <title id="rings-t">Three rings. In the centre: model and rules, in plain Swift. Around them: services and ports, also in ClipCore. Outside: ClipSystem, which talks to macOS, and the App target, which is what you see. Both outer parts depend inward on ClipCore.</title>
+        <defs><marker id="m6" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-acc"/></marker></defs>
+        <rect x="10" y="10" width="980" height="450" rx="18" class="lane"/>
+        <text x="500" y="36" text-anchor="middle" class="t-mono">OUTER RING · CODE THAT TALKS TO THE OUTSIDE WORLD</text>
+
+        <text x="30" y="84" class="t-m t-b">ClipSystem</text>
+        <text x="30" y="102" class="t-s t-muted">talks to macOS</text>
+        <g class="t-mono"><text x="30" y="132">SystemClipboard</text><text x="30" y="154">KeyPresser</text><text x="30" y="176">FrontmostAppReader</text><text x="30" y="198">AccessibilityStatus</text><text x="30" y="220">LinkFetcher</text><text x="30" y="242">Thumbnailer</text><text x="30" y="264">TextRecognizer</text><text x="30" y="286">ImageEditor</text></g>
+
+        <text x="970" y="84" text-anchor="end" class="t-m t-b">App target</text>
+        <text x="970" y="102" text-anchor="end" class="t-s t-muted">what you see</text>
+        <g class="t-mono" text-anchor="end"><text x="970" y="132">AppModel (wiring)</text><text x="970" y="154">Panel</text><text x="970" y="176">CardRow</text><text x="970" y="198">LargePreview</text><text x="970" y="220">MenuBar</text><text x="970" y="242">Settings</text><text x="970" y="264">Editor</text><text x="970" y="286">Welcome</text></g>
+
+        <rect x="250" y="56" width="500" height="390" rx="16" class="b-plain"/>
+        <text x="500" y="82" text-anchor="middle" class="t-mono">CLIPCORE · SERVICES AND PORTS</text>
+        <text x="500" y="108" text-anchor="middle" class="t-m">CaptureService · PasteService · Store · Enricher</text>
+        <text x="500" y="404" text-anchor="middle" class="t-mono">PORTS (PROTOCOLS)</text>
+        <text x="500" y="426" text-anchor="middle" class="t-s">Clipboard · KeyPressing · FrontmostApp · AccessibilityStatus · LinkFetching</text>
+
+        <rect x="320" y="128" width="360" height="252" rx="14" class="b-gate"/>
+        <text x="500" y="154" text-anchor="middle" class="t-mono">CLIPCORE · MODEL AND RULES</text>
+        <text x="500" y="174" text-anchor="middle" class="t-s t-muted">plain Swift and Foundation only</text>
+        <g class="t-mono"><text x="345" y="206">Item</text><text x="345" y="228">ItemSummary</text><text x="345" y="250">Format</text><text x="345" y="272">ItemKind</text><text x="345" y="294">Pinboard</text><text x="345" y="316">CapturedCopy</text></g>
+        <g class="t-mono"><text x="515" y="206">PrivacyRules</text><text x="515" y="228">DuplicateKey</text><text x="515" y="250">ItemFilter</text><text x="515" y="272">LocalAddress</text><text x="515" y="294">PasteStack</text><text x="515" y="316">PauseState</text><text x="515" y="338">DateRange</text><text x="515" y="360">CardSelection</text></g>
+
+        <path d="M210 300 C 250 340, 300 380, 330 410" class="ln-acc" marker-end="url(#m6)"/>
+        <text x="150" y="330" class="t-s t-acc">implements the ports</text>
+        <path d="M800 300 C 760 220, 760 120, 752 108" class="ln-acc" marker-end="url(#m6)"/>
+        <text x="772" y="330" class="t-s t-acc">uses the services</text>
+        <path d="M500 114 V125" class="ln-acc" marker-end="url(#m6)"/>
+      </svg>
+    </div>
+    <figcaption>The centre never changes because of macOS or the UI. That is what makes it quick to test. Where a service needs macOS, it asks a port, and ClipSystem answers.</figcaption>
+  </figure>
+  <div class="callout">
+    <strong>One deliberate shortcut</strong>
+    <p>Strict Clean Architecture would hide <code>Store</code> behind a "repository" protocol, in an outer ring. We don't. There is only one database. Tests use a real SQLite file in a temporary folder, which takes milliseconds. A protocol and a fake for it would add code, and the fake could drift from the real behaviour.</p>
+  </div>
+</section>
+<section id="modules" aria-labelledby="mod-h">
+  <h2 id="mod-h">Modules and what each may use</h2>
+  <p class="prose">This updates the two-part layout in Part 2. The local package now has two modules instead of one. The extra module holds the code that talks to macOS. That lets us test it with <code>swift test</code>, without launching the app.</p>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 340" role="img" aria-labelledby="mod-t" style="min-width:760px">
+        <title id="mod-t">Module graph. The App target depends on ClipSystem, ClipCore, KeyboardShortcuts, SwiftUI and AppKit. ClipSystem depends on ClipCore and on Apple frameworks like AppKit and Vision. ClipCore depends only on Foundation, CryptoKit, os and the GRDB library.</title>
+        <defs><marker id="m7" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+        <rect x="340" y="20" width="220" height="60" rx="10" class="b-gate"/>
+        <text x="450" y="46" text-anchor="middle" class="t-m t-b">App target</text>
+        <text x="450" y="65" text-anchor="middle" class="t-mono">ClipboardManager</text>
+        <rect x="640" y="20" width="240" height="60" rx="10" class="b-warn"/>
+        <text x="760" y="46" text-anchor="middle" class="t-m t-b">KeyboardShortcuts 3.1.0</text>
+        <text x="760" y="65" text-anchor="middle" class="t-s t-muted">outside library 1 of 2</text>
+        <rect x="20" y="20" width="240" height="60" rx="10" class="b-plain"/>
+        <text x="140" y="46" text-anchor="middle" class="t-m t-b">SwiftUI, AppKit</text>
+        <text x="140" y="65" text-anchor="middle" class="t-s t-muted">for windows and views</text>
+        <rect x="170" y="150" width="240" height="60" rx="10" class="b-gate"/>
+        <text x="290" y="176" text-anchor="middle" class="t-m t-b">ClipSystem</text>
+        <text x="290" y="195" text-anchor="middle" class="t-s t-muted">adapters to macOS</text>
+        <rect x="490" y="150" width="240" height="60" rx="10" class="b-good"/>
+        <text x="610" y="176" text-anchor="middle" class="t-m t-b">ClipCore</text>
+        <text x="610" y="195" text-anchor="middle" class="t-s t-muted">model, rules, services, ports</text>
+        <rect x="20" y="265" width="400" height="60" rx="10" class="b-plain"/>
+        <text x="220" y="290" text-anchor="middle" class="t-s">AppKit, CoreGraphics, Carbon (key layout), Vision,</text>
+        <text x="220" y="308" text-anchor="middle" class="t-s">ImageIO, QuickLookThumbnailing, LinkPresentation</text>
+        <rect x="490" y="265" width="390" height="60" rx="10" class="b-plain"/>
+        <text x="685" y="290" text-anchor="middle" class="t-s">Foundation, CryptoKit, os</text>
+        <text x="685" y="308" text-anchor="middle" class="t-s t-bad">never AppKit, SwiftUI or Vision</text>
+        <path d="M560 50 H637" class="ln" marker-end="url(#m7)"/>
+        <path d="M340 50 H263" class="ln" marker-end="url(#m7)"/>
+        <path d="M410 80 L320 147" class="ln" marker-end="url(#m7)"/>
+        <path d="M490 80 L580 147" class="ln" marker-end="url(#m7)"/>
+        <path d="M410 180 H487" class="ln" marker-end="url(#m7)"/>
+        <rect x="760" y="150" width="130" height="60" rx="10" class="b-warn"/>
+        <text x="825" y="176" text-anchor="middle" class="t-m t-b">GRDB 7.12.0</text>
+        <text x="825" y="195" text-anchor="middle" class="t-s t-muted">outside library 2 of 2</text>
+        <path d="M730 180 H757" class="ln" marker-end="url(#m7)"/>
+        <path d="M250 210 L230 262" class="ln" marker-end="url(#m7)"/>
+        <path d="M640 210 L660 262" class="ln" marker-end="url(#m7)"/>
+      </svg>
+    </div>
+    <figcaption>Arrows mean "depends on". A small script checks the imports in ClipCore on every test run. If someone adds <code>import AppKit</code> there, the tests fail. The same script checks that only files in <code>Storage/</code> import GRDB.</figcaption>
+  </figure>
+  <div class="cols">
+    <div>
+      <div class="eyebrow">Package.swift (a sketch)</div>
+      <pre><code>// swift-tools-version: 6.2
+import PackageDescription
+
+let package = Package(
+    name: "ClipCore",
+    platforms: [.macOS(.v26)],
+    dependencies: [
+        .package(url: "https://github.com/groue/GRDB.swift", exact: "7.12.0"),
+    ],
+    products: [
+        .library(name: "ClipCore", targets: ["ClipCore"]),
+        .library(name: "ClipSystem", targets: ["ClipSystem"]),
+    ],
+    targets: [
+        .target(
+            name: "ClipCore",
+            dependencies: [.product(name: "GRDB", package: "GRDB.swift")]
+        ),
+        .target(name: "ClipSystem", dependencies: ["ClipCore"]),
+        .testTarget(name: "ClipCoreTests", dependencies: ["ClipCore"]),
+        .testTarget(
+            name: "ClipSystemTests",
+            dependencies: ["ClipSystem"],
+            resources: [.copy("Fixtures")]
+        ),
+    ]
+)</code></pre>
+    </div>
+    <div class="card">
+      <h4>Who may import what</h4>
+      <div class="tbl"><table>
+        <thead><tr><th>Module</th><th>May use</th></tr></thead>
+        <tbody>
+          <tr><td>ClipCore</td><td>Foundation, CryptoKit (for fingerprints), os (for logs) and GRDB. Only files in <code>Storage/</code> may import GRDB.</td></tr>
+          <tr><td>ClipSystem</td><td>ClipCore, plus any Apple framework it needs to talk to macOS.</td></tr>
+          <tr><td>App</td><td>ClipCore, ClipSystem, SwiftUI, AppKit and KeyboardShortcuts. Never GRDB directly.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</section>
+<section id="folders" aria-labelledby="fold-h">
+  <h2 id="fold-h">Folder layout</h2>
+  <p class="prose">The app groups files by feature. ClipCore groups files by topic. Every file name says what is inside.</p>
+  <pre><code>clipboard-manager/
+├─ ClipboardManager.xcodeproj
+├─ ClipboardManager.xctestplan        # "Fast" and "Full" test runs
+├─ App/
+│  ├─ ClipboardManagerApp.swift       # @main: menu bar, Settings and Welcome scenes
+│  ├─ AppModel.swift                  # creates the services and connects them
+│  ├─ Features/
+│  │  ├─ Panel/       PanelWindow.swift (NSPanel shell) · PanelView.swift · PanelModel.swift
+│  │  │               CardRow.swift · ItemCard.swift · LargePreview.swift · FilterMenu.swift
+│  │  ├─ Paste/       PasteController.swift · AccessibilityHint.swift
+│  │  ├─ MenuBar/     MenuBarContent.swift · PauseMenu.swift · StackMenu.swift
+│  │  ├─ Actions/     ItemActionsMenu.swift · RenameSheet.swift
+│  │  ├─ Settings/    SettingsView.swift · IgnoredAppsView.swift · ShortcutNames.swift
+│  │  ├─ Editor/      TextItemEditor.swift · ImageItemEditor.swift · EditorModel.swift
+│  │  └─ Welcome/     WelcomeView.swift
+│  └─ Resources/      Assets.xcassets · Info.plist · ClipboardManager.entitlements
+├─ Packages/ClipCore/
+│  ├─ Package.swift
+│  ├─ Sources/
+│  │  ├─ ClipCore/
+│  │  │  ├─ Model/    Item.swift · ItemSummary.swift · Format.swift · ItemKind.swift · Pinboard.swift
+│  │  │  ├─ Rules/    PrivacyRules.swift · DuplicateKey.swift · ItemFilter.swift · LocalAddress.swift
+│  │  │  │            PasteStack.swift · PauseState.swift · DateRange.swift · Snippet.swift · CardSelection.swift
+│  │  │  ├─ Ports/    Clipboard.swift · KeyPressing.swift · FrontmostApp.swift
+│  │  │  │            AccessibilityStatus.swift · LinkFetching.swift
+│  │  │  ├─ Services/ CaptureService.swift · PasteService.swift · Enricher.swift
+│  │  │  ├─ Storage/  Store.swift · Migrations.swift · Records.swift · FormatFiles.swift
+│  │  │  └─ Debug/    Seeder.swift                      # only in debug builds
+│  │  └─ ClipSystem/  SystemClipboard.swift · KeyPresser.swift · FrontmostAppReader.swift
+│  │                  SystemAccessibilityStatus.swift · LinkFetcher.swift · Thumbnailer.swift
+│  │                  TextRecognizer.swift · ImageEditor.swift · RichText.swift
+│  └─ Tests/
+│     ├─ ClipCoreTests/    Rules/ · Storage/ · Services/ · Fakes/
+│     └─ ClipSystemTests/  one file per adapter · Fixtures/ (sample images, RTF, HTML)
+├─ AppUITests/             # XCTest UI tests
+├─ scripts/                test.sh · check-imports.sh
+├─ docs/
+└─ README.md</code></pre>
+</section>
+<section id="ports" aria-labelledby="ports-h">
+  <h2 id="ports-h">Ports: where our code meets macOS</h2>
+  <p class="prose">A port is a small protocol. ClipCore defines it. The real app plugs in the macOS version. Tests plug in a fake. We only add a port where a test needs a fake. There are five.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Port</th><th>Real version (ClipSystem)</th><th>Fake version (tests)</th><th>Why a fake is needed</th></tr></thead>
+    <tbody>
+      <tr><td><code>Clipboard</code></td><td><code>SystemClipboard</code>, using <code>NSPasteboard</code></td><td><code>FakeClipboard</code>: a list of prepared copies</td><td>Tests must never read or change your real clipboard.</td></tr>
+      <tr><td><code>KeyPressing</code></td><td><code>KeyPresser</code>, using <code>CGEvent</code></td><td><code>FakeKeyPresser</code>: counts presses</td><td>A test must not type ⌘V into whatever app is open.</td></tr>
+      <tr><td><code>FrontmostApp</code></td><td><code>FrontmostAppReader</code>, using <code>NSWorkspace</code></td><td><code>FakeFrontmostApp</code>: returns a set app ID</td><td>Tests need to pretend a copy came from a password manager.</td></tr>
+      <tr><td><code>AccessibilityStatus</code></td><td><code>SystemAccessibilityStatus</code>, using <code>AXIsProcessTrusted</code></td><td><code>FakeAccessibility</code>: allowed or not</td><td>Tests need both cases. Changing the real permission needs you.</td></tr>
+      <tr><td><code>LinkFetching</code></td><td><code>LinkFetcher</code>, using <code>LPMetadataProvider</code></td><td><code>FakeLinkFetcher</code>: records which links were asked for</td><td>Tests must not use the network. They must prove local links are never fetched.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="prose">Time is not a port. Code that needs the time takes a small function, <code>now: () -&gt; Date</code>. Tests pass a fixed time.</p>
+  <div class="cols">
+    <div>
+      <div class="eyebrow">Ports.swift (a sketch)</div>
+      <pre><code>@MainActor
+public protocol Clipboard: AnyObject {
+    var changeCount: Int { get }
+    func types() -&gt; [String]
+    func read(maxBytesPerFormat: Int) -&gt; [Format]
+    func write(_ formats: [Format])
+}
+
+public protocol KeyPressing: Sendable {
+    func pressPaste() throws
+}
+
+public protocol LinkFetching: Sendable {
+    func fetch(_ url: URL) async throws -&gt; LinkPreview
+}</code></pre>
+    </div>
+    <div>
+      <div class="eyebrow">PrivacyRules.swift (a sketch)</div>
+      <pre><code>public struct PrivacyRules: Sendable {
+    public static let markerTypes: Set&lt;String&gt; = [
+        "org.nspasteboard.ConcealedType",
+        "org.nspasteboard.TransientType",
+        "org.nspasteboard.AutoGeneratedType",
+        "com.agilebits.onepassword",  // 1Password's older marker, see nspasteboard.org
+    ]
+    public var ignoredApps: Set&lt;String&gt;
+    public var ownMarker: String
+
+    public func decision(types: [String], sourceApp: String?) -&gt; CaptureDecision {
+        if types.contains(ownMarker) { return .moveOwnPasteToTop }
+        if !Self.markerTypes.isDisjoint(with: types) { return .skip }
+        if let sourceApp, ignoredApps.contains(sourceApp) { return .skip }
+        return .save
+    }
+}</code></pre>
+    </div>
+  </div>
+</section>
+<section id="flows" aria-labelledby="flows-h">
+  <h2 id="flows-h">How the parts talk</h2>
+  <h3>Saving a copy</h3>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 560" role="img" aria-labelledby="seq1-t" style="min-width:820px">
+        <title id="seq1-t">Sequence for saving a copy. The timer ticks. CaptureService checks the clipboard's change counter, asks PrivacyRules, reads the data, and asks Store to save it. Store answers with an item ID. CaptureService then asks the Enricher to add previews in the background, and the Enricher saves them through Store.</title>
+        <defs>
+          <marker id="m8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+        </defs>
+        <g>
+          <rect x="15" y="20" width="110" height="44" rx="8" class="b-gate"/><text x="70" y="47" text-anchor="middle" class="t-s t-b">Timer (0.25 s)</text>
+          <rect x="150" y="20" width="120" height="44" rx="8" class="b-gate"/><text x="210" y="47" text-anchor="middle" class="t-s t-b">CaptureService</text>
+          <rect x="295" y="20" width="110" height="44" rx="8" class="b-gate"/><text x="350" y="47" text-anchor="middle" class="t-s t-b">Clipboard port</text>
+          <rect x="430" y="20" width="120" height="44" rx="8" class="b-gate"/><text x="490" y="47" text-anchor="middle" class="t-s t-b">PrivacyRules</text>
+          <rect x="580" y="20" width="120" height="44" rx="8" class="b-good"/><text x="640" y="47" text-anchor="middle" class="t-s t-b">Store (GRDB)</text>
+          <rect x="740" y="20" width="120" height="44" rx="8" class="b-warn"/><text x="800" y="47" text-anchor="middle" class="t-s t-b">Enricher</text>
+        </g>
+        <path d="M70 64 V520 M210 64 V520 M350 64 V520 M490 64 V520 M640 64 V520 M800 64 V520" class="ln-dash"/>
+        <path d="M70 100 H207" class="ln" marker-end="url(#m8)"/><text x="140" y="94" text-anchor="middle" class="t-s">tick()</text>
+        <path d="M210 140 H347" class="ln" marker-end="url(#m8)"/><text x="280" y="134" text-anchor="middle" class="t-s">changeCount</text>
+        <path d="M350 170 H213" class="ln-dash" marker-end="url(#m8)"/><text x="280" y="164" text-anchor="middle" class="t-s t-muted">same? stop. changed? wait 0.3 s</text>
+        <path d="M210 210 H487" class="ln" marker-end="url(#m8)"/><text x="350" y="204" text-anchor="middle" class="t-s">decision(types, sourceApp)</text>
+        <path d="M490 245 H213" class="ln-dash" marker-end="url(#m8)"/><text x="350" y="239" text-anchor="middle" class="t-s t-muted">.skip, .save or .moveOwnPasteToTop</text>
+        <path d="M210 285 H347" class="ln" marker-end="url(#m8)"/><text x="280" y="279" text-anchor="middle" class="t-s">read(max 256 MB each)</text>
+        <path d="M210 325 H637" class="ln" marker-end="url(#m8)"/><text x="425" y="319" text-anchor="middle" class="t-s">await save(copy)</text>
+        <rect x="650" y="340" width="130" height="40" rx="6" class="b-good"/>
+        <text x="715" y="356" text-anchor="middle" class="t-s">insert, or move to top</text>
+        <text x="715" y="371" text-anchor="middle" class="t-s t-muted">one transaction</text>
+        <path d="M640 400 H213" class="ln-dash" marker-end="url(#m8)"/><text x="425" y="394" text-anchor="middle" class="t-s t-muted">item ID</text>
+        <path d="M210 440 H797" class="ln" marker-end="url(#m8)"/><text x="505" y="434" text-anchor="middle" class="t-s">enrich(item), low priority</text>
+        <path d="M800 480 H643" class="ln" marker-end="url(#m8)"/><text x="720" y="474" text-anchor="middle" class="t-s">await setThumbnail / setText</text>
+        <text x="15" y="548" class="t-mono">Blue: main thread · Green: Store · Amber: background</text>
+      </svg>
+    </div>
+    <figcaption>Every step that touches the disk happens inside Store. The main thread only waits for the answer.</figcaption>
+  </figure>
+
+  <h3>Pasting an item</h3>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 960 480" role="img" aria-labelledby="seq2-t" style="min-width:860px">
+        <title id="seq2-t">Sequence for pasting. You press Return. The panel asks PasteService to paste. PasteService gets the formats from Store, writes them to the clipboard with our marker, moves the item to the top and hides the panel. If Accessibility is allowed, it presses Command-V, which the other app receives.</title>
+        <defs><marker id="m9" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+        <g>
+          <rect x="20" y="20" width="100" height="44" rx="8" class="b-plain"/><text x="70" y="47" text-anchor="middle" class="t-s t-b">You</text>
+          <rect x="150" y="20" width="100" height="44" rx="8" class="b-gate"/><text x="200" y="47" text-anchor="middle" class="t-s t-b">Panel</text>
+          <rect x="280" y="20" width="120" height="44" rx="8" class="b-gate"/><text x="340" y="47" text-anchor="middle" class="t-s t-b">PasteService</text>
+          <rect x="430" y="20" width="100" height="44" rx="8" class="b-good"/><text x="480" y="47" text-anchor="middle" class="t-s t-b">Store</text>
+          <rect x="560" y="20" width="120" height="44" rx="8" class="b-gate"/><text x="620" y="47" text-anchor="middle" class="t-s t-b">Clipboard port</text>
+          <rect x="710" y="20" width="110" height="44" rx="8" class="b-gate"/><text x="765" y="47" text-anchor="middle" class="t-s t-b">KeyPressing</text>
+          <rect x="845" y="20" width="100" height="44" rx="8" class="b-plain"/><text x="895" y="47" text-anchor="middle" class="t-s t-b">Other app</text>
+        </g>
+        <path d="M70 64 V450 M200 64 V450 M340 64 V450 M480 64 V450 M620 64 V450 M765 64 V450 M895 64 V450" class="ln-dash"/>
+        <path d="M70 100 H197" class="ln" marker-end="url(#m9)"/><text x="135" y="94" text-anchor="middle" class="t-s">Return</text>
+        <path d="M200 140 H337" class="ln" marker-end="url(#m9)"/><text x="270" y="134" text-anchor="middle" class="t-s">paste(item, plainText:)</text>
+        <path d="M340 180 H477" class="ln" marker-end="url(#m9)"/><text x="410" y="174" text-anchor="middle" class="t-s">formats(of: item)</text>
+        <path d="M480 210 H343" class="ln-dash" marker-end="url(#m9)"/><text x="410" y="204" text-anchor="middle" class="t-s t-muted">formats</text>
+        <path d="M340 250 H617" class="ln" marker-end="url(#m9)"/><text x="480" y="244" text-anchor="middle" class="t-s">write(formats + our marker)</text>
+        <path d="M340 290 H477" class="ln" marker-end="url(#m9)"/><text x="410" y="284" text-anchor="middle" class="t-s">moveToTop(item)</text>
+        <path d="M340 330 H203" class="ln-dash" marker-end="url(#m9)"/><text x="270" y="324" text-anchor="middle" class="t-s t-muted">hide the panel</text>
+        <path d="M340 370 H762" class="ln" marker-end="url(#m9)"/><text x="550" y="364" text-anchor="middle" class="t-s">pressPaste(), only if Accessibility is allowed</text>
+        <path d="M765 410 H892" class="ln" marker-end="url(#m9)"/><text x="830" y="404" text-anchor="middle" class="t-s">⌘V</text>
+        <text x="20" y="472" class="t-mono">Not allowed? PasteService skips the last two steps. The panel shows the hint instead.</text>
+      </svg>
+    </div>
+  </figure>
+
+  <h3>The paste stack, as states</h3>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 780 300" role="img" aria-labelledby="st-t" style="min-width:640px">
+        <title id="st-t">Paste stack states: Off, On and empty, On with items. Turning on goes from Off to On and empty. Copying moves to On with items. Pasting the last item goes back to On and empty. Turning off from either On state clears the queue and returns to Off.</title>
+        <defs><marker id="m10" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+        <rect x="30" y="122" width="150" height="56" rx="28" class="b-plain"/>
+        <text x="105" y="155" text-anchor="middle" class="t-m t-b">Off</text>
+        <rect x="360" y="30" width="200" height="56" rx="28" class="b-gate"/>
+        <text x="460" y="63" text-anchor="middle" class="t-m t-b">On, queue empty</text>
+        <rect x="360" y="214" width="200" height="56" rx="28" class="b-good"/>
+        <text x="460" y="247" text-anchor="middle" class="t-m t-b">On, items waiting</text>
+        <path d="M170 130 C 230 70, 290 58, 357 58" class="ln" marker-end="url(#m10)"/>
+        <text x="190" y="72" class="t-s">turn on (menu)</text>
+        <path d="M360 75 C 300 110, 230 130, 183 140" class="ln-dash" marker-end="url(#m10)"/>
+        <text x="250" y="128" class="t-s t-muted">turn off</text>
+        <path d="M440 86 V211" class="ln" marker-end="url(#m10)"/>
+        <text x="300" y="150" class="t-s">copy, or "Add to stack"</text>
+        <path d="M490 214 V89" class="ln" marker-end="url(#m10)"/>
+        <text x="500" y="150" class="t-s">paste next (last item)</text>
+        <path d="M360 250 C 280 250, 220 210, 160 181" class="ln-dash" marker-end="url(#m10)"/>
+        <text x="190" y="246" class="t-s t-muted">turn off: queue cleared</text>
+        <path d="M560 230 C 640 200, 640 280, 563 255" class="ln" marker-end="url(#m10)"/>
+        <text x="610" y="210" class="t-s">copy: added at the end</text>
+        <text x="610" y="226" class="t-s">paste next: oldest goes</text>
+        <path d="M560 48 C 640 18, 640 98, 563 70" class="ln" marker-end="url(#m10)"/>
+        <text x="610" y="30" class="t-s">paste next:</text>
+        <text x="610" y="46" class="t-s">nothing happens</text>
+      </svg>
+    </div>
+    <figcaption><code>PasteStack</code> is a plain struct with these states. Its unit tests walk every arrow in this picture.</figcaption>
+  </figure>
+</section>
+<section id="runtime" aria-labelledby="run-h">
+  <h2 id="run-h">Who runs where</h2>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 980 470" role="img" aria-labelledby="run-t" style="min-width:820px">
+        <title id="run-t">Four lanes. Other apps and macOS. The main thread, which runs the UI and checks the clipboard. Store, which owns the database file. Background tasks for small previews, text in images and link previews. Background tasks save their results through Store.</title>
+        <defs>
+          <marker id="m3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker>
+          <marker id="m4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah-acc"/></marker>
+        </defs>
+        <rect x="10" y="10" width="200" height="450" rx="12" class="lane"/>
+        <rect x="230" y="10" width="290" height="450" rx="12" class="lane"/>
+        <rect x="540" y="10" width="200" height="450" rx="12" class="lane"/>
+        <rect x="760" y="10" width="210" height="450" rx="12" class="lane"/>
+        <text x="110" y="36" text-anchor="middle" class="t-mono">OTHER APPS AND MACOS</text>
+        <text x="375" y="36" text-anchor="middle" class="t-mono">MAIN THREAD (UI)</text>
+        <text x="640" y="36" text-anchor="middle" class="t-mono">STORE</text>
+        <text x="865" y="36" text-anchor="middle" class="t-mono">BACKGROUND</text>
+
+        <rect x="25" y="60" width="170" height="58" rx="8" class="b-plain"/>
+        <text x="110" y="84" text-anchor="middle" class="t-m t-b">Any app</text>
+        <text x="110" y="102" text-anchor="middle" class="t-s t-muted">you copy here; ⌘V lands here</text>
+        <rect x="25" y="200" width="170" height="58" rx="8" class="b-plain"/>
+        <text x="110" y="224" text-anchor="middle" class="t-m t-b">The clipboard</text>
+        <text x="110" y="242" text-anchor="middle" class="t-mono">NSPasteboard</text>
+        <rect x="25" y="340" width="170" height="58" rx="8" class="b-plain"/>
+        <text x="110" y="364" text-anchor="middle" class="t-m t-b">Keyboard</text>
+        <text x="110" y="382" text-anchor="middle" class="t-s t-muted">you press a shortcut</text>
+
+        <rect x="245" y="60" width="260" height="50" rx="8" class="b-gate"/>
+        <text x="375" y="82" text-anchor="middle" class="t-m t-b">Clipboard check, every 0.25 s</text>
+        <text x="375" y="99" text-anchor="middle" class="t-s t-muted">wait 0.3 s, privacy checks, then read</text>
+        <rect x="245" y="130" width="260" height="50" rx="8" class="b-plain"/>
+        <text x="375" y="152" text-anchor="middle" class="t-m t-b">Docked panel</text>
+        <text x="375" y="169" text-anchor="middle" class="t-s t-muted">AppKit shell, SwiftUI inside</text>
+        <rect x="245" y="200" width="260" height="50" rx="8" class="b-plain"/>
+        <text x="375" y="222" text-anchor="middle" class="t-m t-b">Paste</text>
+        <text x="375" y="239" text-anchor="middle" class="t-s t-muted">clipboard, hide panel, press ⌘V</text>
+        <rect x="245" y="270" width="260" height="50" rx="8" class="b-plain"/>
+        <text x="375" y="292" text-anchor="middle" class="t-m t-b">Menu bar</text>
+        <text x="375" y="309" text-anchor="middle" class="t-s t-muted">pause, paste-stack queue and count</text>
+        <rect x="245" y="340" width="260" height="58" rx="8" class="b-plain"/>
+        <text x="375" y="362" text-anchor="middle" class="t-m t-b">Global shortcuts</text>
+        <text x="375" y="380" text-anchor="middle" class="t-s t-muted">KeyboardShortcuts library</text>
+        <rect x="245" y="410" width="260" height="40" rx="8" class="b-plain"/>
+        <text x="375" y="435" text-anchor="middle" class="t-s">Settings, welcome window, editor (SwiftUI)</text>
+
+        <rect x="555" y="130" width="170" height="90" rx="8" class="b-gate"/>
+        <text x="640" y="158" text-anchor="middle" class="t-m t-b">Store</text>
+        <text x="640" y="177" text-anchor="middle" class="t-s t-muted">the only code that</text>
+        <text x="640" y="193" text-anchor="middle" class="t-s t-muted">touches the disk</text>
+        <text x="640" y="208" text-anchor="middle" class="t-s t-muted">(uses GRDB)</text>
+        <rect x="555" y="290" width="170" height="80" rx="8" class="b-good"/>
+        <text x="640" y="318" text-anchor="middle" class="t-m t-b">SQLite file</text>
+        <text x="640" y="337" text-anchor="middle" class="t-s t-muted">plus one folder per large item</text>
+        <text x="640" y="354" text-anchor="middle" class="t-mono">items · formats · previews · pinboards · search</text>
+
+        <rect x="775" y="100" width="180" height="50" rx="8" class="b-plain"/>
+        <text x="865" y="122" text-anchor="middle" class="t-m t-b">Small previews</text>
+        <text x="865" y="139" text-anchor="middle" class="t-mono">ImageIO, 512 px</text>
+        <rect x="775" y="170" width="180" height="50" rx="8" class="b-plain"/>
+        <text x="865" y="192" text-anchor="middle" class="t-m t-b">Text in images</text>
+        <text x="865" y="209" text-anchor="middle" class="t-mono">Vision</text>
+        <rect x="775" y="240" width="180" height="50" rx="8" class="b-warn"/>
+        <text x="865" y="262" text-anchor="middle" class="t-m t-b">Link previews</text>
+        <text x="865" y="279" text-anchor="middle" class="t-mono">on by default</text>
+        <rect x="775" y="310" width="180" height="60" rx="8" class="b-plain"/>
+        <text x="865" y="334" text-anchor="middle" class="t-m t-b">Very large formats</text>
+        <text x="865" y="352" text-anchor="middle" class="t-s t-muted">moved here only if slice 1</text>
+        <text x="865" y="366" text-anchor="middle" class="t-s t-muted">finds a stall over 50 ms</text>
+
+        <path d="M110 118 V197" class="ln" marker-end="url(#m3)"/>
+        <text x="118" y="164" class="t-s t-muted">copy</text>
+        <path d="M195 222 C 220 222, 220 85, 242 85" class="ln" marker-end="url(#m3)"/>
+        <path d="M245 225 H198" class="ln-acc" marker-end="url(#m4)"/>
+        <path d="M245 215 C 225 215, 225 95, 198 95" class="ln-acc" marker-end="url(#m4)"/>
+        <text x="200" y="196" class="t-s t-acc">⌘V</text>
+        <path d="M195 369 H242" class="ln" marker-end="url(#m3)"/>
+        <path d="M375 340 V183" class="ln-dash" marker-end="url(#m3)"/>
+        <text x="381" y="330" class="t-s t-muted">opens</text>
+        <path d="M505 85 C 530 85, 530 150, 552 150" class="ln" marker-end="url(#m3)"/>
+        <path d="M505 155 H552" class="ln" marker-end="url(#m3)"/>
+        <text x="508" y="128" class="t-mono">waits for</text>
+        <path d="M640 220 V287" class="ln" marker-end="url(#m3)"/>
+        <path d="M775 125 C 745 125, 745 160, 728 165" class="ln" marker-end="url(#m3)"/>
+        <path d="M775 195 H728" class="ln" marker-end="url(#m3)"/>
+        <path d="M775 265 C 745 265, 745 215, 728 210" class="ln" marker-end="url(#m3)"/>
+      </svg>
+    </div>
+    <figcaption>The main thread never touches the disk. The UI asks Store and waits for the answer. Background tasks also save their results through Store.</figcaption>
+  </figure>
+  <div class="cols">
+    <div class="card"><div class="eyebrow">Main thread</div><p>Runs the UI. It also checks the clipboard, reads from it, and writes to it when pasting. The clipboard (<code>NSPasteboard</code>) belongs to the main thread.</p></div>
+    <div class="card"><div class="eyebrow">Store</div><p>Owns the database and the large-format folders. Nothing else writes to disk. Every Store call is async and does its work off the main thread, including the duplicate-key hash, so the main thread never touches the disk or hashes 200 MB.</p><p>Store uses GRDB's "database pool". Many reads can run at the same time as one write. GRDB does this work on its own threads. We only call its async functions, so the main thread just waits for the answer.</p></div>
+    <div class="card"><div class="eyebrow">Background tasks</div><p>These run at low priority. They make small previews, read text in images (Vision) and fetch link previews (<code>LPMetadataProvider</code>). They save their results through Store.</p></div>
+    <div class="card"><div class="eyebrow">Saving a copy</div><p>When the clipboard counter changes, we run the privacy checks first. They look for secret, temporary or auto-generated markers. They also look for ignored apps and for our own pastes.</p><p>Then we read each format, skipping any over 256 MB, and stop adding formats once the item reaches 1 GB. Then we give the data to Store. The steps are drawn under <a href="#C8">C8</a>.</p></div>
+  </div>
+  <div class="callout">
+    <strong>Very large copies (review fix 6)</strong>
+    <p>Some apps, like Photoshop and Preview, only create the data when another app reads it. That can take several seconds.</p>
+    <p>In slice 1, we time a 200 MB image copy. If the main thread waits more than 50 ms, we read large formats in the background instead.</p>
+    <p>macOS hands over each format as one block. There is no way to ask its size first, or to read it in parts. So a format over 256 MB is still read in full, then dropped: the cap saves disk, not time or memory. While a very large copy is being read and saved, memory briefly goes above the usual limit. It drops back once the save is done. The duplicate key, a hash of the data, is computed inside Store, off the main thread.</p>
+  </div>
+</section>
+<div class="part"><h2>Data</h2></div>
+<section id="storage" aria-labelledby="st-h">
+  <h2 id="st-h">Storage</h2>
+  <div class="prose">
+    <p>We use SQLite through GRDB.swift. GRDB uses the SQLite that comes with macOS, so search speed is the same. We write no low-level database code ourselves.</p>
+    <p>The database layout may change in later versions. GRDB's migrator tracks this. Each change is one named upgrade step, and it runs only once.</p>
+    <p>There is one database file. It lives in the app's sandbox folder: <code>~/Library/Containers/&lt;bundle id&gt;/Data/Library/Application Support/</code>. It uses WAL mode, which lets reads and writes happen at the same time.</p>
+    <p><strong>Small formats live in the database. Large ones live next to it</strong> (review fix 2, revised 7 Nov 2026). A format up to 1 MB is stored in its row. A larger format is written to <code>Application Support/Formats/&lt;item id&gt;/&lt;n&gt;.bin</code>, and its row stores that file name instead of the bytes. Text, links, colours and small images stay in the database. Big images and large formatted text go to the folder. File items store only the file's location, never its contents, so they always stay in the database.</p>
+    <p>Why not everything in one file, as the first review said: Time Machine copies a whole file when any part of it changes, and the database changes on every copy. With a multi-GB history inside it, every hourly backup would copy all of it again. <code>VACUUM</code> on a file that size needs the same amount of free disk and takes minutes. And SQLite's own advice puts the crossover between "store in a row" and "store as a file" near 100 KB; we use 1 MB so that only genuinely large data leaves the database.</p>
+    <p>What we keep from the first review: Store deletes an item's row and its folder in the same call, so deleting an item still removes all of it. If the app quits between the two steps, a sweep at launch removes any folder whose item is gone. Items never share data. The card preview lives in its own table, so paging the list never reads image bytes.</p>
+  </div>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 330" role="img" aria-labelledby="er-t" style="min-width:760px">
+        <title id="er-t">The five database tables. Items is in the centre. Formats holds every format of an item: small ones as bytes, large ones as a file name in the item's folder. Previews holds one card preview per item. Pinboards are linked from items. items_fts is the search index, built from item text.</title>
+        <defs><marker id="m5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+        <rect x="320" y="20" width="260" height="290" rx="10" class="b-gate"/>
+        <text x="340" y="48" class="t-m t-b">items</text>
+        <text x="560" y="48" text-anchor="end" class="t-mono">one row per list item</text>
+        <path d="M320 60 H580" class="grid"/>
+        <g class="t-mono">
+          <text x="340" y="84">id</text><text x="340" y="106">kind</text><text x="340" y="128">title · snippet</text><text x="340" y="150">source app</text>
+          <text x="340" y="172">times</text><text x="340" y="194">duplicate key (indexed)</text><text x="340" y="216">pinboard → pinboards</text>
+          <text x="340" y="238">text in image</text><text x="340" y="260">link title</text><text x="340" y="282">preview → previews</text>
+        </g>
+        <rect x="20" y="40" width="240" height="160" rx="10" class="b-plain"/>
+        <text x="40" y="68" class="t-m t-b">formats</text>
+        <path d="M20 80 H260" class="grid"/>
+        <g class="t-mono"><text x="40" y="104">item → items</text><text x="40" y="126">format type</text><text x="40" y="148">data (≤ 1 MB) or file name</text></g>
+        <text x="40" y="178" class="t-s t-muted">Every format of an item. Over 1 MB: a file</text>
+        <text x="40" y="193" class="t-s t-muted">in Formats/&lt;item id&gt;/. Read to paste.</text>
+        <rect x="20" y="220" width="240" height="90" rx="10" class="b-plain"/>
+        <text x="40" y="248" class="t-m t-b">previews</text>
+        <path d="M20 260 H260" class="grid"/>
+        <g class="t-mono"><text x="40" y="284">item → items</text><text x="40" y="304">card image (512 px)</text></g>
+        <path d="M260 282 H317" class="ln" marker-end="url(#m5)"/>
+        <rect x="640" y="40" width="240" height="110" rx="10" class="b-plain"/>
+        <text x="660" y="68" class="t-m t-b">pinboards</text>
+        <path d="M640 80 H880" class="grid"/>
+        <g class="t-mono"><text x="660" y="104">id</text><text x="660" y="126">name</text></g>
+        <rect x="640" y="190" width="240" height="120" rx="10" class="b-good"/>
+        <text x="660" y="218" class="t-m t-b">items_fts</text>
+        <text x="860" y="218" text-anchor="end" class="t-mono">FTS5</text>
+        <path d="M640 230 H880" class="grid"/>
+        <g class="t-mono"><text x="660" y="254">snippet · image text</text><text x="660" y="276">link title · app name</text></g>
+        <text x="660" y="298" class="t-s t-muted">the search index</text>
+        <path d="M260 104 C 290 104, 290 84, 317 84" class="ln" marker-end="url(#m5)"/>
+        <text x="262" y="124" class="t-mono">many → 1</text>
+        <path d="M580 212 C 610 212, 610 104, 637 104" class="ln" marker-end="url(#m5)"/>
+        <text x="586" y="160" class="t-mono">many → 0 or 1</text>
+        <path d="M580 250 H637" class="ln-dash" marker-end="url(#m5)"/>
+        <text x="588" y="244" class="t-mono">copy of</text>
+      </svg>
+    </div>
+    <figcaption>Five tables in one file, plus a folder per item with formats over 1 MB. The list only reads <code>items</code>. The <code>formats</code> data, in rows or files, stays on disk until you paste or edit.</figcaption>
+  </figure>
+  <div class="cols">
+    <div class="card">
+      <h4>How we spot the same item (review fix 7)</h4>
+      <p>Each item gets a "duplicate key". When you copy something again, the newest item with the same key moves to the top. The newer copy wins: Store replaces the item's formats and source app with the new copy's, keeps its ID, title and pinboard, and the Enricher makes its preview again. So what you copied last is what pastes. The key is not unique: Duplicate, New text item and "Save as new item" can create two items with the same content on purpose.</p>
+      <p>The key is a SHA-256 of the data. Store computes it off the main thread, so a 200 MB image never stalls the UI while it is hashed.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>Item</th><th>Its key</th></tr></thead>
+        <tbody>
+          <tr><td>Text</td><td>A fingerprint (hash) of the plain text. So the same words from Safari and Terminal match.</td></tr>
+          <tr><td>Image</td><td>A fingerprint of the image data.</td></tr>
+          <tr><td>Files</td><td>The file paths.</td></tr>
+          <tr><td>Colour</td><td>The colour value.</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div class="card">
+      <h4>Safe search (review fix 1)</h4>
+      <p>SQLite's search has its own special words and symbols. If you typed one, search could break.</p>
+      <p>GRDB has a helper for this, called <code>FTS5Pattern(matchingAllPrefixesIn:)</code>. It turns any typed text into a safe search. Each word also matches longer words that start with it. All words must match. If nothing searchable is left, like an empty box or just <code>*</code>, every card shows.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>You type</th><th>What happens</th></tr></thead>
+        <tbody>
+          <tr><td><code>don't</code></td><td>Finds items that contain "don't".</td></tr>
+          <tr><td><code>"hello</code></td><td>Finds items with words starting "hello". The stray quote does no harm.</td></tr>
+          <tr><td><code>meeting NOT</code></td><td>Finds items with both "meeting" and "not". NOT is just a word here.</td></tr>
+          <tr><td><code>*</code></td><td>Shows the full list.</td></tr>
+          <tr><td><code>s</code></td><td>One letter shows the full list. Search starts at two letters.</td></tr>
+        </tbody>
+      </table></div>
+      <p>The slow case is the short query, not the long one: <code>sa*</code> matches a large share of 100,000 items, and SQLite then ranks all of them. So the search table is created with FTS5 prefix indexes for two and three letters (GRDB: <code>prefixes: [2, 3]</code>), and the 100,000-item timing test uses two- and three-letter queries.</p>
+    </div>
+    <div class="card">
+      <h4>Erasing history</h4>
+      <p>Erasing deletes all items that aren't pinned, and their folders, in one step. Then it runs <code>VACUUM</code> in the background. VACUUM is SQLite's command to shrink the file. Because large formats live outside the database, the file stays small and VACUUM stays quick.</p>
+    </div>
+  </div>
+</section>
+<div class="part"><h2>UI</h2></div>
+<section id="ui" aria-labelledby="ui-h">
+  <h2 id="ui-h">Windows and UI parts</h2>
+  <p class="prose">SwiftUI draws every screen. AppKit is one small class: the panel's outer shell, an <code>NSPanel</code> that takes keyboard focus without activating the app (<code>.nonactivatingPanel</code>) and shows on every Space (<code>canJoinAllSpaces</code>, <code>fullScreenAuxiliary</code>). SwiftUI has no equivalent as of macOS 26. The other AppKit uses are system services in ClipSystem: <code>NSPasteboard</code>, <code>NSWorkspace</code>, and the rich-text readers.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Part</th><th>Built with</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td>Menu bar icon and menu</td><td><span class="pill p-acc">SwiftUI</span></td><td><code>MenuBarExtra</code></td></tr>
+      <tr><td>Settings</td><td><span class="pill p-acc">SwiftUI</span></td><td>The <code>Settings</code> scene. There is one catch. The panel doesn't make our app active, on purpose. Inactive apps don't receive menu shortcuts like ⌘,. So the panel listens for ⌘, itself. It brings the app to the front, then opens Settings (review fix 8).</td></tr>
+      <tr><td>Welcome window, editor</td><td><span class="pill p-acc">SwiftUI</span></td><td><code>Window</code> scenes</td></tr>
+      <tr><td>Paste stack</td><td><span class="pill p-acc">SwiftUI</span></td><td>Shown inside the menu bar menu, with a count on the icon. There is no separate window (review fix 11).</td></tr>
+      <tr><td>Docked panel</td><td><span class="pill p-warn">AppKit</span></td><td>An <code>NSPanel</code> shell. It doesn't make our app active. It appears on every desktop Space and over full-screen apps. It sits along the bottom of the screen with the mouse, full width, above the Dock. Like Paste, it has no title bar, no shadow and can't be moved, and sits at the main-menu window level. It is created once at launch and kept hidden, so it opens instantly. Everything inside it is SwiftUI.</td></tr>
+      <tr><td>Card row</td><td><span class="pill p-acc">SwiftUI</span></td><td>A sideways <code>ScrollView</code> with a <code>LazyHStack</code>. <code>scrollPosition</code> keeps the selected card in view. If it's too slow in slice 2, we switch to <code>NSCollectionView</code>.</td></tr>
+      <tr><td>Large preview</td><td><span class="pill p-acc">SwiftUI</span></td><td>A popover above the selected card, opened with Space.</td></tr>
+      <tr><td>Card design</td><td><span class="pill p-acc">SwiftUI</span></td><td>Follows Paste's card layout, by your choice. The header colour uses Paste's method. Draw the source app's icon at 128 × 128 pixels. Count the colours of pixels that are fully solid and clearly coloured (saturation above 0.25). Pick the most common one, or grey if there is none. ClipSystem works this out once per app and remembers it. No Paste assets are copied.</td></tr>
+      <tr><td>Selecting several cards</td><td><span class="pill p-acc">SwiftUI</span></td><td>A small <code>CardSelection</code> struct in ClipCore holds the selection. ⇧←/→, ⌘-click and ⌘A change it.</td></tr>
+      <tr><td>Dragging cards out</td><td><span class="pill p-acc">SwiftUI</span></td><td>SwiftUI drag and drop, offering every saved format. Dragging several cards at once is checked in slice 8.</td></tr>
+      <tr><td>Panel height</td><td><span class="pill p-acc">SwiftUI</span></td><td>A drag handle on the top edge resizes the panel. It starts at 332 points and stays between 252 and 412, like Paste. The height is saved with <code>@AppStorage</code>.</td></tr>
+      <tr><td>Global shortcuts</td><td><span class="pill p-good">Library</span></td><td>KeyboardShortcuts, including the box for recording a shortcut.</td></tr>
+      <tr><td>Paste</td><td><span class="pill p-warn">System</span></td><td>Put the item on the clipboard. Hide the panel. Then send ⌘V with <code>CGEvent</code>. We find the V key on your current keyboard layout.</td></tr>
+      <tr><td>Hide from screen sharing</td><td><span class="pill p-warn">AppKit</span></td><td><code>NSWindow.sharingType = .none</code>. This may not work on macOS 15.4 and later. See <a href="#ui">Windows and UI parts</a></td></tr>
+      <tr><td>Quick Look</td><td><span class="pill p-acc">SwiftUI</span></td><td><code>.quickLookPreview($url)</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<div class="part"><h2>Performance</h2></div>
+<section id="budgets" aria-labelledby="bud-h">
+  <h2 id="bud-h">Speed and memory limits</h2>
+  <p class="prose">These are the limits the app must stay under. "p95" means 95 out of 100 tries must be within the limit.</p>
+  <div class="cols">
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 460 250" role="img" aria-labelledby="tb-t">
+          <title id="tb-t">Time limits in milliseconds. Search with 10,000 items: 16 ms. Search with 100,000 items: 33 ms. Opening the panel: 50 ms. One screen frame at 60 Hz is 16.7 ms.</title>
+          <g class="t-mono">
+            <text x="120" y="226" text-anchor="middle">0</text><text x="200" y="226" text-anchor="middle">10</text><text x="280" y="226" text-anchor="middle">20</text>
+            <text x="360" y="226" text-anchor="middle">30</text><text x="440" y="226" text-anchor="end">40</text>
+          </g>
+          <path d="M120 30 V210 M200 30 V210 M280 30 V210 M360 30 V210 M440 30 V210" class="grid"/>
+          <text x="10" y="58" class="t-s">Search, 10k</text>
+          <rect x="120" y="44" width="128" height="22" rx="4" class="fill-acc"/>
+          <text x="256" y="60" class="t-s t-b">16 ms</text>
+          <text x="10" y="108" class="t-s">Search, 100k</text>
+          <rect x="120" y="94" width="264" height="22" rx="4" class="fill-acc"/>
+          <text x="392" y="110" class="t-s t-b">33 ms</text>
+          <text x="10" y="158" class="t-s">Open panel</text>
+          <rect x="120" y="144" width="320" height="22" rx="4" class="fill-warn"/>
+          <text x="436" y="160" text-anchor="end" class="t-s t-b" style="fill:var(--surface)">50 ms →</text>
+          <path d="M253.6 30 V210" class="ln-dash"/>
+          <text x="258" y="196" class="t-mono">1 frame (16.7 ms)</text>
+          <text x="10" y="246" class="t-mono">8 px per ms. The axis stops at 40; the panel bar runs on to 50.</text>
+        </svg>
+      </div>
+      <figcaption>Upper limits, not measurements.</figcaption>
+    </figure>
+    <figure>
+      <div class="scroll">
+        <svg viewBox="0 0 460 250" role="img" aria-labelledby="mb-t">
+          <title id="mb-t">Memory limits. Under 100 MB with 10,000 items. Under 200 MB with 100,000 items.</title>
+          <g class="t-mono">
+            <text x="120" y="176" text-anchor="middle">0</text><text x="200" y="176" text-anchor="middle">50</text><text x="280" y="176" text-anchor="middle">100</text>
+            <text x="360" y="176" text-anchor="middle">150</text><text x="440" y="176" text-anchor="end">200 MB</text>
+          </g>
+          <path d="M120 30 V160 M200 30 V160 M280 30 V160 M360 30 V160 M440 30 V160" class="grid"/>
+          <text x="10" y="68" class="t-s">10k items</text>
+          <text x="10" y="84" class="t-mono">1k images</text>
+          <rect x="120" y="58" width="160" height="22" rx="4" class="fill-good"/>
+          <text x="288" y="74" class="t-s t-b">100 MB</text>
+          <text x="10" y="128" class="t-s">100k items</text>
+          <rect x="120" y="114" width="320" height="22" rx="4" class="fill-good"/>
+          <text x="436" y="130" text-anchor="end" class="t-s t-b" style="fill:var(--surface)">200 MB</text>
+          <text x="10" y="210" class="t-mono">Measured after opening the panel and</text>
+          <text x="10" y="226" class="t-mono">scrolling through every card. 1.6 px per MB.</text>
+        </svg>
+      </div>
+      <figcaption>Upper limits, checked with the <code>footprint</code> tool.</figcaption>
+    </figure>
+  </div>
+  <div class="tbl"><table>
+    <thead><tr><th>Limit</th><th>Target</th><th>How we check it</th></tr></thead>
+    <tbody>
+      <tr><td>CPU when idle</td><td>With the panel closed, under 0.1% CPU over 60 seconds. The app wakes up at most 5 times a second. (The clipboard check runs 4 times a second, like Paste's.)</td><td>Instruments (Activity Monitor template), or <code>top -l 60 -pid</code></td></tr>
+      <tr><td>Memory</td><td>Under 100 MB with 10,000 items, 1,000 of them images. Under 200 MB with 100,000 items (review fix 9). Measured after opening the panel and scrolling through every card. This is memory at rest: saving a very large copy can briefly use more.</td><td><code>footprint ClipboardManager</code></td></tr>
+      <tr><td>Opening the panel</td><td>Under 50 ms, from pressing the shortcut to the panel being ready to type in. p95 over 20 tries. Tested with 10,000 and 100,000 items.</td><td>A timing marker (<code>OSSignposter</code>). We view it in Instruments or with <code>log show --signpost</code>.</td></tr>
+      <tr><td>Search</td><td>Results on screen within 16 ms of a key press with 10,000 items. Within 33 ms with 100,000 items. p95.</td><td>A timing marker, plus a test that times the search on 10,000 fake items.</td></tr>
+      <tr><td>Saving a copy</td><td>A new copy appears within 1 second.</td><td>By hand (C1 AC1).</td></tr>
+      <tr><td>Disk access on the main thread</td><td>Never.</td><td>All disk access goes through Store, whose calls are async and run on GRDB's threads. The import check keeps GRDB out of every file except <code>Storage/</code>. Checked in Instruments with 10,000 fake items: no file I/O on the main thread.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="prose">
+    <p>To test with lots of data, the app can start with <code>--seed 10000</code> or <code>--seed 100000</code>. This fills a separate test database with fake items.</p>
+    <p>This option exists <strong>only in debug builds</strong> (review fix 14). So the app you use every day can't run it, and your real history is never used for testing.</p>
+    <p>If the card row is too slow at 100,000 items, it will load cards a page at a time.</p>
+  </div>
+</section>
+<div class="part"><h2>Security and permissions</h2></div>
+<section id="security" aria-labelledby="sec-h">
+  <h2 id="sec-h">Security: what the app can reach</h2>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 900 400" role="img" aria-labelledby="sec-t" style="min-width:760px">
+        <title id="sec-t">The app runs inside the macOS sandbox with its database and format files. Four doors lead out: reading the clipboard, gated by Paste from Other Apps; pressing Command-V, gated by Accessibility; the network, gated by the network entitlement and the local-address rule; and files, reachable only through a copy or the app picker. Screen recording, input monitoring and full disk access are never requested.</title>
+        <defs><marker id="ms" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" class="ah"/></marker></defs>
+
+        <rect x="20" y="20" width="400" height="360" rx="14" class="lane"/>
+        <text x="40" y="48" class="t-m t-b">App Sandbox · ~/Library/Containers/&lt;bundle id&gt;</text>
+        <rect x="40" y="70" width="170" height="60" rx="10" class="b-gate"/>
+        <text x="125" y="96" text-anchor="middle" class="t-m t-b">ClipboardManager</text>
+        <text x="125" y="114" text-anchor="middle" class="t-s t-muted">no Dock icon, menu bar only</text>
+        <rect x="230" y="70" width="170" height="60" rx="10" class="b-good"/>
+        <text x="315" y="96" text-anchor="middle" class="t-m t-b">SQLite file</text>
+        <text x="315" y="114" text-anchor="middle" class="t-s t-muted">items, formats ≤ 1 MB, index</text>
+        <rect x="230" y="145" width="170" height="60" rx="10" class="b-good"/>
+        <text x="315" y="171" text-anchor="middle" class="t-m t-b">Formats/&lt;item id&gt;/</text>
+        <text x="315" y="189" text-anchor="middle" class="t-s t-muted">one folder per large item</text>
+        <rect x="40" y="145" width="170" height="60" rx="10" class="b-plain"/>
+        <text x="125" y="171" text-anchor="middle" class="t-m t-b">Settings</text>
+        <text x="125" y="189" text-anchor="middle" class="t-s t-muted">UserDefaults, ignored apps</text>
+        <text x="40" y="240" class="t-s t-b">Never leaves this Mac</text>
+        <text x="40" y="258" class="t-s t-muted">No sync, no analytics, no crash reports.</text>
+        <text x="40" y="276" class="t-s t-muted">OCR runs on-device (Vision).</text>
+        <text x="40" y="310" class="t-s t-b">Never requested</text>
+        <text x="40" y="328" class="t-s t-muted">Screen Recording · Input Monitoring · Full Disk Access</text>
+        <text x="40" y="358" class="t-s t-muted">Erase history deletes rows and folders in one step, then VACUUM.</text>
+
+        <path d="M420 100 H460" class="ln-acc" marker-end="url(#ms)"/>
+        <rect x="460" y="70" width="225" height="60" rx="10" class="b-warn"/>
+        <text x="572" y="92" text-anchor="middle" class="t-m t-b">Clipboard (read)</text>
+        <text x="572" y="110" text-anchor="middle" class="t-s t-muted">Paste from Other Apps → Allow</text>
+        <text x="572" y="124" text-anchor="middle" class="t-mono">NSPasteboard 4×/s, change count</text>
+
+        <path d="M420 175 H460" class="ln-acc" marker-end="url(#ms)"/>
+        <rect x="460" y="145" width="225" height="60" rx="10" class="b-warn"/>
+        <text x="572" y="167" text-anchor="middle" class="t-m t-b">⌘V into the app behind</text>
+        <text x="572" y="185" text-anchor="middle" class="t-s t-muted">Accessibility permission</text>
+        <text x="572" y="199" text-anchor="middle" class="t-mono">CGEvent; no → clipboard only</text>
+
+        <path d="M420 250 H460" class="ln-acc" marker-end="url(#ms)"/>
+        <rect x="460" y="220" width="225" height="60" rx="10" class="b-warn"/>
+        <text x="572" y="242" text-anchor="middle" class="t-m t-b">Network (link previews)</text>
+        <text x="572" y="260" text-anchor="middle" class="t-s t-muted">network.client · off in Settings</text>
+        <text x="572" y="274" text-anchor="middle" class="t-mono">no LAN addresses · 10 s cap</text>
+
+        <path d="M420 325 H460" class="ln-acc" marker-end="url(#ms)"/>
+        <rect x="460" y="295" width="225" height="60" rx="10" class="b-warn"/>
+        <text x="572" y="317" text-anchor="middle" class="t-m t-b">Files you copied</text>
+        <text x="572" y="335" text-anchor="middle" class="t-s t-muted">location only; slice 0 spike decides</text>
+        <text x="572" y="349" text-anchor="middle" class="t-mono">path or scoped bookmark</text>
+
+        <rect x="700" y="70" width="180" height="285" rx="10" class="b-plain"/>
+        <text x="790" y="96" text-anchor="middle" class="t-m t-b">Never saved (C8)</text>
+        <text x="715" y="124" class="t-s">• Password managers</text>
+        <text x="715" y="144" class="t-s">• Apps you ignore</text>
+        <text x="715" y="164" class="t-s">• Concealed, Transient,</text>
+        <text x="725" y="180" class="t-s">AutoGenerated types</text>
+        <text x="715" y="206" class="t-s">• Our own pastes (marker)</text>
+        <text x="790" y="244" text-anchor="middle" class="t-m t-b">Never fetched (E1)</text>
+        <text x="715" y="272" class="t-s">• localhost, *.local</text>
+        <text x="715" y="292" class="t-s">• private, loopback,</text>
+        <text x="725" y="308" class="t-s">link-local v4 and v6</text>
+        <text x="715" y="334" class="t-s">• ignored or secret items</text>
+      </svg>
+    </div>
+    <figcaption>Everything stays in the sandbox container. Each arrow is a door with its own gate; the table below says what happens when a gate stays shut.</figcaption>
+  </figure>
+</section>
+
+<section id="perms" aria-labelledby="perm-h">
+  <h2 id="perm-h">Permissions</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Permission</th><th>How it's granted</th><th>What it's for</th><th>If you say no</th></tr></thead>
+    <tbody>
+      <tr><td>Accessibility</td><td><span class="pill p-warn">macOS asks you</span></td><td>To press ⌘V in the app you're using (C3).</td><td>The item is copied to the clipboard instead.</td></tr>
+      <tr><td>Clipboard access (macOS 15.4 and later: "Paste from Other Apps")</td><td><span class="pill p-warn">macOS asks you</span> on the first read, then set it to Allow once in System Settings</td><td>To read what other apps copy (C1). Handled in slice 1.</td><td>A message appears, with a link to System Settings. Left on Ask, macOS may show the alert on every read.</td></tr>
+      <tr><td><code>network.client</code></td><td><span class="pill p-acc">Sandbox permission</span></td><td>For link previews (E1). They are on by default. They never contact this Mac or your local network (review fix 5).</td><td>Cards show only the link address.</td></tr>
+      <tr><td><code>files.user-selected.read-only</code></td><td><span class="pill p-acc">Sandbox permission</span></td><td>For the app picker when you add an ignored app.</td><td>—</td></tr>
+      <tr><td>Login item</td><td><span class="pill p-good">System Settings</span></td><td>To open at login. You'll find it in General → Login Items.</td><td>You start the app yourself.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="chips"><span class="muted">Not needed:</span><span class="chip"><s>Screen Recording</s></span><span class="chip"><s>Input Monitoring</s></span><span class="chip"><s>Full Disk Access</s></span></div>
+  <div class="callout"><strong>To check in slice 0: the sandbox and copied files</strong><p>A copy you make in Finder is read by our timer, not by a paste you did. So the sandbox may give the app no access to the file. That touches four features: file previews (C7), "File no longer exists" (N8), dragging a file to the Desktop (N12) and pasting files into Finder (N11). Slice 0 has a 30-minute throwaway spike that tries all four and writes the answer in the README, because the answer decides whether a file item stores a path or a security-scoped bookmark. Evidence from Paste.app says it works; if not, file cards show the Finder icon and offer the file's location.</p></div>
+</section>
+<div class="part"><h2>Code and test rules</h2></div>
+<section id="rules" aria-labelledby="rules-h">
+  <h2 id="rules-h">House rules for the code</h2>
+  <div class="cols">
+    <div class="card"><div class="eyebrow">1 · Clear names</div><p>Follow the Swift API Design Guidelines. A call should read like a sentence: <code>store.moveToTop(item)</code>. Booleans read as facts: <code>isPinned</code>.</p></div>
+    <div class="card"><div class="eyebrow">2 · Code that reads without comments</div><p>Names carry the meaning. A comment explains only <em>why</em>, never <em>what</em>. Public ClipCore types get a one-line <code>///</code> summary, because Xcode shows it in Quick Help. This is the one place where Apple's guidelines ask for more than your "no comments" rule.</p></div>
+    <div class="card"><div class="eyebrow">3 · One job per type</div><p>If a type's description needs the word "and", split it.</p></div>
+    <div class="card"><div class="eyebrow">4 · Values first</div><p>Data is a <code>struct</code> or <code>enum</code>. A <code>class</code> is only for things with identity: observed models and adapters. Shared state that changes lives in an <code>actor</code>.</p></div>
+    <div class="card"><div class="eyebrow">5 · Safe threads</div><p>Build in Swift 6 mode with zero warnings. UI and models are <code>@MainActor</code>: the App target turns on Swift 6.2's "default actor isolation: MainActor" setting, so views and models need no annotation of their own; the two package modules keep the normal default. No <code>DispatchQueue</code>. No <code>@unchecked Sendable</code> without a one-line reason.</p></div>
+    <div class="card"><div class="eyebrow">6 · Small public surface</div><p>Everything is <code>internal</code> unless another module needs it. Details are <code>private</code>. Classes are <code>final</code>.</p></div>
+    <div class="card"><div class="eyebrow">7 · No hidden errors</div><p>Never use <code>try?</code> where data could be lost. Log the error with <code>Logger</code>. Show a message if you need to act.</p></div>
+    <div class="card"><div class="eyebrow">8 · No force unwraps</div><p>No <code>!</code> outside tests, except for constants that can't fail, like a fixed URL.</p></div>
+    <div class="card"><div class="eyebrow">9 · Plain wiring</div><p>Pass dependencies in through <code>init</code>. <code>AppModel</code> creates everything once. No singletons of our own and no dependency-injection library.</p></div>
+    <div class="card"><div class="eyebrow">10 · Debug-only code stays out</div><p>Test helpers like <code>--seed</code> live inside <code>#if DEBUG</code>. The app you use daily doesn't contain them.</p></div>
+    <div class="card"><div class="eyebrow">11 · Formatting</div><p>Use <code>swift-format</code>, which comes with the Swift tools, so it adds no dependency. One config file in the project.</p></div>
+    <div class="card"><div class="eyebrow">12 · Shortcuts are labelled</div><p>If we knowingly cut a corner, the code says so: <code>// shortcut: what it can't do, when to fix it</code>.</p></div>
+  </div>
+  <div class="callout">
+    <strong>What we deliberately don't do</strong>
+    <p>No protocol for every class. No mocking library: fakes are written by hand and stay small. No coordinator objects. No module per feature. No VIPER or TCA. Each of these would add files to read and keep in sync, with no problem in this app that they solve.</p>
+  </div>
+</section>
+<section id="glossary" aria-labelledby="gl-h">
+  <h2 id="gl-h">Glossary: one word for each idea</h2>
+  <p class="prose">Code, tests, docs and this page use these words. The same word always means the same thing.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Word</th><th>Meaning</th><th>In code</th></tr></thead>
+    <tbody>
+      <tr><td>Item</td><td>One saved copy. It shows as one card in the row.</td><td><code>Item</code>, <code>ItemSummary</code> (the light version shown on a card)</td></tr>
+      <tr><td>Format</td><td>One version of an item's data, like plain text or an image. An item has one or more.</td><td><code>Format</code></td></tr>
+      <tr><td>Kind</td><td>Text, image, link, file or colour.</td><td><code>ItemKind</code></td></tr>
+      <tr><td>Snippet</td><td>The short text shown on a card.</td><td><code>Snippet</code></td></tr>
+      <tr><td>Source app</td><td>The app you copied from.</td><td><code>sourceApp</code></td></tr>
+      <tr><td>Duplicate key</td><td>The fingerprint that tells two items are the same.</td><td><code>DuplicateKey</code></td></tr>
+      <tr><td>Marker</td><td>A special type another app adds to say "secret" or "temporary". We add our own marker to our pastes.</td><td><code>PrivacyRules.markerTypes</code>, <code>ownMarker</code></td></tr>
+      <tr><td>Capture</td><td>Noticing a copy and saving it.</td><td><code>CaptureService</code></td></tr>
+      <tr><td>Enrich</td><td>Adding a small preview, image text or link title after saving.</td><td><code>Enricher</code></td></tr>
+      <tr><td>Paste</td><td>Putting an item on the clipboard and pressing ⌘V for you.</td><td><code>PasteService</code></td></tr>
+      <tr><td>Pinboard</td><td>A named list of kept items.</td><td><code>Pinboard</code></td></tr>
+      <tr><td>Paste stack</td><td>The queue of items to paste one by one.</td><td><code>PasteStack</code></td></tr>
+      <tr><td>Port</td><td>A small protocol where our code meets macOS.</td><td><code>Ports/</code> folder</td></tr>
+      <tr><td>Title</td><td>Your own name for an item. It replaces the first line on the card.</td><td><code>Item.title</code></td></tr>
+      <tr><td>Selection</td><td>The cards you've picked. It can be one card or several.</td><td><code>CardSelection</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+<section id="testing" aria-labelledby="test-h">
+  <h2 id="test-h">Unit, integration, or only end-to-end?</h2>
+  <div class="callout" style="border-color:var(--accent);background:var(--accent-soft)">
+    <strong>Short answer: all three, shaped like a pyramid. Plus checks by hand.</strong>
+    <p>Most tests are fast unit tests. Some are integration tests that use real SQLite and real macOS services. A few are UI tests that drive the real app. The things no test can reach, like macOS permission prompts, are on the hand-test checklist.</p>
+  </div>
+  <div class="cols">
+    <div class="card"><div class="eyebrow">Unit test</div><p>Tests one small piece of logic on its own. It uses no disk, no network and no windows. It takes about a millisecond.</p><p><em>Example:</em> "a copy marked as secret is never saved."</p></div>
+    <div class="card"><div class="eyebrow">Integration test</div><p>Tests our code together with one real outside thing. That might be a real SQLite file in a temp folder, or a real but private clipboard. It takes up to a second.</p><p><em>Example:</em> "erasing history keeps pinned items and makes the file smaller."</p></div>
+    <div class="card"><div class="eyebrow">UI test (end-to-end)</div><p>Launches the real app and clicks and types like a person. It takes several seconds. It can break for timing reasons.</p><p><em>Example:</em> "typing in the search box filters the cards."</p></div>
+    <div class="card"><div class="eyebrow">By hand</div><p>You follow the checklist in Part 1. This covers what automation can't do: permission prompts, pasting into other apps, other keyboards, screen recording.</p></div>
+  </div>
+
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 860 330" role="img" aria-labelledby="pyr-t" style="min-width:720px">
+        <title id="pyr-t">Test pyramid. About 60 unit tests at the base, about 25 integration tests in the middle and about 8 UI tests at the top. Each level is slower and has fewer tests.</title>
+        <polygon points="250,20 315.7,100 184.3,100" class="b-warn"/>
+        <polygon points="184.3,100 315.7,100 389.6,190 110.4,190" class="b-gate"/>
+        <polygon points="110.4,190 389.6,190 480,300 20,300" class="b-good"/>
+        <text x="250" y="86" text-anchor="middle" class="t-s t-b">UI · ~8</text>
+        <text x="250" y="152" text-anchor="middle" class="t-m t-b">Integration · ~25</text>
+        <text x="250" y="252" text-anchor="middle" class="t-m t-b">Unit · ~60</text>
+        <g>
+          <text x="520" y="48" class="t-m t-b">UI tests</text>
+          <text x="520" y="66" class="t-s t-muted">XCTest UI tests · several seconds each</text>
+          <text x="520" y="82" class="t-s t-muted">panel, search, actions menu, settings, welcome</text>
+          <text x="520" y="136" class="t-m t-b">Integration tests</text>
+          <text x="520" y="154" class="t-s t-muted">Swift Testing · up to a second each</text>
+          <text x="520" y="170" class="t-s t-muted">Store + real SQLite, adapters + real macOS</text>
+          <text x="520" y="236" class="t-m t-b">Unit tests</text>
+          <text x="520" y="254" class="t-s t-muted">Swift Testing · about a millisecond each</text>
+          <text x="520" y="270" class="t-s t-muted">rules, model, services with fakes</text>
+        </g>
+        <text x="20" y="322" class="t-mono">Counts are estimates. Faster tests at the bottom, slower and fewer at the top.</text>
+      </svg>
+    </div>
+    <figcaption>This is the classic test pyramid (<a href="https://martinfowler.com/articles/practical-test-pyramid.html">Martin Fowler's article</a>). Its advice: "push your tests as far down the test pyramid as you can."</figcaption>
+  </figure>
+
+  <div class="cols">
+    <div class="card">
+      <h4>Why not only end-to-end tests?</h4>
+      <ul class="bul">
+        <li>They are slow. 90 UI tests would take many minutes, so you would run them less often.</li>
+        <li>They are flaky. Window focus and timing make them fail for no real reason. Then people stop trusting them.</li>
+        <li>When one fails, it doesn't tell you where the bug is.</li>
+        <li>They still can't reach macOS permission prompts or other apps. You would check those by hand anyway.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Why not only unit tests?</h4>
+      <ul class="bul">
+        <li>A unit test with a fake can pass while the real code is wrong. For example, the SQL could have a typo, or the real clipboard could return data in another shape.</li>
+        <li>Integration tests catch these mistakes. They run against real SQLite and real macOS services, in a safe sandbox.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h4>Rules for our tests</h4>
+      <ul class="bul">
+        <li>Put each test at the lowest level that can catch the bug.</li>
+        <li>A bug found by hand gets a test first, then a fix.</li>
+        <li>No sleeping in tests. Time comes from a fixed <code>now</code>.</li>
+        <li>Unit and integration tests never touch your real clipboard, real history or the network. UI tests drive the real app, so they do write to the general clipboard; <code>scripts/test.sh</code> says so before it starts.</li>
+        <li><code>scripts/test.sh</code> quits the copy of the app you use daily before the UI tests, and reopens it after. Two copies would both poll the clipboard, both try to register ⇧⌘V (the second fails), and the daily copy would record the test's clipboard writes.</li>
+        <li>Test names describe behaviour, like <code>markedCopiesAreNeverSaved</code>.</li>
+        <li>Slow tests carry a <code>.slow</code> tag, so the quick run can skip them.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>How tests run</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Run</th><th>What it includes</th><th>When</th><th>How long (estimate)</th></tr></thead>
+    <tbody>
+      <tr><td>Fast</td><td>Unit and integration tests without the <code>.slow</code> tag, plus the import check.</td><td>Every few minutes while coding. <code>swift test</code> in the package.</td><td>Under 10 seconds</td></tr>
+      <tr><td>Full</td><td>Everything above, plus <code>.slow</code> tests (100,000-item search, OCR) and the UI tests.</td><td>At the end of every slice. <code>scripts/test.sh</code>.</td><td>A few minutes</td></tr>
+      <tr><td>By hand</td><td>The checklist in Part 1, for the features in that slice.</td><td>At the end of every slice.</td><td>Depends on the slice</td></tr>
+      <tr><td>Speed check</td><td>The limits in Part 2, with 10,000 and 100,000 fake items, in Instruments.</td><td>After slices 2, 3 and 12. A quick check after the others.</td><td>About 15 minutes</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="cols">
+    <div>
+      <div class="eyebrow">A unit test (a sketch)</div>
+      <pre><code>import Testing
+@testable import ClipCore
+
+struct PrivacyRulesTests {
+    let rules = PrivacyRules(
+        ignoredApps: ["com.example.passwords"],
+        ownMarker: "app.own-paste"
+    )
+
+    @Test(arguments: PrivacyRules.markerTypes)
+    func markedCopiesAreNeverSaved(marker: String) {
+        let types = ["public.utf8-plain-text", marker]
+        #expect(rules.decision(types: types, sourceApp: nil) == .skip)
+    }
+
+    @Test func copiesFromIgnoredAppsAreNeverSaved() {
+        let types = ["public.utf8-plain-text"]
+        #expect(rules.decision(types: types,
+                               sourceApp: "com.example.passwords") == .skip)
+    }
+}</code></pre>
+    </div>
+    <div>
+      <div class="eyebrow">An integration test (a sketch)</div>
+      <pre><code>@Test(arguments: ["\"hello", "don't", "c++", "NOT", "*", ""])
+func searchNeverBreaks(typed: String) async throws {
+    let store = try Store.inTemporaryFolder()
+    try await store.save(.text("hello don't c++ NOT"))
+
+    let rows = try await store.search(typed, .everything, limit: 10)
+
+    #expect(rows.count == 1)  // a match, or the full list
+}</code></pre>
+      <p class="muted" style="margin-top:8px">GRDB's search helper turns typed words into a safe query. This test proves it works for every tricky input, against real SQLite.</p>
+    </div>
+  </div>
+</section>
+<section id="tests" aria-labelledby="tests-h">
+  <h2 id="tests-h">Tests</h2>
+  <p class="prose">The tests use Swift Testing and live in <code>ClipCoreTests</code>. Each test fails if its rule breaks (review fix 10).</p>
+  <div class="cols">
+    <div class="card"><div class="eyebrow">1 · Privacy</div><p>Items marked secret, temporary or auto-generated are not saved. Neither are items from ignored apps. A normal copy is saved.</p></div>
+    <div class="card"><div class="eyebrow">2 · Duplicates</div><p>The same text, with and without formatting, is saved once. Different text is saved twice.</p></div>
+    <div class="card"><div class="eyebrow">3 · Safe search</div><p>Typing <code>"hello</code>, <code>don't</code>, <code>c++</code>, <code>NOT</code>, <code>*</code> or nothing at all causes no error. The results make sense.</p></div>
+    <div class="card"><div class="eyebrow">4 · Erasing</div><p>Pinned items and their data are kept. Everything else is gone.</p></div>
+    <div class="card"><div class="eyebrow">5 · Large formats</div><p>A 2 MB format is saved as a file and read back identical. Deleting the item removes its folder. A folder left behind by a crash is removed at the next launch.</p></div>
+    <div class="card"><div class="eyebrow">Also · Timing</div><p>A test times two- and three-letter searches over 100,000 fake items, the slow case.</p></div>
+  </div>
+</section>
+</div>
+<div class="tab" id="tab-plan">
+<section id="next" aria-labelledby="next-h">
+  <h2 id="next-h">Before slice 1</h2>
+  <ol class="steps">
+    <li><div><strong>You:</strong> install Xcode from the Mac App Store. Open it once. Sign in with your Apple ID in Xcode → Settings → Accounts. This gives you Instruments, Accessibility Inspector and a free signing certificate for your own Mac.</div></li>
+    <li><div><strong>Checked on 7 Nov 2026:</strong> this Mac runs macOS 27.0.1. <code>xcode-select -p</code> points at the Command Line Tools (Swift 6.4), so Xcode is not installed yet.</div></li>
+    <li><div><strong>Me, after your install:</strong> run <code>sudo xcode-select -s /Applications/Xcode.app</code>, confirm <code>xcodebuild -version</code> answers, then create the project.</div></li>
+  </ol>
+</section>
+<section id="build" aria-labelledby="build-h">
+  <h2 id="build-h">The road map</h2>
+  <p class="prose">We build in 13 slices, numbered 0 to 12. Each slice ends with a working app that does a little more than before. The first three slices give you an app you can use every day. Click a slice to jump to it.</p>
+  <figure>
+    <div class="scroll">
+      <svg viewBox="0 0 920 290" role="img" aria-labelledby="road-t" style="min-width:820px">
+        <title id="road-t">Road map of 13 slices. Row one: 0 set up, 1 save copies, 2 panel and list, 3 paste, 4 search, 5 previews, 6 settings and privacy. Row two: 7 pinboards and filters, 8 actions and stack, 9 image text and links, 10 editing, 11 welcome and polish, 12 final checks. Milestones: core loop works after slice 3, safe for daily use after slice 6, feature complete after slice 10, version 1 done after slice 12.</title>
+        <path d="M70 90 H850 C 900 90, 900 200, 850 200 H200" class="ln" style="stroke-width:3"/>
+        <g>
+          <a href="#s0"><circle cx="70" cy="90" r="20" class="b-plain"/><text x="70" y="95" text-anchor="middle" class="t-m t-b">0</text></a>
+          <a href="#s1"><circle cx="200" cy="90" r="20" class="b-gate"/><text x="200" y="95" text-anchor="middle" class="t-m t-b">1</text></a>
+          <a href="#s2"><circle cx="330" cy="90" r="20" class="b-gate"/><text x="330" y="95" text-anchor="middle" class="t-m t-b">2</text></a>
+          <a href="#s3"><circle cx="460" cy="90" r="20" class="b-gate"/><text x="460" y="95" text-anchor="middle" class="t-m t-b">3</text></a>
+          <a href="#s4"><circle cx="590" cy="90" r="20" class="b-good"/><text x="590" y="95" text-anchor="middle" class="t-m t-b">4</text></a>
+          <a href="#s5"><circle cx="720" cy="90" r="20" class="b-good"/><text x="720" y="95" text-anchor="middle" class="t-m t-b">5</text></a>
+          <a href="#s6"><circle cx="850" cy="90" r="20" class="b-good"/><text x="850" y="95" text-anchor="middle" class="t-m t-b">6</text></a>
+          <a href="#s7"><circle cx="850" cy="200" r="20" class="b-good"/><text x="850" y="205" text-anchor="middle" class="t-m t-b">7</text></a>
+          <a href="#s8"><circle cx="720" cy="200" r="20" class="b-good"/><text x="720" y="205" text-anchor="middle" class="t-m t-b">8</text></a>
+          <a href="#s9"><circle cx="590" cy="200" r="20" class="b-good"/><text x="590" y="205" text-anchor="middle" class="t-m t-b">9</text></a>
+          <a href="#s10"><circle cx="460" cy="200" r="20" class="b-good"/><text x="460" y="205" text-anchor="middle" class="t-m t-b">10</text></a>
+          <a href="#s11"><circle cx="330" cy="200" r="20" class="b-warn"/><text x="330" y="205" text-anchor="middle" class="t-m t-b">11</text></a>
+          <a href="#s12"><circle cx="200" cy="200" r="20" class="b-warn"/><text x="200" y="205" text-anchor="middle" class="t-m t-b">12</text></a>
+        </g>
+        <g class="t-s" text-anchor="middle">
+          <text x="70" y="128">Set up</text>
+          <text x="200" y="128">Save copies</text>
+          <text x="330" y="128">Panel, cards</text>
+          <text x="460" y="128">Paste</text>
+          <text x="590" y="128">Search</text>
+          <text x="720" y="128">Previews</text>
+          <text x="850" y="128">Settings,</text><text x="850" y="142">privacy</text>
+          <text x="850" y="238">Pinboards,</text><text x="850" y="252">filters</text>
+          <text x="720" y="238">Actions,</text><text x="720" y="252">stack</text>
+          <text x="590" y="238">Image text,</text><text x="590" y="252">links</text>
+          <text x="460" y="238">Editing</text>
+          <text x="330" y="238">Welcome,</text><text x="330" y="252">polish</text>
+          <text x="200" y="238">Final</text><text x="200" y="252">checks</text>
+        </g>
+        <g>
+          <rect x="400" y="22" width="120" height="26" rx="13" class="b-gate"/><text x="460" y="40" text-anchor="middle" class="t-s t-b">Core loop works</text>
+          <rect x="780" y="22" width="140" height="26" rx="13" class="b-good"/><text x="850" y="40" text-anchor="middle" class="t-s t-b">Safe for daily use</text>
+          <rect x="395" y="262" width="130" height="26" rx="13" class="b-good"/><text x="460" y="280" text-anchor="middle" class="t-s t-b">Feature complete</text>
+          <rect x="150" y="262" width="100" height="26" rx="13" class="b-warn"/><text x="200" y="280" text-anchor="middle" class="t-s t-b">v1 done</text>
+          <path d="M460 48 V67 M850 48 V67 M460 223 V259 M200 223 V259" class="ln-dash"/>
+        </g>
+      </svg>
+    </div>
+    <figcaption>Grey: setup. Blue: the core loop (save, show, paste). Green: features. Amber: finishing.</figcaption>
+  </figure>
+
+  <h3>What each slice touches</h3>
+  <div class="tbl"><table class="matrix">
+    <thead><tr><th>Slice</th><th>Model and rules</th><th>Store</th><th>ClipSystem</th><th>App UI</th><th>Unit</th><th>Integration</th><th>UI tests</th><th>By hand</th></tr></thead>
+    <tbody>
+      <tr><td><a href="#s0">0</a> Set up</td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s1">1</a> Save copies</td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s2">2</a> Panel, cards</td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s3">3</a> Paste</td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s4">4</a> Search</td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s5">5</a> Previews</td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s6">6</a> Settings, privacy</td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s7">7</a> Pinboards, filters</td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s8">8</a> Actions, stack</td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s9">9</a> Image text, links</td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s10">10</a> Editing</td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s11">11</a> Welcome, polish</td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td><td><i class="dot"></i></td></tr>
+      <tr><td><a href="#s12">12</a> Final checks</td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot o"></i></td><td><i class="dot"></i></td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Done means done: the same list for every slice</h3>
+  <ol class="steps">
+    <li><div>It builds in Swift 6 mode with <strong>zero warnings</strong>.</div></li>
+    <li><div>The full test run passes: unit, integration, UI tests and the import check.</div></li>
+    <li><div>The slice's checks in Part 1 pass by hand. You tick them on this page.</div></li>
+    <li><div>A quick speed check with 10,000 fake items shows nothing got slower.</div></li>
+    <li><div>The code is formatted with <code>swift-format</code>.</div></li>
+    <li><div>I tell you what I checked and what I couldn't. Then, with your OK, I commit the slice to git.</div></li>
+  </ol>
+</section>
+<section id="slices" aria-labelledby="slices-h">
+  <h2 id="slices-h">The slices in detail</h2>
+
+  <article class="feature" id="s0">
+    <header><span class="fid">Slice 0</span><h3>Set up the project</h3><span class="pill p-acc">Small</span></header>
+    <p class="prose"><strong>Goal:</strong> an empty app that builds, signs, runs in the sandbox, shows a menu bar icon and has a working test setup.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>Create a git repository with an Xcode <code>.gitignore</code>.</li>
+        <li>In Xcode, create a macOS App called ClipboardManager, using SwiftUI. Include a UI test target.</li>
+        <li>Set the minimum macOS to 26 and the language to Swift 6.</li>
+        <li>In Info.plist, set "Application is agent" (<code>LSUIElement</code>) to Yes. This removes the Dock icon.</li>
+        <li>Turn on App Sandbox and Hardened Runtime. Add two permissions: outgoing network and user-selected files (read only).</li>
+        <li>Signing: "Automatically manage signing", with your Apple ID's personal team.</li>
+        <li>Create the local package <code>Packages/ClipCore</code> with the two modules and two test targets. Add both modules to the app.</li>
+        <li>Add KeyboardShortcuts 3.1.0 to the app and GRDB 7.12.0 to ClipCore. Pin each to that exact version.</li>
+        <li>Replace the window with a <code>MenuBarExtra</code> that has only Quit.</li>
+        <li>Add one <code>Logger</code> subsystem, with categories for capture, store, paste and UI.</li>
+        <li>Write <code>scripts/check-imports.sh</code> and <code>scripts/test.sh</code>. <code>test.sh</code> quits a running ClipboardManager before the UI tests and reopens it after (Part 4, rules). Add the swift-format config. Create the test plan with "Fast" and "Full" runs.</li>
+        <li><strong>Spike, 30 minutes, throwaway code:</strong> copy a file in Finder. In the sandboxed app, read its URL from the clipboard on a timer (not from a paste), then try four things: <code>fileExists</code>, a <code>QLThumbnailGenerator</code> preview, writing the URL back to the clipboard and pasting into a Finder folder, and dragging it to the Desktop. Write which of the four worked in the README. The answer decides whether a file item stores a path or a security-scoped bookmark (slice 1), and what file cards can offer (slices 5 and 8).</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Unit: one placeholder test in each test target, to prove the setup runs.</li>
+        <li>UI: one test that launches the app and checks it is running.</li>
+        <li>Import check: add a stray <code>import AppKit</code> to ClipCore once, and confirm the check fails.</li>
+      </ul>
+      <h4>Done when</h4><ul class="bul">
+        <li>The menu bar icon appears, with no Dock icon.</li>
+        <li>Activity Monitor's "Sandbox" column says Yes.</li>
+        <li><code>scripts/test.sh</code> passes.</li>
+        <li>The sandbox file answer is in the README.</li>
+      </ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s1">
+    <header><span class="fid">Slice 1</span><h3>Save copies</h3><span class="pill p-warn">Large</span></header>
+    <p class="prose"><strong>Goal:</strong> every copy you make is checked by the privacy rules and saved to the database. There is no panel yet. The menu shows how many items are saved.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>ClipCore model: <code>Item</code>, <code>ItemSummary</code>, <code>Format</code>, <code>ItemKind</code>, <code>CapturedCopy</code>.</li>
+        <li>Rules: <code>PrivacyRules</code>, <code>DuplicateKey</code>, <code>Snippet</code> (first 200 characters, tidy spaces), and kind detection. A link is <code>public.url</code> on the clipboard, or plain text that is nothing but one <code>http(s)://</code> address (C1). File, image and colour come from their types. Anything else is text.</li>
+        <li>Storage: GRDB records for the tables. Upgrade step 1 creates all five tables (items, formats, previews, pinboards, search). The search table uses GRDB's <code>synchronize(withTable:)</code>, which keeps the index up to date by itself, and has prefix indexes for two and three letters (<code>prefixes: [2, 3]</code>, see Storage). <code>FormatFiles</code> writes a format over 1 MB to <code>Formats/&lt;item id&gt;/&lt;n&gt;.bin</code> and reads it back; its row stores the file name. Then <code>Store</code>, built on a GRDB database pool, with <code>save</code> (insert, or move to top taking the new copy's formats and source app), <code>items</code> (newest first, in pages), <code>count</code>, and a launch-time sweep of folders whose item is gone. <code>save</code> computes the duplicate key, so the hash runs off the main thread.</li>
+        <li>Ports: <code>Clipboard</code> and <code>FrontmostApp</code>.</li>
+        <li><code>CaptureService</code>: on each tick, compare the change counter, ask the rules, read, then save. It also reports the clipboard access state (next step).</li>
+        <li><strong>Clipboard access (moved here from slice 6):</strong> the first read triggers macOS's "paste from other apps" alert. The <code>Clipboard</code> port exposes <code>accessBehavior</code>. If it is Deny, or still Ask after the alert, the menu shows a message with a button that opens System Settings → Privacy &amp; Security → Paste from Other Apps. The README says: choose Allow once.</li>
+        <li>ClipSystem: <code>SystemClipboard</code> reads each format. A format over 256 MB is read, then dropped (macOS gives no size first; see Part 2). It stops adding formats once the item reaches 1 GB. <code>FrontmostAppReader</code> returns the app's ID.</li>
+        <li>App: <code>AppModel</code> opens the Store and starts a 0.25-second timer with 0.025 seconds of tolerance, so macOS can group wake-ups. When the counter changes, a 0.3-second wait starts; a newer change restarts it. These are Paste's own values (Ghidra finding G1, G2). The menu shows "N items saved" for now.</li>
+        <li><strong>Measure:</strong> copy a 200 MB image from Preview. Time how long the main thread waits for the read (the hash is already off the main thread). Write down the decision: keep reading on the main thread, or move large reads to the background.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Unit: privacy rules for each marker and for ignored apps; duplicate key for text with and without formatting; snippet; kind detection, including a URL as plain text and a sentence that contains a URL (text, not link).</li>
+        <li>Integration: Store in a temp folder: save, save again moves to top and the item now has the second copy's formats and app, the search index row exists. A 2 MB format is saved as a file, read back identical, and its folder goes with the item; a stray folder is swept at launch. <code>CaptureService</code> with <code>FakeClipboard</code> and a real Store. <code>SystemClipboard</code> on a private named clipboard: write formats, read them back, the 256 MB and 1 GB limits.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#C1">C1</a> AC3 (the link part), AC4, AC4b, AC6 · <a href="#C8">C8</a> AC1, AC2, AC4 · <a href="#everywhere">clipboard access</a>: the alert appears once, you choose Allow, no alert again</p>
+      <h4>Done when</h4><ul class="bul"><li>Copies from TextEdit raise the count. Copies from 1Password don't.</li><li>Paste from Other Apps is set to Allow and the app says nothing more about it.</li><li>The 200 MB decision is written in the README.</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s2">
+    <header><span class="fid">Slice 2</span><h3>Panel and card row</h3><span class="pill p-warn">Large</span></header>
+    <p class="prose"><strong>Goal:</strong> ⇧⌘V shows the docked panel with your history as a row of cards. You can move through it with the keyboard, a trackpad or a mouse wheel.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li><code>PanelWindow</code>: an <code>NSPanel</code> subclass. It never makes our app active, can take keyboard focus, shows on every Space and over full-screen apps, and is created once at launch.</li>
+        <li>Place it along the bottom of the screen with the mouse, full width, above the Dock. Use the screen's "visible frame", which leaves out the Dock and menu bar. Hide it on Esc or when you click elsewhere.</li>
+        <li><code>PanelModel</code> (<code>@Observable</code>): the cards, the selection and the search text.</li>
+        <li><code>CardRow</code>: a sideways SwiftUI <code>ScrollView</code> holding a <code>LazyHStack</code> of <code>ItemCard</code>s. <code>scrollPosition</code> keeps the selected card in view.</li>
+        <li><code>ItemCard</code>: a fixed-size card with the ⌘1–⌘9 number, the kind, a text preview for now, the app and the time. A simple version for now; slice 5 gives it Paste's card design.</li>
+        <li>Keyboard: ← and → move the selection. Tab moves between search and cards.</li>
+        <li>Mouse wheel: check whether up-and-down scrolling moves the row sideways by itself. If it doesn't, turn it into sideways scrolling.</li>
+        <li>The visible cards reload by themselves when the database changes, using GRDB's <code>ValueObservation</code>. New copies appear while the panel is open.</li>
+        <li>Register ⇧⌘V with KeyboardShortcuts.</li>
+        <li>Debug only: <code>--seed N</code> fills a separate database with fake items. <code>--show-panel</code> opens the panel at launch, for UI tests.</li>
+        <li>Add a timing marker from the shortcut press to the panel being visible.</li>
+        <li><strong>Measure:</strong> with 10,000 and 100,000 fake items, check panel open time, scrolling from end to end, jumping far with the keyboard, and memory. Write down the decision: keep the SwiftUI row, or switch to <code>NSCollectionView</code>.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Integration: Store pages come back newest first, with no gaps between pages.</li>
+        <li>UI: the panel opens with the cursor in search; → moves the selection; Esc hides the panel.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#C2">C2</a> AC1–AC4 and AC2b · <a href="#C1">C1</a> AC1</p>
+      <h4>Done when</h4><ul class="bul"><li>The panel opens in under 50 ms with 10,000 items.</li><li>The card-row decision is written down.</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s3">
+    <header><span class="fid">Slice 3</span><h3>Paste</h3><span class="pill p-acc">Medium</span></header>
+    <p class="prose"><strong>Goal:</strong> Return pastes the selected item into the app you were using. After this slice, the app is useful every day.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>Ports: <code>KeyPressing</code> and <code>AccessibilityStatus</code>.</li>
+        <li><code>PasteService</code>: gets the formats from Store, picks plain text only when asked, writes them with our marker, moves the item to the top, hides the panel, then presses ⌘V if allowed. Hiding the panel does not hand focus back at once: wait for the panel's <code>didResignKeyNotification</code> before sending ⌘V, or the keystroke lands in our own window. If that is still not enough, add a short delay with a <code>shortcut:</code> comment (see Open decisions).</li>
+        <li>ClipSystem: <code>KeyPresser</code> finds the V key on the current keyboard layout, then sends ⌘V. <code>SystemAccessibilityStatus</code> checks the permission.</li>
+        <li>App: Return and double-click paste. ⇧ means plain text. ⌘1–⌘9 paste rows 1–9.</li>
+        <li>Without the permission, the panel shows a one-line hint and the item stays on the clipboard.</li>
+        <li>Save the "Paste items" and "Always plain text" choices with <code>@AppStorage</code>. Their Settings controls come in slice 6.</li>
+        <li><strong>Milestone check:</strong> measure panel open time, idle CPU, memory and time-to-save against the limits in Part 2.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Unit: plain text picks one format; <code>PasteService</code> with fakes presses ⌘V once when allowed and never when not; our marker is always written.</li>
+        <li>Integration: <code>KeyPresser</code> finds the V key code for the US and Dvorak layouts.</li>
+        <li>UI: in "to clipboard only" mode, Return puts the item's text on the clipboard.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#C3">C3</a> AC1–AC4 · <a href="#C4">C4</a> AC1–AC2 · <a href="#C5">C5</a> AC1–AC2 · <a href="#C1">C1</a> AC2, AC5</p>
+      <h4>Done when</h4><ul class="bul"><li>You can paste into Notes, TextEdit and Safari.</li><li>All Part 2 limits are met.</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s4">
+    <header><span class="fid">Slice 4</span><h3>Search</h3><span class="pill p-acc">Small</span></header>
+    <p class="prose"><strong>Goal:</strong> typing filters the cards instantly, even with 100,000 items.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>Typed text goes through GRDB's <code>FTS5Pattern(matchingAllPrefixesIn:)</code>, which makes it safe (Part 2, Storage). If nothing searchable is left, or only one letter, show the full list. Search starts at two letters, where the prefix indexes from slice 1 take over.</li>
+        <li><code>Store.search</code>: best match first (SQLite's <code>rank</code>), then newest. Matches snippet, image text, link title and app name.</li>
+        <li><code>PanelModel</code>: each keystroke starts a new search and cancels the old one. Only the newest result is shown.</li>
+        <li>⌘1 now means the first result.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Unit: none needed. GRDB tests its own helper. We test the result against real SQLite instead.</li>
+        <li>Integration: every tricky input works against real SQLite; ranking; app-name match. Tagged <code>.slow</code>: two- and three-letter searches over 100,000 items stay within their limit.</li>
+        <li>UI: typing in search filters the cards.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#C6">C6</a> AC1, AC3, AC4, AC5. (AC2 comes in slice 9.)</p>
+      <h4>Done when</h4><ul class="bul"><li>Results show within 16 ms with 10,000 items, and within 33 ms with 100,000.</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s5">
+    <header><span class="fid">Slice 5</span><h3>Previews</h3><span class="pill p-acc">Medium</span></header>
+    <p class="prose"><strong>Goal:</strong> cards show previews, and Space shows the whole item.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>ClipSystem <code>Thumbnailer</code>: images through ImageIO, at most 512 pixels on the long side, saved as a compressed image. Cards are bigger than list rows, so previews are bigger too. Files through Quick Look thumbnails, falling back to the Finder icon.</li>
+        <li><strong>Risk check:</strong> can the sandboxed app make previews of files copied in Finder? Write down the answer.</li>
+        <li>Colours: store the colour value and draw a swatch.</li>
+        <li><code>Enricher</code>: after each save, make the preview at low priority, then save it through Store.</li>
+        <li>App: cards show the preview. An in-memory cache holds at most a few hundred images, so memory stays within the limit.</li>
+        <li><strong>Card design:</strong> build Paste's card layout. The header is tinted with the source app's icon colour, which ClipSystem works out once per app and caches. It shows the kind, the age and the app icon. Below come the preview and the details footer.</li>
+        <li><strong>Panel style (finding G5):</strong> no title bar, no shadow, can't be moved, at the main-menu window level.</li>
+        <li><strong>Resize (N13):</strong> a drag handle on the panel's top edge. Cards scale with the height. Save the height. Start at 332 points and keep it between 252 and 412, Paste's values (finding G6).</li>
+        <li><strong>Compare:</strong> open Paste and our panel side by side. Note every difference you want fixed.</li>
+        <li><code>LargePreview</code>: Space opens it above the selected card. It shows full text with character and word counts, the full-size image, link details or file details.</li>
+        <li>Space opens Quick Look for files and images, using SwiftUI's <code>.quickLookPreview</code>. Images and text are first written to a temporary file, inside Store, off the main thread.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Unit: character and word counts; panel height is kept between its minimum and maximum.</li>
+        <li>Integration: a sample photo's preview is at most 512 pixels; a file preview falls back when Quick Look has none.</li>
+        <li>UI: pressing Space on a text card shows its counts.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#C7">C7</a> AC1–AC2 · <a href="#N5">N5</a> AC1–AC2 · <a href="#C1">C1</a> AC3 · <a href="#C2">C2</a> AC5 · <a href="#N13">N13</a> AC1–AC3</p>
+      <h4>Done when</h4><ul class="bul"><li>Scrolling 10,000 mixed items stays smooth.</li><li>The sandbox answer is in the README.</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s6">
+    <header><span class="fid">Slice 6</span><h3>Settings, menu bar and privacy controls</h3><span class="pill p-warn">Large</span></header>
+    <p class="prose"><strong>Goal:</strong> you can control the app. After this slice, it is safe for daily use.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li><code>Settings</code> scene with three tabs. General: open at login, paste mode, always plain text, shortcut recorders. Privacy: ignored apps (with an app picker), show during screen sharing. Data: "Erase history…".</li>
+        <li>Open at login through <code>SMAppService</code>.</li>
+        <li>⌘, in the panel: open Settings with SwiftUI's <code>openSettings</code>. If the window opens behind others, add one line of AppKit to bring the app to the front first.</li>
+        <li>Menu bar menu: Open panel, Pause, Settings, Quit.</li>
+        <li><code>PauseState</code>: 15 minutes, 1 hour, or until resumed. The icon changes while paused.</li>
+        <li>Screen sharing: set the panel's sharing type from the setting. Then test with a QuickTime recording. If the panel still shows, we tell you, and N2 becomes a known limit.</li>
+        <li><code>Store.eraseHistory</code>: delete non-pinned items and their format folders in one step, then shrink the file in the background.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Unit: <code>PauseState</code> with a fixed clock: it ends after 15 minutes, and "until resumed" never ends on its own.</li>
+        <li>Integration: erase keeps pinned items and makes the file smaller; nothing is saved while paused.</li>
+        <li>UI: settings choices stick after relaunch; the erase dialog's Cancel keeps everything.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#C8">C8</a> AC3 · <a href="#C9">C9</a> AC1–AC2 · <a href="#C10">C10</a> AC1–AC2 · <a href="#N1">N1</a> · <a href="#N2">N2</a></p>
+      <h4>Done when</h4><ul class="bul"><li>Everything in Settings works, and survives a restart.</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s7">
+    <header><span class="fid">Slice 7</span><h3>Pinboards and filters</h3><span class="pill p-acc">Medium</span></header>
+    <p class="prose"><strong>Goal:</strong> keep items on named pinboards, and narrow the cards by type and date.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>Store: create, rename and delete pinboards; pin and unpin. Deleting a pinboard sends its items back to history.</li>
+        <li><code>DateRange</code>: today, last 7 days, last 30 days, any time. "Today" means your local calendar day.</li>
+        <li>Store: filters for kind and date that combine with search.</li>
+        <li>Panel: a tab row (History, then pinboards), ⌘[ and ⌘] to switch, ⌘P to pin.</li>
+        <li>Filter button with a small menu.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Unit: date ranges with a fixed clock, including the day the clocks change and a different time zone.</li>
+        <li>Integration: pin, rename, delete returns items; filter plus search.</li>
+        <li>UI: switching tabs shows the pinboard's items.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#N3">N3</a> AC1–AC3 · <a href="#N4">N4</a> AC1–AC2</p>
+      <h4>Done when</h4><ul class="bul"><li>Pinned items survive "Erase history".</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s8">
+    <header><span class="fid">Slice 8</span><h3>Item actions, selecting several, dragging and the paste stack</h3><span class="pill p-warn">Large</span></header>
+    <p class="prose"><strong>Goal:</strong> every item action is one ⌘K away. You can select several cards, drag cards into other apps, and use the paste stack.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li><code>ItemActionsMenu</code>: Paste, Paste as plain text, Copy, Pin to…, Add to stack, Edit (turned on in slice 10), Share…, Open with…, Show in Finder, Delete. It opens with right-click or ⌘K. Share uses SwiftUI's <code>ShareLink</code>.</li>
+        <li><code>Store.delete</code> for one or many items. <code>Store.rename</code> sets or clears a title; the search index picks it up. <code>Store.duplicate</code> copies an item to the top.</li>
+        <li><code>CardSelection</code>: a plain struct with an anchor and a set. ⇧←/→ extend, ⌘-click toggles, ⌘A selects all in the view.</li>
+        <li>Pasting several, like Paste (finding G10): clear the clipboard, then write one clipboard item per card, each with all its formats, in left-to-right order, in a single write.</li>
+        <li>Delete several: ask "Delete N items?" first.</li>
+        <li>Drag out: each card offers every saved format. Dragging several cards: check whether SwiftUI on macOS 26 supports it directly. If not, use a small AppKit drag helper inside the panel shell.</li>
+        <li>File cards: if the original file is gone, show "File no longer exists" and refuse the drag or paste.</li>
+        <li><code>PasteStack</code>: a plain struct with the three states from the picture above.</li>
+        <li><code>CaptureService</code> adds each saved copy to the stack while it is on. A copy of something already in history still joins (it is a new copy). The app's own pastes, which carry our marker, never join.</li>
+        <li>One more global shortcut: ⌃⌥⌘V pastes the next item. Turning the stack on and off has no default shortcut. You can record one in Settings. Without Accessibility, "paste next" puts the item on the clipboard and still takes it off the queue, the same as C3 AC2.</li>
+        <li>Menu bar: the count on the icon, and the waiting items in the menu.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Unit: every arrow in the stack state picture, including "paste next" on an empty queue, and "paste next" without Accessibility still shortens the queue. <code>CardSelection</code>: extend, toggle, select all, and what happens when the view changes. Pasting several items writes one clipboard item per card, in order.</li>
+        <li>Integration: copies join the queue only while the stack is on; a repeat copy joins, a paste with our marker does not. Rename updates search. Duplicate creates a separate item, and copying the same text again moves the newest one to the top. Deleting several removes them all in one step.</li>
+        <li>UI: ⌘K opens the menu, arrow keys move, Delete removes the card. ⇧→ selects two cards.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#N6">N6</a> AC1–AC2 · <a href="#N8">N8</a> AC1 · <a href="#N10">N10</a> AC1–AC3 · <a href="#N11">N11</a> AC1–AC5 · <a href="#N12">N12</a> AC1–AC4</p>
+      <h4>Done when</h4><ul class="bul"><li>A, B, C paste in order into TextEdit.</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s9">
+    <header><span class="fid">Slice 9</span><h3>Text in images and link previews</h3><span class="pill p-acc">Medium</span></header>
+    <p class="prose"><strong>Goal:</strong> images are searchable by their text. Links can show a title and icon, safely.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>ClipSystem <code>TextRecognizer</code>: reads text with Vision, on your Mac only.</li>
+        <li><code>LocalAddress</code> rule: blocks <code>localhost</code>, <code>*.local</code> and private, loopback and link-local addresses, for both IPv4 and IPv6.</li>
+        <li>Port <code>LinkFetching</code>; ClipSystem <code>LinkFetcher</code> with a 10-second limit.</li>
+        <li><code>Enricher</code>: image items get their text read. Link items get a preview unless you turned the setting off, or the address is local.</li>
+        <li>Store: save image text and link titles. The search index updates by itself, through GRDB's sync from slice 1.</li>
+        <li>Settings: the "Link previews" switch, on at first. Its description warns about one-time links.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Unit: <code>LocalAddress</code> with edge cases. 172.15.0.1 is allowed, 172.16.0.1 is blocked, 172.31.255.255 is blocked, 172.32.0.1 is allowed. Also <code>[::1]</code> and <code>[fd00::1]</code>.</li>
+        <li>Integration: a sample image's words are found by search (tagged <code>.slow</code>). With <code>FakeLinkFetcher</code>: nothing is fetched when off, nothing local is ever fetched, and a public link is fetched once.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#E1">E1</a> AC1, AC1b, AC2 · <a href="#E2">E2</a> AC1–AC2 · <a href="#C6">C6</a> AC2</p>
+      <div class="callout" style="margin-top:8px"><strong>Known limit</strong><p>We block local addresses by name and number. A public web name that secretly points to a local address would still be fetched, and so would a public page that redirects to a local address. For a personal app, that is an acceptable risk. The code will carry a <code>shortcut:</code> comment that says so.</p></div></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s10">
+    <header><span class="fid">Slice 10</span><h3>Editing</h3><span class="pill p-warn">Large</span></header>
+    <p class="prose"><strong>Goal:</strong> edit text and images. Saving always creates a new item.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>Editor window scene, opened with the item's ID.</li>
+        <li>ClipSystem <code>RichText</code>: converts saved RTF or HTML into an <code>AttributedString</code>, and back.</li>
+        <li><code>TextItemEditor</code>: SwiftUI <code>TextEditor</code> bound to the <code>AttributedString</code>, with the standard Format menu.</li>
+        <li>ClipSystem <code>ImageEditor</code>: rotate left and right; remove the background with Vision.</li>
+        <li><code>ImageItemEditor</code>: preview with Rotate and Remove background buttons.</li>
+        <li>Save as new item (the default): <code>Store.save</code> creates a new item at the top.</li>
+        <li>Replace original: ask to confirm, then <code>Store.replaceFormats</code> overwrites the item's formats and preview, and keeps its place and pinboard.</li>
+        <li>Cancel closes the window.</li>
+        <li>New text item (N9): ⌘N in the panel and "New text item" in the menu open the editor with an empty page.</li>
+        <li>Turn on "Edit" in the actions menu.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>Integration: rotating a 2×1 sample gives a 1×2 image; removing the background gives an image with transparency; saving as new creates a new ID and leaves the original's bytes unchanged; replacing keeps the ID and changes the bytes; RTF round trip keeps bold.</li>
+        <li>UI: Cancel creates no new item. ⌘N, typing and Save create a text card.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#E3">E3</a> AC1–AC6 · <a href="#N9">N9</a> AC1–AC2</p>
+      <h4>Done when</h4><ul class="bul"><li>The edited copy pastes with its new formatting, and the original still pastes as before.</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s11">
+    <header><span class="fid">Slice 11</span><h3>Welcome window and polish</h3><span class="pill p-acc">Medium</span></header>
+    <p class="prose"><strong>Goal:</strong> a good first launch, and an app that works well for everyone.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>Welcome window: shown once. It has the shortcut recorder, an Accessibility button whose status updates while the window is open, and the open-at-login switch.</li>
+        <li>VoiceOver: each card reads as one sentence, like "Card 1 of 120. Text from Safari, 2 minutes ago: Hello world". Every button has a label.</li>
+        <li>Keyboard only: walk through every window without a mouse.</li>
+        <li>Run Accessibility Inspector's audit on every window. Fix what it finds.</li>
+        <li>Design pass: light and dark mode, Reduce Motion (no animation), Increase Contrast, standard shortcuts.</li>
+      </ol></div>
+      <div><h4>Tests</h4><ul class="bul">
+        <li>UI: the welcome window shows on first launch only. A launch option resets this for the test.</li>
+        <li>UI: <code>performAccessibilityAudit()</code> passes for the panel, Settings, the editor and the welcome window.</li>
+      </ul>
+      <h4>Checks by hand</h4><p><a href="#E4">E4</a> AC1–AC3 · <a href="#everywhere">Design guidelines AC</a> · <a href="#C10">C10</a> AC1 again with VoiceOver</p>
+      <h4>Done when</h4><ul class="bul"><li>The audits pass with no issues.</li></ul></div>
+    </div>
+  </article>
+
+  <article class="feature" id="s12">
+    <header><span class="fid">Slice 12</span><h3>Final checks and README</h3><span class="pill p-acc">Small</span></header>
+    <p class="prose"><strong>Goal:</strong> prove version 1 meets the plan, and write it down.</p>
+    <div class="cols">
+      <div><h4>Steps</h4><ol class="bul">
+        <li>Measure every limit in Part 2 in Instruments, with 10,000 and 100,000 fake items. Record the numbers.</li>
+        <li>Do the full hand checklist on this page, all of it.</li>
+        <li>Write the README: how to build, which permissions the app needs and why, and a table of every spec item with how it was checked.</li>
+        <li>Run a final code review against the house rules.</li>
+        <li>With your OK: commit and tag v1.0.</li>
+      </ol></div>
+      <div><h4>Done when</h4><ul class="bul">
+        <li>Every limit is met, or the README says which one isn't and why.</li>
+        <li>Every check on this page is ticked.</li>
+      </ul></div>
+    </div>
+  </article>
+</section>
+<section id="risks" aria-labelledby="risk-h">
+  <h2 id="risk-h">Decisions we'll make along the way</h2>
+  <p class="prose">These questions have no answer yet. Each one is answered by a measurement in a named slice. The plan already says what we do for each answer.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Question</th><th>Answered in</th><th>If yes</th><th>If no</th></tr></thead>
+    <tbody>
+      <tr><td>Does reading a 200 MB copy stall the main thread more than 50 ms?</td><td><a href="#s1">Slice 1</a></td><td>Read large formats in the background.</td><td>Keep the simple main-thread read.</td></tr>
+      <tr><td>Does the SwiftUI card row meet the limits with 100,000 items?</td><td><a href="#s2">Slice 2</a></td><td>Keep the SwiftUI row.</td><td>Switch the row to <code>NSCollectionView</code>. Load cards in pages if needed.</td></tr>
+      <tr><td>Can the sandboxed app make previews of files copied in Finder?</td><td><a href="#s0">Slice 0</a> spike</td><td>Show the real preview.</td><td>Show the Finder icon, or keep a security-scoped bookmark per file item.</td></tr>
+      <tr><td>Does ⌘V land in the other app right after the panel hides?</td><td><a href="#s3">Slice 3</a></td><td>Wait on <code>didResignKeyNotification</code> only.</td><td>Add a short delay, labelled <code>shortcut:</code>.</td></tr>
+      <tr><td>Do searches stay fast while a big copy is being saved? This is GRDB's main benefit for us.</td><td><a href="#s4">Slice 4</a></td><td>Nothing to do.</td><td>Save very large formats in smaller steps, so writes are shorter.</td></tr>
+      <tr><td>Does hiding the panel from screen recordings still work on macOS 26?</td><td><a href="#s6">Slice 6</a></td><td>Keep the setting as planned.</td><td>Tell you. Keep the setting, labelled "may not work with all apps", or remove N2.</td></tr>
+      <tr><td>Can SwiftUI drag several cards at once on macOS 26?</td><td><a href="#s8">Slice 8</a></td><td>Use SwiftUI only.</td><td>Add a small AppKit drag helper to the panel shell.</td></tr>
+      <tr><td>Can the sandboxed app drag a copied file to the Desktop?</td><td><a href="#s0">Slice 0</a> spike</td><td>Go on as planned.</td><td>Drag the file's location instead. Tell you which apps that breaks.</td></tr>
+      <tr><td>Does pressing ⌘V work from the sandbox once Accessibility is allowed?</td><td><a href="#s3">Slice 3</a></td><td>Go on as planned. Paste.app suggests it works.</td><td>Stop and talk. The only way out is to turn off the sandbox for this one need.</td></tr>
+    </tbody>
+  </table></div>
+</section>
+</div>
+</main>
+</div>
+
+<script>
+(function(){
+  var KEY = "cm-plan-ac-v1";
+  var boxes = Array.prototype.slice.call(document.querySelectorAll('.ac input[type="checkbox"]'));
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { saved = {}; }
+  var bar = document.getElementById("pbar"), txt = document.getElementById("ptext");
+  function update(){
+    var done = boxes.filter(function(b){ return b.checked; }).length;
+    bar.style.width = (boxes.length ? (done / boxes.length * 100) : 0) + "%";
+    txt.textContent = done + " of " + boxes.length + " checked";
+  }
+  boxes.forEach(function(b){
+    if (saved[b.id]) b.checked = true;
+    b.addEventListener("change", function(){
+      saved[b.id] = b.checked;
+      try { localStorage.setItem(KEY, JSON.stringify(saved)); } catch (e) {}
+      update();
+    });
+  });
+  update();
+})();
+</script>
+<script>
+(function(){
+  var KEY = "cm-plan-tab";
+  var buttons = Array.prototype.slice.call(document.querySelectorAll('[data-tab]'));
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+  function show(id){
+    tabs.forEach(function(t){ t.classList.toggle('on', t.id === id); });
+    buttons.forEach(function(b){
+      var on = b.dataset.tab === id;
+      if (b.getAttribute('role') === 'tab') b.setAttribute('aria-selected', on); else b.setAttribute('aria-current', on);
+    });
+    try { localStorage.setItem(KEY, id); } catch (e) {}
+  }
+  function fromHash(){
+    var h = location.hash.slice(1); if (!h) return false;
+    var el = document.getElementById(h); if (!el) return false;
+    var t = el.closest('.tab'); if (!t) return false;
+    show(t.id); el.scrollIntoView(); return true;
+  }
+  buttons.forEach(function(b){ b.addEventListener('click', function(){ show(b.dataset.tab); window.scrollTo(0, 0); }); });
+  window.addEventListener('hashchange', fromHash);
+  if (!fromHash()) { var s = null; try { s = localStorage.getItem(KEY); } catch (e) {} show(document.getElementById(s) ? s : 'tab-req'); }
+})();
+</script>
+
+</body>
+</html>

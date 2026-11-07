@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Entitlements: capabilities the app asks for, sealed into its code signature at build time.
+  ≈ the <uses-permission> lines in AndroidManifest.xml. Like Android, anything not listed here
+  is denied. Unlike Android, these are not shown to the user as a prompt; macOS just enforces them.
+
+  The format is a "property list" (plist), Apple's XML key/value format. Each <key> is followed by
+  its value: here <true/>, a boolean. project.yml points CODE_SIGN_ENTITLEMENTS at this file.
+
+  Separate from these, some permissions are granted by the user in System Settings at runtime
+  (Accessibility to press ⌘V, "Paste from Other Apps"). Those are handled in code from stage 1.
+-->
+<plist version="1.0">
+<dict>
+	<!--
+	  App Sandbox: the app runs in its own container, ~/Library/Containers/com.thattechedguy.Yank,
+	  and can't read or write anything else on disk unless the user hands it a file (via a picker,
+	  a drag, or the clipboard). ≈ Android's per-app private storage. Our database lives inside it.
+	-->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<!--
+	  Outgoing network connections. Needed only for link previews (fetching a page's title and
+	  icon, stage 9). ≈ android.permission.INTERNET. Local-network addresses are blocked in code.
+	-->
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<!--
+	  Read files the user picks in an Open dialog. Used by Settings → Ignored apps to choose an
+	  app to ignore (stage 6). Read-only: Yank never writes outside its container.
+	-->
+	<key>com.apple.security.files.user-selected.read-only</key>
+	<true/>
+</dict>
+</plist>

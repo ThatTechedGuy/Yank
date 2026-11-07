@@ -1,0 +1,136 @@
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# project.yml — the source of truth for how Yank is built.
+#
+# Xcode normally stores this information in Yank.xcodeproj/project.pbxproj, a large file that
+# Xcode rewrites whenever you click around in its GUI. It is hard to read and painful to merge.
+# XcodeGen (https://github.com/yonaskolb/XcodeGen, `brew install xcodegen`) reads this YAML and
+# writes the .xcodeproj for us. The relationship is the same as Expo's `app.json` + `expo
+# prebuild` generating the `android/` and `ios/` folders: edit the YAML, regenerate, never edit
+# the generated project. That is why Yank.xcodeproj is in .gitignore.
+#
+# After editing this file, or after adding/removing a Swift file under App/ or AppUITests/, run:
+#     xcodegen
+#
+# Vocabulary (Xcode ↔ things you know):
+#   target        One thing that gets built: the app, a test bundle, a library.
+#                 ≈ a Gradle module, or one package in a Bun workspace.
+#   scheme        A named recipe for "build these targets, run this one, test those".
+#                 ≈ a Gradle build variant + run configuration, or a `package.json` script.
+#   build setting A key/value compiler or packaging option (SWIFT_VERSION, bundle id, signing).
+#                 ≈ `compilerOptions` in tsconfig.json, or fields in build.gradle.
+#   bundle id     The app's globally unique id, reverse-DNS style. ≈ Android `applicationId`.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+
+name: Yank # Becomes Yank.xcodeproj and the default product name.
+
+options:
+  # Targets without an explicit PRODUCT_BUNDLE_IDENTIFIER get "<prefix>.<target name>".
+  bundleIdPrefix: com.thattechedguy
+  # Oldest macOS the app runs on. ≈ Android `minSdk`. macOS 26 gives us the newest SwiftUI and
+  # NSPasteboard APIs without `if #available` checks everywhere.
+  deploymentTarget:
+    macOS: "26.0"
+  # Mirror our folders as groups in Xcode's file navigator so it matches what's on disk.
+  createIntermediateGroups: true
+
+# Build settings shared by every target below. A target's own `settings` override these.
+settings:
+  base:
+    # Swift language mode 6: the compiler proves code is free of data races (two threads touching
+    # the same memory). It is stricter than TypeScript's `strict: true` because it also checks
+    # threading, much like Kotlin coroutines would if they refused to compile unsafe sharing.
+    SWIFT_VERSION: "6.0"
+    # Any warning fails the build. The plan's rule: "builds with zero warnings".
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    # User-facing version (≈ Android `versionName`) and build number (≈ `versionCode`).
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    # ── Code signing ──────────────────────────────────────────────────────────────────────
+    # Every Mac app is signed, the way every Android APK is signed with a keystore. macOS uses
+    # the signature as the app's identity: permissions you grant in System Settings (such as
+    # Accessibility, needed to press ⌘V for you) are tied to it. An unsigned or "ad hoc" build
+    # gets a new identity on every rebuild, so you'd have to re-grant permissions each time.
+    #
+    # Manual style: we name the certificate ourselves instead of letting Xcode manage profiles.
+    # The sandbox entitlements we use need no provisioning profile on macOS, so this is simpler.
+    CODE_SIGN_STYLE: Manual
+    # Name of the certificate in your login keychain ("Apple Development: <your Apple ID>").
+    CODE_SIGN_IDENTITY: Apple Development
+    # Your Apple developer team id (the OU field of that certificate).
+    DEVELOPMENT_TEAM: ZT5VFPR74U
+
+# Swift packages (libraries) the targets can depend on. ≈ `dependencies` in package.json.
+packages:
+  # Our own local package: Packages/ClipCore/Package.swift defines its two modules.
+  # ≈ a `workspace:*` dependency in a Bun/npm workspace.
+  ClipCore:
+    path: Packages/ClipCore
+  # Global keyboard shortcuts (⇧⌘V) and the "record a shortcut" box for Settings.
+  # `exactVersion` pins it like `"keyboardshortcuts": "3.1.0"` with no ^ or ~.
+  KeyboardShortcuts:
+    url: https://github.com/sindresorhus/KeyboardShortcuts
+    exactVersion: 3.1.0
+
+targets:
+  # ── The app itself ──────────────────────────────────────────────────────────────────────
+  Yank:
+    type: application # Produces Yank.app, a folder ("bundle") that Finder shows as one file.
+    platform: macOS
+    sources: [App] # Every file under App/ is compiled into, or copied into, the app.
+    dependencies: # Which libraries the app links. ≈ `implementation(...)` in Gradle.
+      - package: ClipCore
+        product: ClipCore # Rules, storage, services: no UI code.
+      - package: ClipCore
+        product: ClipSystem # Adapters that talk to macOS (clipboard, key presses...).
+      - package: KeyboardShortcuts
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.thattechedguy.Yank
+        # Swift 6.2+: code in this target runs on the main (UI) thread unless it says otherwise.
+        # Android analogy: everything is implicitly `@UiThread`. UI code is the majority here,
+        # so this saves writing `@MainActor` on every view and model. The package modules keep
+        # Swift's normal default (no isolation), because they mostly do background work.
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        # Info.plist is the app's metadata file. ≈ AndroidManifest.xml. Instead of keeping a
+        # separate file, Xcode generates it from the INFOPLIST_KEY_* settings below.
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Yank
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
+        # "Application is agent": no Dock icon and no app menu bar; we live in the menu bar
+        # only. Like an Android app that is only a foreground-service notification.
+        INFOPLIST_KEY_LSUIElement: YES
+        # Entitlements = capabilities baked into the signature (sandbox, network...).
+        # ≈ <uses-permission> entries in AndroidManifest.xml. See the file for details.
+        CODE_SIGN_ENTITLEMENTS: App/Resources/Yank.entitlements
+        # Hardened runtime: blocks code injection and unsigned plug-ins. Required for apps
+        # distributed outside the App Store, and good hygiene for ours.
+        ENABLE_HARDENED_RUNTIME: YES
+
+  # ── UI tests ────────────────────────────────────────────────────────────────────────────
+  # A separate test app that launches Yank and drives it like a user would.
+  # ≈ Espresso / Detox / Playwright tests.
+  YankUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources: [AppUITests]
+    dependencies:
+      - target: Yank # Build Yank first so there is something to launch.
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Yank # The app these tests launch.
+
+# ── Schemes: what ⌘B (build), ⌘R (run) and ⌘U (test) do in Xcode ─────────────────────────
+schemes:
+  Yank:
+    build:
+      targets:
+        Yank: all # Build Yank for every action (run, test, profile, archive).
+    run:
+      config: Debug # Debug = no optimisation, with debug-only code (`#if DEBUG`) compiled in.
+    test:
+      config: Debug
+      targets: # ⌘U in Xcode runs all three test targets.
+        - YankUITests
+        - package: ClipCore/ClipCoreTests
+        - package: ClipCore/ClipSystemTests

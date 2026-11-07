@@ -29,11 +29,28 @@ import Foundation
         reads += 1
         return contents
     }
+
+    /// A paste writes the clipboard the same way a copy does, so it just reuses `put`.
+    func write(_ data: [ClipboardItemData]) { put(data) }
 }
 
 @MainActor final class FakeFrontmostApp: FrontmostApp {
     var app: SourceApp? = SourceApp(bundleId: "com.apple.TextEdit", name: "TextEdit")
     func current() -> SourceApp? { app }
+}
+
+/// Counts ⌘V presses instead of sending them, so a test never pastes into a real app.
+@MainActor final class FakeKeyPresser: KeyPressing {
+    var presses = 0
+    func pressPaste() throws { presses += 1 }
+}
+
+/// The Accessibility permission as the test wants it. `requests` counts how often the macOS
+/// prompt would have been shown.
+@MainActor final class FakeAccessibility: AccessibilityStatus {
+    var isTrusted = true
+    var requests = 0
+    func requestAccess() { requests += 1 }
 }
 
 // Small builders so a test reads as "a text copy of X" instead of repeating type strings and

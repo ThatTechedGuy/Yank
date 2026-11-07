@@ -59,6 +59,28 @@ import Testing
         #expect(clipboard.access == .allowed)
     }
 
+    @Test func whatIsWrittenReadsBackTheSameItemsAndTypes() {
+        let pasteboard = NSPasteboard(name: .init("com.thattechedguy.Yank.test.\(UUID())"))
+        defer { pasteboard.releaseGlobally() }
+        let clipboard = SystemClipboard(pasteboard: pasteboard)
+        let before = clipboard.changeCount
+        // Two pasteboard items (a two-file Finder copy) plus the paste marker, an empty type.
+        // Writing must put the types back on the right items, keep their order, and accept the
+        // empty marker, or a pasted multi-file copy would come out as one file and the capture
+        // loop would save our own paste as a new item.
+        let written = [
+            ClipboardItemData(
+                pasteboardItemIndex: 0, type: "public.file-url", data: Data("file:///tmp/a.txt".utf8)),
+            ClipboardItemData(pasteboardItemIndex: 0, type: "public.utf8-plain-text", data: Data("a".utf8)),
+            ClipboardItemData(
+                pasteboardItemIndex: 1, type: "public.file-url", data: Data("file:///tmp/b.txt".utf8)),
+            ClipboardItemData(pasteboardItemIndex: 1, type: "com.example.marker", data: Data()),
+        ]
+        clipboard.write(written)
+        #expect(clipboard.changeCount > before)
+        #expect(clipboard.read { _ in true } == written)
+    }
+
     @Test func dataOverTheLimitsIsDropped() {
         let pasteboard = NSPasteboard(name: .init("com.thattechedguy.Yank.test.\(UUID())"))
         defer { pasteboard.releaseGlobally() }

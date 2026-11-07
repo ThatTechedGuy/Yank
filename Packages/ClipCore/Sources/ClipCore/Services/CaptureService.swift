@@ -78,7 +78,8 @@ import Foundation
         case .skip:
             Log.capture.info("skipped a copy from \(sourceApp?.bundleId ?? "?", privacy: .public)")
         case .moveOwnPasteToTop:
-            // shortcut: the app can't paste yet, so there is nothing to move; upgrade when it can.
+            // Our own paste: PasteService already moved the item to the top when it wrote the
+            // clipboard, so there is nothing to save and nothing to move.
             Log.capture.debug("own paste, nothing to save")
         case .save:
             guard let data, !data.isEmpty else {

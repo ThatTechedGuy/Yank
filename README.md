@@ -1,7 +1,10 @@
 # Yank
 
 A Paste-style clipboard manager for macOS 26 and later. Menu bar only, sandboxed, no sync. The full
-spec is the plan in the project thread; this README covers building, testing and what we learned.
+spec is the plan at `~/Documents/clipboard-manager-plan.html` on thattechedguy's Mac: the single source of
+truth, kept outside the repo on purpose. Finished work is struck through there and every decision made
+while building is in its change log; every build thread reads it first. This README covers building,
+testing and what we learned.
 
 ## Build and run
 

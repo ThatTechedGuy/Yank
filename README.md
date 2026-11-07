@@ -44,6 +44,10 @@ ties permissions such as Accessibility to it, so an unsigned or ad hoc build los
 - **Formatting:** `swift format` (bundled with Xcode). `.swift-format` sets 4-space indents and 110-column
   lines; JSON allows no comments, so it is explained here. Format with
   `swift format --in-place --recursive App AppUITests Packages/ClipCore`, check with `swift format lint`.
+- **Database access goes through GRDB's record API** (`FetchableRecord`, `PersistableRecord`, `filter`,
+  `order`, `insert`, `update`, `deleteAll`), never hand-written SQL. The only exceptions are things the
+  query builder cannot say, such as a full-text `MATCH` (done through `FTS5Pattern`), and each one has
+  a comment saying why. See `Storage/Records.swift`.
 
 Logs: open Console.app and filter on subsystem `com.thattechedguy.Yank`, or run
 `log stream --predicate 'subsystem == "com.thattechedguy.Yank"' --info`.

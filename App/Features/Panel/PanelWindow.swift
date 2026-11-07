@@ -1,6 +1,6 @@
 // The panel's window: the one piece of AppKit in the app's UI. It is a bar along the bottom of
 // the screen that takes your keystrokes without making Yank the active app, so the app you
-// were working in keeps its focus and stage 3 can paste into it. SwiftUI has no window that
+// were working in keeps its focus and a paste can land in it. SwiftUI has no window that
 // can do that, so this small class sets up an `NSPanel` (AppKit's window for tool palettes and
 // overlays, like Spotlight's bar) and puts the SwiftUI panel view inside it.
 //
@@ -48,8 +48,14 @@ final class PanelWindow: NSPanel {
         // gets a `dismiss` callback for Esc, so SwiftUI never has to know about the window.
         // `[weak self]` keeps the view from holding the window alive in a loop.
         contentView = NSHostingView(
-            rootView: PanelView(model: model, dismiss: { [weak self] in self?.hide() }))
+            rootView: PanelView(
+                model: model, dismiss: { [weak self] in Task { await self?.hide() } }))
     }
+
+    /// Set while `hide()` is waiting for AppKit to tell us the keyboard has moved on. (A
+    /// continuation is the handle for "resume the paused async function"; ≈ the `resolve` of a
+    /// Promise you create by hand.)
+    private var resignKeyWaiter: CheckedContinuation<Void, Never>?
 
     // A borderless window refuses keyboard focus unless told otherwise; the panel needs it for
     // the search box and the arrow keys. (`override` replaces the parent class's version.)
@@ -75,16 +81,23 @@ final class PanelWindow: NSPanel {
         model.didShow()
     }
 
-    /// Hides the panel. The app behind never lost focus, so there is nothing to give back.
-    func hide() {
+    /// Hides the panel and returns once it has given up the keyboard. The app behind never lost
+    /// focus, so there is nothing to give back; but while this window is still the *key* window
+    /// a ⌘V would land in our search box, so a paste must wait for AppKit's `resignKey()` call
+    /// before pressing it. Ordering the window out is what makes AppKit pick a new key window
+    /// and call that; on current macOS it happens before `orderOut` returns, and this still
+    /// works if a later macOS does it a moment afterwards.
+    func hide() async {
         guard isVisible else { return }
-        orderOut(nil)
+        if isKeyWindow {
+            await withCheckedContinuation { continuation in
+                resignKeyWaiter = continuation
+                orderOut(nil)
+            }
+        } else {
+            orderOut(nil)
+        }
         model.didHide()
-    }
-
-    /// Shows the panel if hidden, hides it if showing: what the ⇧⌘V shortcut does.
-    func toggle() {
-        if isVisible { hide() } else { show() }
     }
 
     // A mouse wheel only rolls up and down, but the row only goes sideways, so rolling the
@@ -115,12 +128,18 @@ final class PanelWindow: NSPanel {
         super.sendEvent(NSEvent(cgEvent: swapped) ?? event)
     }
 
-    // When the user clicks anywhere else (another app's window, the desktop, the menu bar),
-    // that place becomes the key window and this one stops being it. That is the "click
-    // outside" signal, so the panel hides. AppKit calls this; we add the hide and keep the
-    // parent's behaviour with `super`.
+    // AppKit calls this when the window stops being the key window, for two reasons. Either
+    // `hide()` ordered it out and is waiting for exactly this call: then the waiter is resumed
+    // and nothing else is needed. Or the user clicked somewhere else (another app's window, the
+    // desktop, the menu bar) and that place took the keyboard: that is the "click outside"
+    // signal, so the panel hides. `super` keeps the parent's own behaviour.
     override func resignKey() {
         super.resignKey()
-        hide()
+        resignKeyWaiter?.resume()
+        resignKeyWaiter = nil
+        if isVisible {
+            orderOut(nil)
+            model.didHide()
+        }
     }
 }

@@ -33,14 +33,27 @@ import SwiftUI
         do {
             let options = LaunchOptions()
             let store = try Store(folder: options.storeFolder)
+            // One clipboard object for both capture and paste, so the paste service's "that
+            // was my own write" marker and the capture loop's change counter stay in step.
+            let clipboard = SystemClipboard()
             let capture = CaptureService(
-                clipboard: SystemClipboard(), frontmostApp: FrontmostAppReader(), store: store)
+                clipboard: clipboard, frontmostApp: FrontmostAppReader(), store: store)
             self.capture = capture
             clipboardAccess = capture.clipboardAccess
+            // Pasting: the service puts an item on the clipboard and presses ⌘V in the app
+            // behind the panel. Its system pieces (key presser, permission check) come from
+            // ClipSystem, so ClipCore and its tests never touch real keys.
+            let pasteService = PasteService(
+                store: store, clipboard: clipboard, keyPresser: KeyPresser(),
+                accessibility: SystemAccessibilityStatus())
             // The panel and its state. Built now, while nothing is urgent, so that the first
             // ⇧⌘V only has to put an existing window on screen.
-            let panel = PanelWindow(model: PanelModel(store: store))
+            let panel = PanelWindow(model: PanelModel(store: store, pasteService: pasteService))
             self.panel = panel
+            // Before pressing ⌘V the service hides the panel and waits until it has let go of
+            // the keyboard, or the ⌘V would land in our own search box. `[weak panel]`: the
+            // service must not keep the window alive on its own.
+            pasteService.hidePanel = { [weak panel] in await panel?.hide() }
             watchShortcut()
             // After every save, re-read the number the menu shows. Asking the database instead of
             // adding one keeps the menu right when a save was really a repeat (the item moved to the
@@ -97,7 +110,7 @@ import SwiftUI
     private func togglePanel() {
         guard let panel else { return }
         if panel.isVisible {
-            panel.hide()
+            Task { await panel.hide() }
             return
         }
         // A timing marker around the whole open, from key press to the window on screen.

@@ -1,7 +1,7 @@
 // The panel as a user meets it: it opens with the cursor in search, the arrow keys move the
-// selection, and Esc closes it. The app is launched with a fake history so the test never
-// depends on, or touches, what this Mac has really copied. (See LaunchTests for what
-// XCTest and XCUIApplication are.)
+// selection, Return and ⌘1–⌘9 paste, and Esc closes it. The app is launched with a fake
+// history so the test never depends on what this Mac has really copied. (See LaunchTests for
+// what XCTest and XCUIApplication are.)
 import XCTest
 
 final class PanelTests: XCTestCase {
@@ -41,5 +41,40 @@ final class PanelTests: XCTestCase {
         // Esc hides the panel.
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(search.waitForNonExistence(timeout: 5))
+    }
+
+    /// Return and ⌘2 put a card on the clipboard and close the panel. The app is told to paste
+    /// "to clipboard only", so the test never presses ⌘V into whatever app is behind it. The
+    /// clipboard is checked by its change counter and its list of types, not its contents:
+    /// reading the contents from the test process would trip macOS's "paste from other apps"
+    /// prompt.
+    @MainActor
+    func testReturnAndCommandDigitPasteACardToTheClipboard() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--seed", "20", "--show-panel", "-pasteDestination", "clipboardOnly"]
+        app.launch()
+        let search = app.textFields["search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+
+        // Return pastes the selected (newest) card, a text item, with Yank's own marker so the
+        // capture loop does not save it again. The panel closes.
+        let pasteboard = NSPasteboard.general
+        var before = pasteboard.changeCount
+        app.typeKey(.return, modifierFlags: [])
+        XCTAssertTrue(search.waitForNonExistence(timeout: 5))
+        XCTAssertGreaterThan(pasteboard.changeCount, before)
+        var types = (pasteboard.types ?? []).map(\.rawValue)
+        XCTAssertTrue(types.contains("public.utf8-plain-text"), "\(types)")
+        XCTAssertTrue(types.contains("com.thattechedguy.yank.own-paste"), "\(types)")
+
+        // ⌘2 pastes the second card, which the seed makes a link, not the selected one.
+        app.launch()
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        before = pasteboard.changeCount
+        app.typeKey("2", modifierFlags: .command)
+        XCTAssertTrue(search.waitForNonExistence(timeout: 5))
+        XCTAssertGreaterThan(pasteboard.changeCount, before)
+        types = (pasteboard.types ?? []).map(\.rawValue)
+        XCTAssertTrue(types.contains("public.url"), "\(types)")
     }
 }

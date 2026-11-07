@@ -7,7 +7,7 @@ import SwiftUI
 
 struct ItemCard: View {
     let item: ClipboardItem
-    /// 1 to 9 for the first nine cards (the future ⌘1–⌘9 paste shortcut), nil for the rest.
+    /// 1 to 9 for the first nine cards (the ⌘1–⌘9 paste shortcut), nil for the rest.
     let shortcutNumber: Int?
     let isSelected: Bool
 

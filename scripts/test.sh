@@ -7,7 +7,6 @@
 #        scripts/test.sh --fast   Import check and package tests only. No app launch, a few
 #                                 seconds. Run it often while coding.
 #
-# The plan calls these the "Fast" and "Full" runs.
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 
 # Stop on the first failure; see check-imports.sh for what each flag does.
@@ -20,20 +19,25 @@ scripts/check-imports.sh
 #    target in Package.swift. The parentheses run it in a subshell so the `cd` doesn't leak.
 (cd Packages/ClipCore && swift test)
 
-# "${1:-}" is the first argument, or "" if there is none (needed because of `set -u`).
+# In --fast mode we are done: skip the UI tests, which need a full app build and a launch.
+# ("${1:-}" is the first argument, or "" if there is none; plain "$1" would trip `set -u`.)
 [[ "${1:-}" == "--fast" ]] && exit 0
 
 echo "UI tests launch Yank and may write to your clipboard."
 # If you're running your everyday copy of Yank, quit it first: two copies would both watch the
 # clipboard and fight over the ⇧⌘V shortcut. We remember where it was and reopen it at the end.
-# pgrep -x finds a process by exact name; `|| true` keeps `set -e` from stopping when none runs.
+# Find the running copy's process id, if any. pgrep -x matches the exact process name; `|| true`
+# keeps `set -e` from stopping the script when nothing matches (pgrep exits 1 then).
 daily=$(pgrep -x Yank | head -1 || true)
-# ${daily:+...} expands to the command's output only if $daily is non-empty. ps prints the
-# executable's path (…/Yank.app/Contents/MacOS/Yank); sed trims it back to the .app folder.
+# Remember which .app to reopen later, but only if a copy was running (${daily:+...} expands to
+# the command's output only when $daily is non-empty). ps prints the executable's path
+# (…/Yank.app/Contents/MacOS/Yank); sed trims it back to the .app folder that `open` needs.
 daily_path=${daily:+$(ps -o comm= -p "$daily" | sed 's|/Contents/MacOS/Yank$||')}
-# Ask the app to quit politely (AppleScript), the same as choosing Quit from its menu.
+# Ask the app to quit politely (AppleScript), the same as choosing Quit from its menu, then give
+# it a second to go away before the tests launch their own copy.
 [[ -n "$daily" ]] && osascript -e 'quit app id "com.thattechedguy.Yank"' && sleep 1
-# `trap ... EXIT` runs when the script ends, pass or fail. ≈ a `finally` block.
+# Reopen the everyday copy when the script ends, pass or fail, so a failed test run does not leave
+# you without your clipboard manager. (`trap ... EXIT` ≈ a `finally` block.)
 trap '[[ -n "$daily_path" ]] && open "$daily_path"' EXIT
 
 # 3. Regenerate the Xcode project (in case files were added), then run only the UI test target.

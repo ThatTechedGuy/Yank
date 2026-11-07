@@ -7,24 +7,27 @@
 // the way build.gradle.kts is Kotlin code. `swift build` / `swift test` in this folder use it
 // directly; the Xcode app pulls it in through project.yml.
 
-// `import` makes another module's public names available. ≈ `import ... from '...'` in TS, but
-// for a whole module at once. PackageDescription is the API for writing this manifest.
+// PackageDescription is the API for writing this manifest. (`import` makes another module's public
+// names available, ≈ `import ... from '...'` in TS, but for a whole module at once.)
 import PackageDescription
 
-// `let` declares a constant (≈ `const`); `var` declares something you can reassign (≈ `let` in TS).
-// `[SwiftSetting]` is the type: an array of SwiftSetting values. ≈ `const strict: SwiftSetting[]`.
-// `.treatAllWarnings(as: .error)` uses Swift's "implicit member" shorthand: the leading dot means
+// Compiler settings shared by every target below: any warning fails the build, the same rule the
+// app has in project.yml, so warnings never pile up unread. (`let` is a constant, ≈ `const`;
+// `[SwiftSetting]` is "an array of SwiftSetting"; the leading dot in `.treatAllWarnings` means
 // "a static member of the expected type", so this is SwiftSetting.treatAllWarnings(as: .error).
-// `as:` is an argument label: Swift calls name their arguments, like a TS options object inline.
+// `as:` is an argument label: Swift calls name their arguments, like an inline options object.)
 let strict: [SwiftSetting] = [.treatAllWarnings(as: .error)]
 
-// Creating a value: `Package(...)` calls Package's initializer (≈ `new Package({...})`).
+// The package itself. SwiftPM runs this file and reads this one value to learn what to build.
+// (`Package(...)` calls Package's initializer, ≈ `new Package({...})`.)
 let package = Package(
     name: "ClipCore",
-    // Oldest macOS this package supports. Must match the app's deployment target (26).
+    // Oldest macOS this package supports. Must match the app's deployment target (26) so both
+    // sides agree on which Apple APIs may be used without `if #available` checks.
     platforms: [.macOS(.v26)],
     // Products are what other code can depend on. ≈ the `exports` map in package.json.
-    // We export two separate libraries so the app can link each one explicitly.
+    // We export two separate libraries so the app links each one explicitly, and so the
+    // import rules (scripts/check-imports.sh) can keep macOS code out of ClipCore.
     products: [
         .library(name: "ClipCore", targets: ["ClipCore"]),
         .library(name: "ClipSystem", targets: ["ClipSystem"]),

@@ -3,7 +3,7 @@
 # check-imports.sh — enforces which module may import what. ≈ an ESLint `no-restricted-imports`
 # rule, or Android lint checks for module boundaries.
 #
-# The rules, from the plan's "Who may import what":
+# The rules (who may import what):
 #   * ClipCore (Packages/ClipCore/Sources/ClipCore) may import only Foundation (Swift's standard
 #     library extras: dates, strings, files), CryptoKit (hashing) and os (logging). Never AppKit,
 #     SwiftUI or Vision. That keeps the core testable without macOS UI.
@@ -25,18 +25,19 @@ cd "$(dirname "$0")/.."
 core=Packages/ClipCore/Sources/ClipCore
 failed=0
 
-# Prints one "file:line:module" line for every Swift `import` in the given folders.
-# grep finds the import lines (also attributed ones such as `@testable import X` and kind-specific
-# ones such as `import struct Foo.Bar`); sed keeps just the file, the line number and the module.
+# Prints one "file:line:module" line for every Swift `import` in the given folders, so the rules
+# below can be checked with plain string compares. grep finds the import lines, including attributed
+# ones such as `@testable import X` and kind-specific ones such as `import struct Foo.Bar` (missing
+# those would let a forbidden import slip through); sed keeps just the file, line number and module.
 imports() {
     grep -rnE '^[[:space:]]*(@[A-Za-z_]+(\([^)]*\))?[[:space:]]+)*import[[:space:]]' --include='*.swift' "$@" |
         sed -E 's/^([^:]+:[0-9]+):.*import[[:space:]]+((typealias|struct|class|enum|protocol|let|var|func)[[:space:]]+)?([A-Za-z_]+).*/\1:\4/'
 }
 
-# Rule 1 and 2: check every import inside ClipCore.
-# `while IFS=: read -r a b c` splits each input line on ":" into three variables.
-# `< <(command)` feeds the command's output into the loop (process substitution), so the loop
-# runs in this shell and can set `failed`.
+# Rules 1 and 2: look at every import inside ClipCore and flag the ones the rules forbid. Each
+# line from `imports` is split on ":" into three variables (`while IFS=: read -r a b c`).
+# `< <(command)` feeds the command's output into the loop (process substitution) instead of a
+# pipe, so the loop runs in this shell and its changes to `failed` survive after it ends.
 while IFS=: read -r file line module; do
     case "$module" in
         Foundation | CryptoKit | os) ;; # Allowed: do nothing.

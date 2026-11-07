@@ -105,6 +105,12 @@ targets:
         # Entitlements = capabilities baked into the signature (sandbox, network...).
         # ≈ <uses-permission> entries in AndroidManifest.xml. See the file for details.
         CODE_SIGN_ENTITLEMENTS: App/Resources/Yank.entitlements
+        # The app icon (Finder, the ⌘-Tab switcher, System Settings). The pictures live in
+        # App/Resources/Assets.xcassets, an "asset catalog": a folder of images with a small
+        # JSON file per image set that says which file is which size and scale. ≈ Android's
+        # res/mipmap-*/ folders, or an Expo `icon` entry. This setting names the icon set inside
+        # it. (The menu-bar icon is an SF Symbol, picked in YankApp.swift, not a file here.)
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # Hardened runtime: blocks code injection and unsigned plug-ins. Required for apps
         # distributed outside the App Store, and good hygiene for ours.
         ENABLE_HARDENED_RUNTIME: YES

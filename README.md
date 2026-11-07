@@ -28,6 +28,7 @@ ties permissions such as Accessibility to it, so an unsigned or ad hoc build los
 | Path | What lives there |
 | --- | --- |
 | `App/` | The app target: windows, menu bar, panel. May import ClipCore, ClipSystem, SwiftUI, AppKit, KeyboardShortcuts. |
+| `App/Resources/Assets.xcassets` | The app icon, `AppIcon` (10 PNG slots, 16 to 1024 px). The menu bar uses the SF Symbol `list.clipboard` instead. Masters and a `build.py` that regenerates the PNGs are in `~/Downloads/Yank-icons/source`, not in the repo. |
 | `Packages/ClipCore/Sources/ClipCore` | Model, rules, storage, services, ports. Foundation, CryptoKit, os only; GRDB only in `Storage/`. |
 | `Packages/ClipCore/Sources/ClipSystem` | Adapters that talk to macOS, implementing ClipCore's ports. |
 | `AppUITests/` | XCTest UI tests that drive the real app. |

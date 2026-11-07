@@ -1,4 +1,5 @@
 import Foundation
+import Synchronization
 import Testing
 
 @testable import ClipCore
@@ -284,5 +285,99 @@ struct StoreTests {
             // Each fake item has data rows too, so a later paste of one has something to paste.
             #expect(try await store.data(for: items[0].id).count == 1)
         }
+    }
+
+    @Test func aSaveComputesTheFooterDetailItCan() async throws {
+        try await withStore { store in
+            let text = try await store.save(copy([.text("hello world")]))
+            #expect(text.cardDetail == "11 characters")
+            // An image's detail (its pixel size) needs decoding, which the save leaves to the
+            // Enricher: the card shows no detail until then rather than a wrong one.
+            let image = try await store.save(copy([.png([1, 2, 3])]))
+            #expect(image.cardDetail == nil)
+        }
+    }
+
+    @Test func aPreviewRoundTripsAndGoesWithItsItem() async throws {
+        try await withStore { store in
+            let item = try await store.save(copy([.png([1, 2, 3])]))
+            #expect(try await store.thumbnail(for: item.id) == nil)
+            let thumbnail = CardThumbnail(
+                clipboardItemId: item.id, png: Data([9, 8, 7]), width: 3, height: 2)
+            try await store.setPreview(CardPreview(thumbnail: thumbnail, detail: "3 × 2"), for: item.id)
+            #expect(try await store.thumbnail(for: item.id) == thumbnail)
+            #expect(try await store.items(limit: 1).first?.cardDetail == "3 × 2")
+            // A second preview replaces the first (one thumbnail per item), and a nil detail
+            // keeps the old one.
+            let again = CardThumbnail(clipboardItemId: item.id, png: Data([1]), width: 1, height: 1)
+            try await store.setPreview(CardPreview(thumbnail: again), for: item.id)
+            #expect(try await store.thumbnail(for: item.id) == again)
+            #expect(try await store.items(limit: 1).first?.cardDetail == "3 × 2")
+            // Deleting the item takes its thumbnail with it, and a preview that arrives for a
+            // deleted item (the Enricher finishing late) is dropped, not an error.
+            try await store.delete(id: item.id)
+            try await store.setPreview(CardPreview(thumbnail: again), for: item.id)
+            #expect(try await store.thumbnail(for: item.id) == nil)
+        }
+    }
+
+    @Test func quickLookGetsTheFileItselfOrTheBytesAsAFile() async throws {
+        try await withStore { store in
+            let file = try await store.save(copy([.fileURL("/tmp/some.pdf")]))
+            #expect(try await store.quickLookFile(for: file)?.path == "/tmp/some.pdf")
+            // An image is written out with the extension of its type, so Quick Look opens the
+            // right viewer; a text with .txt.
+            let image = try await store.save(copy([.png([1, 2, 3])]))
+            let url = try #require(try await store.quickLookFile(for: image))
+            #expect(url.pathExtension == "png")
+            #expect(try Data(contentsOf: url) == Data([1, 2, 3]))
+            let text = try await store.save(copy([.text("hi")]))
+            #expect(try await store.quickLookFile(for: text)?.pathExtension == "txt")
+        }
+    }
+}
+
+// Proves the Enricher saves what the decoder returns, asks it once per item however many
+// cards ask at the same time, and never reads the bytes of a text. The decoder is a closure
+// here (the real one needs AppKit); it counts its calls and returns a fixed preview.
+struct EnricherTests {
+    let folder = TemporaryFolder()
+
+    @Test func savesThePreviewAndDecodesEachItemOnce() async throws {
+        defer { folder.remove() }
+        let store = try Store(folder: folder.url)
+        let calls = Mutex(0)
+        let enricher = Enricher(store: store) { item, data in
+            calls.withLock { $0 += 1 }
+            // Hold on, so the second caller arrives while the first is still decoding.
+            try? await Task.sleep(for: .milliseconds(50))
+            return CardPreview(
+                thumbnail: CardThumbnail(clipboardItemId: item.id, png: data[0].data, width: 1, height: 1),
+                detail: "decoded")
+        }
+        let item = try await store.save(
+            CapturedCopy(data: [.png([4, 2])], sourceApp: nil, copiedAt: .now))
+        async let first = enricher.enrich(item)
+        async let second = enricher.enrich(item)
+        let (a, b) = try await (first, second)
+        #expect(a == b)
+        #expect(calls.withLock { $0 } == 1)
+        #expect(try await store.thumbnail(for: item.id)?.png == Data([4, 2]))
+        #expect(try await store.items(limit: 1).first?.cardDetail == "decoded")
+        // Done: the next ask decodes again (a thumbnail lost to a corrupt row, say).
+        try await enricher.enrich(item)
+        #expect(calls.withLock { $0 } == 2)
+    }
+
+    @Test func textsAndLinksAreNotDecoded() async throws {
+        defer { folder.remove() }
+        let store = try Store(folder: folder.url)
+        let enricher = Enricher(store: store) { _, _ in
+            Issue.record("a text must not be decoded")
+            return nil
+        }
+        let item = try await store.save(
+            CapturedCopy(data: [.text("plain")], sourceApp: nil, copiedAt: .now))
+        #expect(try await enricher.enrich(item) == nil)
     }
 }

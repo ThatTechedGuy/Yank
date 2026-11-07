@@ -65,6 +65,7 @@ public final class Store: Sendable {
         let kind = ItemKind.detect(copy.data)
         let fingerprint = DuplicateKey.make(kind: kind, data: copy.data)
         let cardText = CardText.make(kind: kind, data: copy.data)
+        let cardDetail = CardDetail.make(kind: kind, data: copy.data)
         // Large data goes to disk *before* the transaction, so a row never points at a file that
         // isn't fully there yet. If the transaction then fails, these files are leftovers; they
         // are removed right away below, or by the sweep at the next launch after a crash.
@@ -88,6 +89,9 @@ public final class Store: Sendable {
                 if var existing {
                     existing.copiedAt = copy.copiedAt
                     existing.cardText = cardText
+                    // A detail the save cannot compute (an image's size) is left as the
+                    // Enricher set it last time: the bytes are the same, so it still holds.
+                    existing.cardDetail = cardDetail ?? existing.cardDetail
                     existing.sourceAppBundleId = copy.sourceApp?.bundleId
                     existing.sourceAppName = copy.sourceApp?.name
                     // `update` writes every column of the row back, matched by `id`.
@@ -100,7 +104,8 @@ public final class Store: Sendable {
                     // `insertAndFetch` inserts and reads the new row straight back, so the
                     // caller gets the item exactly as stored, with the id the database chose.
                     item = try NewClipboardItem(
-                        kind: kind, cardText: cardText, sourceAppBundleId: copy.sourceApp?.bundleId,
+                        kind: kind, cardText: cardText, cardDetail: cardDetail,
+                        sourceAppBundleId: copy.sourceApp?.bundleId,
                         sourceAppName: copy.sourceApp?.name, createdAt: copy.copiedAt,
                         copiedAt: copy.copiedAt, contentFingerprint: fingerprint
                     ).insertAndFetch(db, as: ClipboardItem.self)
@@ -195,6 +200,54 @@ public final class Store: Sendable {
         }
     }
 
+    /// Adds what the Enricher worked out for an item: its thumbnail and/or footer detail. One
+    /// transaction, so the live list sees both at once. A thumbnail replaces the item's old one
+    /// (`upsert`); a nil part leaves that side alone. Nothing happens if the item was deleted in
+    /// the meantime: the thumbnail's foreign key would refuse it, so it is checked first.
+    public func setPreview(_ preview: CardPreview, for itemId: Int64) async throws {
+        try await pool.write { db in
+            guard try ClipboardItem.exists(db, key: itemId) else { return }
+            if let detail = preview.detail {
+                _ = try ClipboardItem.filter(key: itemId)
+                    .updateAll(db, [ClipboardItemColumns.cardDetail.set(to: detail)])
+            }
+            try preview.thumbnail?.upsert(db)
+        }
+    }
+
+    /// The item's thumbnail, or nil when none has been made (yet).
+    public func thumbnail(for itemId: Int64) async throws -> CardThumbnail? {
+        try await pool.read { db in try CardThumbnail.fetchOne(db, key: itemId) }
+    }
+
+    /// A file Quick Look can open for the item: the file itself for a file item, otherwise the
+    /// item's bytes written to a temporary file named after it, so Quick Look sees the right
+    /// type. Images get their best image type; anything else is written as plain text. Nil when
+    /// the item has no data. The write happens off the main thread, like every read here.
+    public func quickLookFile(for item: ClipboardItem) async throws -> URL? {
+        let data = try await data(for: item.id)
+        if item.kind == .file {
+            return data.first { $0.type == ClipboardType.fileURL }.flatMap { URL(string: $0.text) }
+        }
+        // The first image type the source app offered that we know an extension for; Quick
+        // Look picks its viewer from the extension, so a TIFF must not be called .png.
+        let extensions = [
+            "public.png": "png", "public.jpeg": "jpg", "public.tiff": "tiff", "public.heic": "heic",
+            "com.compuserve.gif": "gif",
+        ]
+        let (type, ext) =
+            data.lazy.compactMap { d in extensions[d.type].map { (d.type, $0) } }.first
+            ?? (ClipboardType.plainText, "txt")
+        guard let bytes = data.first(where: { $0.type == type })?.data else { return nil }
+        // One file per item in the app's temporary folder, overwritten on each preview. macOS
+        // empties that folder on its own, so nothing here has to clean up.
+        let folder = URL.temporaryDirectory.appending(path: "QuickLook")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let url = folder.appending(path: "\(item.id).\(ext)")
+        try bytes.write(to: url, options: .atomic)
+        return url
+    }
+
     /// Up to this many matches are sorted best match first; more than this and they come
     /// newest first instead. SQLite scores every matching row one by one, about 1 µs each on
     /// an M-series Mac, so scoring 50,000 matches of a two-letter search over a big history
@@ -273,32 +326,46 @@ public final class Store: Sendable {
             try await pool.write { db in
                 try ClipboardItem.deleteAll(db)
                 let now = Date()
-                let apps = ["Safari", "TextEdit", "Terminal", "Notes", "Finder", "Mail"]
+                // Real bundle ids of apps every Mac has, so the cards get real icons and colours.
+                let apps = [
+                    ("Safari", "com.apple.Safari"), ("TextEdit", "com.apple.TextEdit"),
+                    ("Terminal", "com.apple.Terminal"), ("Notes", "com.apple.Notes"),
+                    ("Finder", "com.apple.finder"), ("Mail", "com.apple.mail"),
+                ]
                 for i in 0..<count {
-                    let app = apps[i % apps.count]
+                    let (app, bundleId) = apps[i % apps.count]
                     // Half the items are text; the rest cycle through link, file, colour and
                     // image, so a seeded panel shows every kind of card. The image is a real
                     // one-pixel PNG, so anything that decodes it later works on seeded data too.
-                    let (kind, text, type, data): (ItemKind, String, String, Data) =
+                    // The footer details are made up to look like real ones.
+                    let (kind, text, detail, type, data): (ItemKind, String, String, String, Data) =
                         switch i % 8 {
                         case 1:
-                            (.link, "https://example.com/pages/\(i)", ClipboardType.url, Data())
+                            (
+                                .link, "https://example.com/pages/\(i)", "example.com", ClipboardType.url,
+                                Data()
+                            )
                         case 3:
-                            (.file, "report-\(i).pdf", ClipboardType.fileURL, Data())
+                            // A real file URL (to a file that does not exist), so the code that
+                            // reads file URLs sees the same shape as from Finder.
+                            (
+                                .file, "report-\(i).pdf", "\(i % 900 + 24) KB", ClipboardType.fileURL,
+                                Data("file:///tmp/report-\(i).pdf".utf8)
+                            )
                         case 5:
-                            (.color, "#2B59D6", ClipboardType.color, Data())
+                            (.color, "", "#2B59D6", ClipboardType.color, Data())
                         case 7:
-                            (.image, "", "public.png", Self.onePixelPNG)
+                            (.image, "", "1 × 1", "public.png", Self.onePixelPNG)
                         default:
                             (
                                 .text, "Sample item \(i): meeting moved to 3 pm Thursday.",
-                                ClipboardType.plainText, Data()
+                                "\(45 + String(i).count) characters", ClipboardType.plainText, Data()
                             )
                         }
                     // Items 97 seconds apart, so a 100,000-item history spans about four months.
                     let copiedAt = now.addingTimeInterval(-97 * Double(i))
                     let item = try NewClipboardItem(
-                        kind: kind, cardText: text, sourceAppBundleId: "com.example.\(app)",
+                        kind: kind, cardText: text, cardDetail: detail, sourceAppBundleId: bundleId,
                         sourceAppName: app, createdAt: copiedAt, copiedAt: copiedAt,
                         contentFingerprint: "seed-\(i)"
                     ).insertAndFetch(db, as: ClipboardItem.self)

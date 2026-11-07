@@ -74,6 +74,12 @@ struct YankApp: App {
                 Button("Allow Yank in System Settings…") { model.openClipboardSettings() }
             }
             Divider()
+            // Debug builds only: "Developer…" opens the Developer window and "Open Data Folder"
+            // shows the database in Finder. The compiler leaves both out of a release build.
+            #if DEBUG
+                DeveloperMenuItems(model: model)
+                Divider()
+            #endif
             // The only way to quit Yank: with no Dock icon and no app menu, there is no other Quit.
             // A Button takes a title and an action closure (≈ onPress). NSApplication is AppKit's
             // object for the running app; terminate(nil) quits it. `nil` is Swift's null; here it
@@ -84,5 +90,10 @@ struct YankApp: App {
                 // styled-components or RN style props.
                 .keyboardShortcut("q")
         }
+        // The Developer window, a second scene that exists only in debug builds. Declaring it
+        // here does not open it: the menu item above does, by its id.
+        #if DEBUG
+            DeveloperWindow(model: model)
+        #endif
     }
 }

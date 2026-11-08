@@ -23,6 +23,96 @@ not the Xcode project, then run `xcodegen` again. Adding or removing a Swift fil
 Signing uses the "Apple Development" certificate of team `ZT5VFPR74U`. A stable signature matters: macOS
 ties permissions such as Accessibility to it, so an unsigned or ad hoc build loses them on every rebuild.
 
+## Production build
+
+`scripts/release.sh` is the one command for the copy you use every day. ≈ `./gradlew bundleRelease` plus
+installing the APK. It archives the Release configuration into `build/Yank.xcarchive`, checks the result,
+and copies `Yank.app` to `/Applications`. It never opens the app, and it refuses to run while any Yank is
+running. `scripts/release.sh --no-install` builds and checks only.
+
+**Installing and updating.** Quit Yank from its menu bar icon, then run `scripts/release.sh`, then open
+`/Applications/Yank.app` from Finder (Applications folder). Open the copy in `/Applications` and not one in
+`build/`: Spotlight can also list the copy inside the archive. Run the script again after every merge to
+`main` that you want in your everyday copy.
+
+**One Yank at a time.** The installed copy and the debug builds from Xcode share the bundle id
+`com.thattechedguy.Yank`. So they share one sandbox folder (history, settings, pinboards), one set of
+permissions (Accessibility, Paste from Other Apps) and the ⇧⌘V shortcut. Two running at once would both
+save every copy and fight over the shortcut. Quit the installed one before ⌘R in Xcode, or let
+`scripts/test.sh` do it: it quits a running Yank and reopens it afterwards. If "Open at login" was turned
+on from a debug build, turn it off and on again in the installed copy's Settings › General, so macOS
+starts the copy in `/Applications`. If ⌘V pasting stops after the switch, turn Yank off and on in System
+Settings › Privacy & Security › Accessibility.
+
+**What Release changes** (`project.yml`, under `settings`):
+
+| Setting | Value | Why | ≈ |
+| --- | --- | --- | --- |
+| `SWIFT_OPTIMIZATION_LEVEL` | `-O` (Xcode's Release default) | Optimise for speed. Swift's overflow and memory-access checks stay on; `-Ounchecked` would remove them | minified production bundle |
+| `SWIFT_COMPILATION_MODE` | `wholemodule` (default) | The compiler sees a whole module at once, so it can inline and drop code across files | a bundler's scope hoisting |
+| `ARCHS` | `arm64` | Apple silicon only. Halves the app: no Intel copy of every function | shipping only `arm64-v8a` |
+| `DEAD_CODE_STRIPPING` | `YES` | The linker drops code nothing calls. Xcode's templates set it, XcodeGen doesn't | R8 shrinking, tree-shaking |
+| `DEBUG_INFORMATION_FORMAT` | `dwarf-with-dsym` (default) | Symbols are stripped from the app and kept in a separate dSYM inside the archive, so crash reports from this build can be read | source maps, `mapping.txt` |
+| `CODE_SIGN_INJECT_BASE_ENTITLEMENTS` | `NO` (Release only) | Keeps `get-task-allow` out: that entitlement lets a debugger attach and read Yank's memory, which holds what you copied. Debug keeps it for Xcode's debugger | `android:debuggable="false"` |
+| `ENABLE_HARDENED_RUNTIME` | `YES` (already) | macOS refuses injected code and libraries not signed by Apple or this team (library validation) | — |
+
+The entitlements stay the three in `App/Resources/Yank.entitlements`: the sandbox, outgoing network for
+link previews, and read-only access to files you pick. The script checks that the signature is intact, the
+hardened runtime is on, the entitlements are exactly those three, the binary is arm64 only and contains
+none of the `#if DEBUG` code.
+
+Logs: in a Release build an error is logged as its domain and code only, such as
+`NSURLErrorDomain -1001`, through `Error.logDescription`. The full text of an error can hold what you
+copied (a failed link preview's error carries the link, with any token in it), and macOS keeps error
+lines on disk. Debug builds still log the full message.
+
+Not turned on, and why: Xcode's **Enhanced Security** (`ENABLE_ENHANCED_SECURITY`) hardens C and C++
+code (typed allocator, hardened libc++, bounds warnings) and adds an `arm64e` slice. Yank and its three
+dependencies are Swift, which already checks memory access (SQLite is macOS's own copy, not compiled
+here), and its hardened-process entitlement could not
+be shown to launch without opening the app. Worth another look if C code ever comes in. SQLite's
+`PRAGMA optimize` and the full-text index's `optimize` made no measurable difference (search p95 15.3 ms
+against 15.2 ms at 100,000 items), so they are not run.
+
+**Numbers** (8 Nov 2026, Apple silicon, Xcode 27.2):
+
+| | Before | After |
+| --- | --- | --- |
+| `Yank.app` | 8.1 MB (arm64 + x86_64) | 4.1 MB (arm64) |
+| Main binary | 8,172,912 B | 4,057,376 B (the arm64 slice alone was 4,060,528 B, so dead-code stripping saves ~3 KB) |
+| dSYM | 39 MB | 19 MB |
+| `xcodebuild archive`, clean | 65 s | 55 s |
+| Open the database at launch (package test, debug) | 1 ms at 10,000 items, 5 ms at 100,000 | unchanged |
+| First page of 200 cards | 1.4 ms | unchanged |
+| Search p95 | 9 ms at 10,000, 15 ms at 100,000 (limits 16 and 33) | unchanged |
+
+**Signing, and what needs a Developer ID.** The Apple Development certificate is enough to build, sign and
+run Yank on this Mac. An app you build yourself isn't marked as downloaded, so Gatekeeper (macOS's
+check on downloaded apps) never looks at it. To give Yank to someone else later you would need:
+
+1. A **Developer ID Application** certificate. Only the account holder of a paid Apple Developer Program
+   team can make one (US$99 a year). Then set `CODE_SIGN_IDENTITY: Developer ID Application` for Release.
+2. A secure timestamp on the signature: `OTHER_CODE_SIGN_FLAGS: --timestamp`. It needs the network while
+   signing.
+3. **Notarization**: upload a zip of the app with `xcrun notarytool submit Yank.zip --keychain-profile
+   <profile> --wait`. Apple scans it for malware and records it, ≈ Play Protect's check, but required
+   even outside a store.
+4. **Stapling**: `xcrun stapler staple /Applications/Yank.app` attaches Apple's ticket, so the app opens
+   offline on another Mac.
+
+Hardened runtime and no `get-task-allow`, which notarization requires, are already in place.
+
+**Maintaining it.**
+
+- A new build setting for Release goes under `settings.configs.Release` in `project.yml`, then `xcodegen`.
+- A new entitlement means editing `App/Resources/Yank.entitlements` *and* the `expected` list in
+  `scripts/release.sh`. The script fails on purpose until both agree.
+- New debug-only code goes inside `#if DEBUG`. If it has a distinctive name, add it to the script's
+  `strings` check.
+- Log a new error with `\(error.logDescription, privacy: .public)`, never `\(error, privacy: .public)`.
+- Keep `build/Yank.xcarchive` for as long as you run that build: its dSYM is what turns a crash report's
+  addresses back into function names (Xcode › Window › Organizer, or `atos`).
+
 ## Layout
 
 | Path | What lives there |
@@ -32,7 +122,7 @@ ties permissions such as Accessibility to it, so an unsigned or ad hoc build los
 | `Packages/ClipCore/Sources/ClipCore` | Model, rules, storage, services, ports. Foundation, CryptoKit, os only; GRDB only in `Storage/`. `Developer/` and `Storage/StoreInspector.swift` exist in debug builds only. |
 | `Packages/ClipCore/Sources/ClipSystem` | Adapters that talk to macOS, implementing ClipCore's ports. |
 | `AppUITests/` | XCTest UI tests that drive the real app. |
-| `scripts/` | `test.sh`, `check-imports.sh`. |
+| `scripts/` | `test.sh`, `check-imports.sh`, `release.sh` (the production build, see above). |
 
 ## Code style
 

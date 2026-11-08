@@ -21,18 +21,26 @@ import SwiftUI
     private(set) var clipboardAccess: ClipboardAccess = .allowed
     /// Set when the store could not open: shown in the menu instead of the count.
     private(set) var startupError: String?
+    /// The folder holding this launch's database and large-data files: the real one, or the
+    /// fake-history one when started with `--seed`.
+    let dataFolder: URL
 
     private var capture: CaptureService?
     /// The panel's window, created once and kept hidden until ⇧⌘V. Nil if the store failed.
     private var panel: PanelWindow?
 
+    /// Whether the panel is on screen right now. Read by the Developer window, which pauses its
+    /// own sampling while the panel is up so it never overlaps a panel-open or search timing.
+    var isPanelVisible: Bool { panel?.isVisible ?? false }
+
     init() {
+        let options = LaunchOptions()
+        dataFolder = options.storeFolder
         // Open the database before anything else starts. Nothing in the app works without it, and it
         // is a local file, so opening it here is quick. If it fails we keep the error so the menu can
         // show it instead of crashing. (`do { try ... } catch` is Swift's try/catch.)
         do {
-            let options = LaunchOptions()
-            let store = try Store(folder: options.storeFolder)
+            let store = try Store(folder: dataFolder)
             // One clipboard object for both capture and paste, so the paste service's "that
             // was my own write" marker and the capture loop's change counter stay in step.
             let clipboard = SystemClipboard()

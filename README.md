@@ -27,9 +27,9 @@ ties permissions such as Accessibility to it, so an unsigned or ad hoc build los
 
 | Path | What lives there |
 | --- | --- |
-| `App/` | The app target: windows, menu bar, panel. May import ClipCore, ClipSystem, SwiftUI, AppKit, KeyboardShortcuts. |
+| `App/` | The app target: windows, menu bar, panel. May import ClipCore, ClipSystem, SwiftUI, AppKit, KeyboardShortcuts. `Features/Developer/` is the debug-only Developer window. |
 | `App/Resources/Assets.xcassets` | The app icon, `AppIcon` (10 PNG slots, 16 to 1024 px). The menu bar uses the SF Symbol `list.clipboard` instead. Masters and a `build.py` that regenerates the PNGs are in `~/Downloads/Yank-icons/source`, not in the repo. |
-| `Packages/ClipCore/Sources/ClipCore` | Model, rules, storage, services, ports. Foundation, CryptoKit, os only; GRDB only in `Storage/`. |
+| `Packages/ClipCore/Sources/ClipCore` | Model, rules, storage, services, ports. Foundation, CryptoKit, os only; GRDB only in `Storage/`. `Developer/` and `Storage/StoreInspector.swift` exist in debug builds only. |
 | `Packages/ClipCore/Sources/ClipSystem` | Adapters that talk to macOS, implementing ClipCore's ports. |
 | `AppUITests/` | XCTest UI tests that drive the real app. |
 | `scripts/` | `test.sh`, `check-imports.sh`. |
@@ -381,6 +381,76 @@ version are made the first time their card appears.
 - Copy a 200 MB TIFF: the card appears at once and the thumbnail a moment later; memory stays flat.
 - Open Paste.app next to Yank with the same copies and compare the two side by side: the tints, the
   footer details and the card proportions.
+
+## The Developer window (stage 4b)
+
+Debug builds only. The menu bar menu gains **Developer…**, a window with four tabs, and **Open Data
+Folder**, which selects the database file in Finder. The whole of `App/Features/Developer/` and the three
+ClipCore pieces it uses sit under `#if DEBUG` (≈ `__DEV__`, except the compiler drops the code), so a
+release build contains none of it: `strings` on the Release binary finds no "Developer", "StoreInspector"
+or "Open Data Folder". Every tab does its work from its `.task`, which SwiftUI cancels when the tab or
+the window goes away, so with the window closed the app does nothing extra (`top` shows 0.0 %). All tabs
+pause while the panel is open, so they never overlap a timing.
+
+- **Overview**: item counts per kind, search-index rows, database and large-data sizes, memory footprint
+  and CPU. Once a second. The footprint is `ri_phys_footprint` from `proc_pid_rusage`
+  (`ClipCore/Developer/ProcessSample.swift`), the same number the `footprint` tool reports. The window's
+  own drawing shows up in the CPU figure, so **Measure for 60 Seconds** hides the window, samples with
+  nothing drawing, and shows it again with the result (0.2 % idle with 1,000 items). Instruments stays the
+  final word.
+- **Database**: a read-only browser of every table in the file, like DB Browser for SQLite: a picker of
+  the tables with their row counts (the app's four, the FTS5 search index and the five shadow tables it
+  keeps, `grdb_migrations`, `sqlite_sequence`; found by asking `sqlite_master`, so a table added by a
+  later migration appears by itself; the app's own first, then the ones with an underscore), then every column of the chosen table, 200 rows per page, with ◀ ▶
+  to page. Rows come in SQLite's scan order (rowid, oldest first). A blob cell shows its size plus the
+  text or image inside when the bytes say so (PNG/JPEG/TIFF magic, or valid UTF-8; nothing over 512 KB
+  is sniffed). No SQL box: use DB Browser for SQLite on the file via Open Data Folder.
+- **Timings**: one bar chart per timing marker ("Open panel" today) of its last 20 durations, with the
+  limit as a red line. Bars come from `Log.timing`, now a `TimingSignposter`: it still emits the
+  `OSSignposter` intervals Instruments reads, and in debug builds also remembers the last 20 durations per
+  name in memory. The sandbox gives an app no way to read its own signposts back (`OSLogStore` returns
+  none), which is why they are remembered rather than read.
+- **Logs**: this launch's log lines for the app's subsystem, newest first, with a category filter and a
+  Refresh button. Read with `OSLogStore(scope: .currentProcessIdentifier)`, the one scope the sandbox
+  allows; each read is a request to `logd` that takes 1–2 s of wall time (not our CPU), so the tab reads
+  every 5 s, incrementally, on an actor. Only `.info` and above come back (the store never returns
+  `.debug`), and private values show as `<private>`.
+
+**The SQL trace.** In debug builds `Store` installs GRDB's `db.trace(options: .profile)` on every
+connection and logs each statement with its duration to the `sql` category at `.info`. The SQL is the
+statement as prepared, with `?` for the values, so clipboard contents never reach the log and it can be
+`.public`. SQLite's profile clock has millisecond resolution, so "0 ms" means under one. A seed of 10,000
+items logs about 100,000 lines in under a second; the Logs tab keeps only the last 500.
+
+**How the window reads the database.** `StoreInspector` (ClipCore, `Storage/`) opens its own read-only
+GRDB connection to the same file, so its queries never queue behind the app's and never appear in the SQL
+trace. A read-only connection cannot use `ValueObservation` (it only sees its own connection's writes),
+so the inspector asks `PRAGMA data_version`, SQLite's "did another connection commit?" counter, once a
+second and re-reads only when it changed. The table list comes from `SELECT name FROM sqlite_master`,
+because GRDB can describe a table it is given (`columns(in:)`) but has no call that lists them. Those are
+the two raw SQL statements in the stage; the counts and pages are the query builder (`Table<Row>(name)`).
+
+**Maintaining it.** To time something new, wrap it in `Log.timing.beginInterval("Name")` /
+`endInterval("Name", state)` and it appears in Timings on its own; add its limit to `TimingsView.limits`
+to get the red line (the "Search" entry is a guess at the name the search code will use). To show a new
+number in Overview, add it to `StoreInspector.Snapshot` and one `LabeledContent` row. To change how many
+rows per page, lines or durations are kept, edit `DatabaseView.pageSize`, `LogsView.keptLines` and
+`TimingSignposter.keptPerName`. The Database tab needs no change for a new table or column; to preview a
+new kind of blob, extend `StoreInspector.preview(of:)`. New Swift files need `xcodegen` again.
+
+**Hand checks still open:**
+
+- Open Developer… and copy a few things in another app: the Database tab's row counts and open page
+  update and Overview's counts rise within a second.
+- Database tab with `--seed 100000`: pick each table in turn, page to the last page of `clipboardItem`
+  and `clipboardItemData`, and check paging feels instant; `cardThumbnail` rows show their PNG;
+  `clipboardItemData` text rows show their text next to the size.
+- Press ⇧⌘V a few times: the Timings tab shows a bar per open, all under the 50 ms line.
+- Press Measure for 60 Seconds: the window disappears, comes back a minute later with a CPU and peak
+  memory figure.
+- Open Data Folder: Finder opens on `yank.sqlite` in the right folder (the seed folder when launched with
+  `--seed`).
+- Build the Release configuration and confirm the menu has no Developer… row.
 
 ## Sandbox and copied files (stage 0 spike)
 

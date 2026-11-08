@@ -37,6 +37,7 @@ extension ClipboardItem: FetchableRecord, PersistableRecord {
 enum ClipboardItemColumns {
     static let id = Column("id")
     static let cardDetail = Column("cardDetail")
+    static let kind = Column("kind")
     static let copiedAt = Column("copiedAt")
     static let contentFingerprint = Column("contentFingerprint")
 }
@@ -84,6 +85,7 @@ struct ClipboardItemDataRow: Codable, FetchableRecord, PersistableRecord {
     enum Columns {  // typed column names, built from the property names so they can't drift
         static let clipboardItemId = Column(CodingKeys.clipboardItemId)
         static let position = Column(CodingKeys.position)
+        static let data = Column(CodingKeys.data)
         static let largeDataFileName = Column(CodingKeys.largeDataFileName)
     }
 

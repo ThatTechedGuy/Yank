@@ -30,7 +30,7 @@ struct YankApp: App {
         Log.ui.info("Yank launched")
     }
 
-    // `body` describes the whole UI: for Yank, a single menu bar item. SwiftUI reads it again
+    // `body` describes the whole UI: the menu bar item and the Settings window. SwiftUI reads it again
     // whenever something it used in `model` changes, like a React component's render. (`var body:
     // some Scene { ... }` is a computed property; `some Scene` means "one specific Scene type that
     // the compiler works out", so we don't have to spell the long generic type.)
@@ -46,52 +46,21 @@ struct YankApp: App {
         // or the accent colour to match a light, dark or tinted menu bar, so it always fits in.
         //
         // The `{ ... }` after the parentheses is a trailing closure: the last argument is a
-        // function, written outside the call. ≈ passing `children` in JSX.
-        MenuBarExtra("Yank", systemImage: "list.clipboard") {
-            // First row: the saved count, or the error if the database did not open. SwiftUI
-            // re-renders these rows when `model` changes (it is @Observable). They are `Text`, a
-            // plain label, because a `Button` with no action would look clickable and do nothing.
-            if let error = model.startupError {
-                Text(error)
-            } else {
-                // "1 item saved", "2 items saved": `^[...](inflect: true)` asks Foundation to pick
-                // the singular or plural for the number in the sentence.
-                Text("^[\(model.itemCount) items](inflect: true) saved")
-            }
-            // Rows that explain why nothing is being saved, with a button to fix it. macOS (15.4+)
-            // can ask the user before every clipboard read, or refuse it; the model re-reads that
-            // state on every poll, so these rows appear and disappear as the user changes it.
-            // `switch` over an enum must cover every case; `.allowed` needs no row, so it shows an
-            // EmptyView.
-            switch model.clipboardAccess {
-            case .allowed:
-                EmptyView()
-            case .askEachTime:
-                Text("macOS asks before every copy.")
-                Button("Allow Yank in System Settings…") { model.openClipboardSettings() }
-            case .denied:
-                Text("Clipboard access is off, so nothing is saved.")
-                Button("Allow Yank in System Settings…") { model.openClipboardSettings() }
-            }
-            Divider()
-            // Debug builds only: "Developer…" opens the Developer window and "Open Data Folder"
-            // shows the database in Finder. The compiler leaves both out of a release build.
-            #if DEBUG
-                DeveloperMenuItems(model: model)
-                Divider()
-            #endif
-            // The only way to quit Yank: with no Dock icon and no app menu, there is no other Quit.
-            // A Button takes a title and an action closure (≈ onPress). NSApplication is AppKit's
-            // object for the running app; terminate(nil) quits it. `nil` is Swift's null; here it
-            // means "no sender".
-            Button("Quit Yank") { NSApplication.shared.terminate(nil) }
-                // Lets ⌘Q quit while the menu is open, as users expect from any Mac app. This is a
-                // view modifier: it wraps the button and returns a new view. Modifiers chain like
-                // styled-components or RN style props.
-                .keyboardShortcut("q")
+        // function, written outside the call. ≈ passing `children` in JSX. The icon swaps to a
+        // pause sign while saving is paused, so the state is visible without opening the menu.
+        MenuBarExtra("Yank", systemImage: model.isPaused ? "pause.circle" : "list.clipboard") {
+            MenuBarContent(model: model)
+        }
+        // The Settings window. SwiftUI owns it: the scene gives us the window, ⌘, from the
+        // menu, and `SettingsLink` to open it from anywhere. It is built the first time it is
+        // opened. `.environment(model)` hands the model to the views inside, the way a React
+        // context provider does, so the Data tab can erase the history and show the count.
+        Settings {
+            SettingsView()
+                .environment(model)
         }
         // The Developer window, a second scene that exists only in debug builds. Declaring it
-        // here does not open it: the menu item above does, by its id.
+        // here does not open it: the "Developer…" row in MenuBarContent does, by its id.
         #if DEBUG
             DeveloperWindow(model: model)
         #endif

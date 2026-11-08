@@ -28,7 +28,10 @@ final class PanelWindow: NSPanel {
         return PanelHeight.clamped(saved == 0 ? PanelHeight.initial : saved)
     }()
 
-    init(model: PanelModel, thumbnails: ThumbnailCache, appIcons: SourceAppIcons) {
+    init(
+        model: PanelModel, thumbnails: ThumbnailCache, appIcons: SourceAppIcons,
+        openSettings: @escaping () -> Void
+    ) {
         self.model = model
         // The style says what kind of window this is. `borderless`: no title bar, no close
         // buttons, no frame. `nonactivatingPanel`: it can take keyboard focus (become the "key
@@ -54,13 +57,14 @@ final class PanelWindow: NSPanel {
         animationBehavior = .none
         // The SwiftUI content. `NSHostingView` is the bridge that draws a SwiftUI view inside
         // an AppKit window, like a React Native root view inside a native Activity. The view
-        // gets a `dismiss` callback for Esc and a `resize` one for the drag handle, so SwiftUI
-        // never has to know about the window; the caches the cards draw from go in through
-        // the environment. `[weak self]` keeps the view from holding the window alive in a loop.
+        // gets a `dismiss` callback for Esc, a `resize` one for the drag handle and
+        // `openSettings` for ⌘,, so SwiftUI never has to know about the window; the caches the
+        // cards draw from go in through the environment. `[weak self]` keeps the view from
+        // holding the window alive in a loop.
         contentView = NSHostingView(
             rootView: PanelView(
                 model: model, dismiss: { [weak self] in Task { await self?.hide() } },
-                resize: { [weak self] in self?.resize(to: $0) }
+                resize: { [weak self] in self?.resize(to: $0) }, openSettings: openSettings
             )
             .environment(thumbnails)
             .environment(\.sourceAppIcons, appIcons))
@@ -79,6 +83,12 @@ final class PanelWindow: NSPanel {
     /// Dock, and gives it keyboard focus. Does nothing if it is already showing.
     func show() {
         guard !isVisible else { return }
+        // Whether screen recordings and shared screens get to see the panel. `.none` tells
+        // macOS to leave this window out of captures (ScreenCaptureKit, QuickTime, Zoom and
+        // the like honour it as far as they can; a hardware capture card cannot be stopped).
+        // Read on every show, so a change in Settings counts from the next open.
+        sharingType =
+            UserDefaults.standard.bool(forKey: SettingsKey.showPanelInScreenSharing) ? .readOnly : .none
         // The screen under the mouse pointer, or the main screen if the pointer is between
         // screens. `visibleFrame` is the screen minus the menu bar and the Dock, so the panel's
         // bottom edge sits just above the Dock. (Screen coordinates start at the bottom left.)

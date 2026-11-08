@@ -87,6 +87,8 @@
             HStack {
                 if let error {
                     Text(error).foregroundStyle(.red)
+                } else if let table, table.rowCount == 0 {
+                    Text("No rows · \(table.columns.count) columns")
                 } else if let table {
                     let first = min(pageIndex * Self.pageSize + 1, table.rowCount)
                     let last = min((pageIndex + 1) * Self.pageSize, table.rowCount)
@@ -131,7 +133,10 @@
                     do {
                         if let fresh = try await inspector.tables(ifChangedSince: tables?.dataVersion) {
                             tables = fresh
-                            if selectedTable == nil { selectedTable = fresh.tables.first?.name }
+                            // First open: start on the biggest table, the one worth looking at.
+                            if selectedTable == nil {
+                                selectedTable = fresh.tables.max { $0.rowCount < $1.rowCount }?.name
+                            }
                             pageIndex = min(pageIndex, pageCount - 1)
                             await loadPage()
                         }

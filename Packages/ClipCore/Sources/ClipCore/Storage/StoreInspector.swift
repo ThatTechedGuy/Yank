@@ -141,10 +141,12 @@ import GRDB
                 // lists the tables, so this one line of SQL asks SQLite directly. It returns
                 // everything, including the five `_data`/`_idx`/... shadow tables FTS5 keeps
                 // behind the search index and GRDB's own `grdb_migrations`, so a new table shows
-                // up here without anyone remembering to add it. Creation order, like the file.
+                // up here without anyone remembering to add it. The app's own tables come first,
+                // then the system and shadow ones (the ones with an underscore in the name).
                 let names = try String.fetchAll(
-                    db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
-                let tables = try names.map { name in
+                    db, sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+                let (own, system) = (names.filter { !$0.contains("_") }, names.filter { $0.contains("_") })
+                let tables = try (own + system).map { name in
                     TableInfo(
                         name: name,
                         // `SELECT COUNT(*) FROM "name"`.

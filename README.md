@@ -401,7 +401,7 @@ pause while the panel is open, so they never overlap a timing.
 - **Database**: a read-only browser of every table in the file, like DB Browser for SQLite: a picker of
   the tables with their row counts (the app's four, the FTS5 search index and the five shadow tables it
   keeps, `grdb_migrations`, `sqlite_sequence`; found by asking `sqlite_master`, so a table added by a
-  later migration appears by itself), then every column of the chosen table, 200 rows per page, with ◀ ▶
+  later migration appears by itself; the app's own first, then the ones with an underscore), then every column of the chosen table, 200 rows per page, with ◀ ▶
   to page. Rows come in SQLite's scan order (rowid, oldest first). A blob cell shows its size plus the
   text or image inside when the bytes say so (PNG/JPEG/TIFF magic, or valid UTF-8; nothing over 512 KB
   is sniffed). No SQL box: use DB Browser for SQLite on the file via Open Data Folder.

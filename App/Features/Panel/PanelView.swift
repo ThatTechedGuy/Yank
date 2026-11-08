@@ -43,6 +43,8 @@ struct PanelView: View {
                     TextField(model.searchPrompt, text: $model.searchText)
                         .textFieldStyle(.roundedBorder)
                         .focused($focus, equals: .search)
+                        // The grey prompt inside the box is not a name VoiceOver can use.
+                        .accessibilityLabel("Search")
                         .accessibilityIdentifier("search")
                     // One line next to search, only while Return cannot paste for the user.
                     // The button opens macOS's own permission dialog; nothing else in the app
@@ -232,6 +234,19 @@ struct PanelView: View {
                     }
                     .onEnded { _ in dragStart = nil }
             )
+            // VoiceOver users cannot drag, so to them the handle is a slider instead:
+            // `accessibilityRepresentation` swaps in another control's accessibility (a real
+            // `Slider`, never drawn) for this view. It says the height, and VoiceOver's
+            // increase and decrease (⌃⌥⇧↑ ↓) move it 20 points within the allowed range.
+            .accessibilityRepresentation {
+                Slider(
+                    value: Binding(get: { Double(panelHeight) }, set: { resize(CGFloat($0)) }),
+                    in: PanelHeight.minimum...PanelHeight.maximum, step: 20
+                ) {
+                    Text("Panel height")
+                }
+                .accessibilityValue("\(Int(panelHeight)) points")
+            }
             .accessibilityIdentifier("resize-handle")
     }
 }

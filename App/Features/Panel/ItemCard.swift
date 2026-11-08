@@ -22,9 +22,17 @@ struct ItemCard: View {
     let fileIsMissing: Bool
     /// The card's width, set by the row from the panel's height so cards scale with it.
     let width: CGFloat
+    /// Where the card sits in the row, from 1, and how many cards the row holds ("20", or
+    /// "200 or more"), for the sentence VoiceOver reads: "Card 1 of 20. …".
+    let position: Int
+    let listSize: String
 
     @Environment(ThumbnailCache.self) private var thumbnails
     @Environment(\.sourceAppIcons) private var appIcons
+    /// Whether the user turned on Increase Contrast (System Settings › Accessibility ›
+    /// Display). Then every card gets a visible edge, not only the selected ones, so cards stand
+    /// apart from the frosted background behind them.
+    @Environment(\.colorSchemeContrast) private var contrast
 
     static let cornerRadius: CGFloat = 10
 
@@ -41,21 +49,47 @@ struct ItemCard: View {
         .background(.background.opacity(0.7))
         .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
         // The selection outline: the user's accent colour on the lead card, a fainter accent on
-        // the other selected cards, nothing otherwise. Drawing a clear stroke when not selected
-        // keeps the card the same size either way.
+        // the other selected cards, nothing otherwise (a thin edge with Increase Contrast).
+        // An overlay is drawn on top without taking space, so the card keeps its size either
+        // way.
         .overlay(
             RoundedRectangle(cornerRadius: Self.cornerRadius)
-                .stroke(outlineColor, lineWidth: 3)
+                .stroke(outlineColor, lineWidth: isSelected ? 3 : 1)
         )
-        // Names for the UI tests and for VoiceOver: "card-42", marked selected or not.
+        // For VoiceOver the card is one element (`.combine` merges the pieces inside into one
+        // piece of text) that reads as one sentence, the label replacing the pieces' own
+        // words, marked selected or not. The id is for the UI tests.
         .accessibilityElement(children: .combine)
+        .accessibilityLabel(spokenDescription)
         .accessibilityIdentifier("card-\(item.id)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private var outlineColor: Color {
         if isLead { return .accentColor }
-        return isSelected ? Color.accentColor.opacity(0.45) : .clear
+        if isSelected { return Color.accentColor.opacity(0.45) }
+        return contrast == .increased ? Color.primary.opacity(0.6) : .clear
+    }
+
+    /// "Card 1 of 20. Text from Safari, 2 minutes ago: Hello world": what the card says to a
+    /// VoiceOver user, the same facts the eye gets from the header and the preview, in the
+    /// order they matter. The age uses the same wording as the header.
+    private var spokenDescription: String {
+        let source = item.sourceAppName.map { " from \($0)" } ?? ""
+        let age = item.copiedAt.formatted(.relative(presentation: .named))
+        return "Card \(position) of \(listSize). \(item.kind.displayName)\(source), \(age): \(spokenContent)"
+    }
+
+    /// The preview in words: a renamed card's own name first, then by kind the text, the
+    /// picture's size, the page title and address, or the colour's hex value.
+    private var spokenContent: String {
+        if fileIsMissing { return "File no longer exists" }
+        if let title = item.title { return title }
+        switch item.kind {
+        case .image, .color: return item.cardDetail ?? item.cardText
+        case .link: return [item.linkPageTitle, item.cardText].compactMap { $0 }.joined(separator: ", ")
+        case .text, .file: return item.cardText
+        }
     }
 
     /// The tinted band: kind on the left, age and app icon on the right.

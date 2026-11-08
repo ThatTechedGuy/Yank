@@ -21,6 +21,9 @@ struct IgnoredAppsList: View {
                 IgnoredAppRow(bundleId: bundleId)
             }
             .frame(minHeight: 120)
+            // The section header above says "Ignored apps", but VoiceOver does not tie the
+            // list to it, so the list gets the same name itself.
+            .accessibilityLabel("Ignored apps")
             .accessibilityIdentifier("ignored-apps")
             // `overlay` draws on top of the list; it is how an empty list gets a hint.
             .overlay {

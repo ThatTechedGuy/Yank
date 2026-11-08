@@ -61,7 +61,11 @@ struct YankApp: App {
                 Image(systemName: model.isPaused ? "pause.circle" : "list.clipboard")
             }
             .labelStyle(.titleAndIcon)
-            .accessibilityLabel("Yank")
+            // What VoiceOver says for the icon: the app's name, and the two states the icon
+            // shows by its look, so they are not seen-only.
+            .accessibilityLabel(
+                "Yank" + (model.isPaused ? ", paused" : "")
+                    + (waiting > 0 ? ", \(waiting) waiting in the paste stack" : ""))
         }
         // The Settings window. SwiftUI owns it: the scene gives us the window, ⌘, from the
         // menu, and `SettingsLink` to open it from anywhere. It is built the first time it is

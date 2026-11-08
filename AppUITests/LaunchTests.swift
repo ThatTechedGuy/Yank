@@ -14,7 +14,9 @@ final class LaunchTests: XCTestCase {
     @MainActor
     func testAppLaunchesWithMenuBarIcon() {
         // XCUIApplication() refers to the app under test: Yank, set by TEST_TARGET_NAME in
-        // project.yml. launch() starts a fresh copy of it, quitting any copy a previous test left.
+        // project.yml, built as Debug, so "Yank Debug" with bundle id com.thattechedguy.Yank.debug
+        // and its own history and settings. launch() starts a fresh copy of it, quitting any copy
+        // a previous test left; the Release copy in /Applications is a different app and stays.
         let app = XCUIApplication()
         app.launch()
 

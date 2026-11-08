@@ -3,8 +3,9 @@
 // relaunch; cancelling "Erase History…" keeps the history; every tab passes Apple's
 // accessibility audit. (See LaunchTests for what XCTest and XCUIApplication are.)
 //
-// These tests drive the real Settings window, so they write to the real UserDefaults of the
-// app on this Mac. Each one puts back what it changed before it ends.
+// These tests drive the real Settings window, so they write to the saved settings of the app
+// they launch: the Debug build, "Yank Debug", whose settings are its own and never those of the
+// Release copy in /Applications. Each test still puts back what it changed before it ends.
 import XCTest
 
 final class SettingsTests: XCTestCase {

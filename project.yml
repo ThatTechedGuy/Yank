@@ -134,6 +134,17 @@ targets:
         # Hardened runtime: blocks code injection and unsigned plug-ins. Required for apps
         # distributed outside the App Store, and good hygiene for ours.
         ENABLE_HARDENED_RUNTIME: YES
+      # Debug builds (⌘R in Xcode, the UI tests) are a separate app as far as macOS is
+      # concerned: a different bundle id gives them their own sandbox container (history,
+      # settings, pinboards), their own permissions in System Settings and their own login
+      # item. So a test run or a debug session never touches the history and settings of the
+      # Release copy in /Applications. ≈ Android's `applicationIdSuffix ".debug"`, which lets a
+      # debug APK sit next to the Play Store one. The display name tells the two apart in
+      # System Settings and in Finder.
+      configs:
+        Debug:
+          PRODUCT_BUNDLE_IDENTIFIER: com.thattechedguy.Yank.debug
+          INFOPLIST_KEY_CFBundleDisplayName: Yank Debug
 
   # ── UI tests ────────────────────────────────────────────────────────────────────────────
   # A separate test app that launches Yank and drives it like a user would.

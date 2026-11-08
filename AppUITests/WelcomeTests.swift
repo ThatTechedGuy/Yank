@@ -6,7 +6,9 @@
 // "First launch" is faked with `-hasShownWelcome NO` on the command line: macOS lets a launch
 // argument of the form `-key value` stand in for a saved setting for that one run, so this
 // launch behaves like the first one while the real setting is left alone. The window itself
-// then saves "shown" for good, which is what the second launch checks.
+// then saves "shown" for good, which is what the second launch checks. That saved value belongs
+// to the Debug build ("Yank Debug"), which has its own settings, so the Release copy in
+// /Applications still shows its welcome window on its own first launch.
 import XCTest
 
 final class WelcomeTests: XCTestCase {

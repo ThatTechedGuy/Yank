@@ -7,14 +7,16 @@
 #        scripts/release.sh --no-install  Build and check only; the app stays in build/.
 #
 # What it makes:
-#   build/Yank.xcarchive                  An "archive": the app plus its dSYM (debug symbols,
-#                                         ≈ a source map or ProGuard's mapping.txt). Keep it to
-#                                         read crash reports from this exact build.
+#   build/Yank.xcarchive                  The latest build's "archive": the app plus its dSYM
+#                                         (debug symbols, ≈ a source map or ProGuard's mapping.txt).
+#   build/Installed.xcarchive             A copy of the archive of the build last installed, kept
+#                                         to read crash reports from the copy in /Applications.
 #   /Applications/Yank.app                The installed app. Not opened: start it from Finder,
 #                                         Spotlight or Launchpad.
 #
-# Yank must not be running while it installs (macOS keeps a running app's files open), so the
-# script stops with a message rather than quitting anything for you. Takes about a minute.
+# The installed Yank must not be running while it installs (macOS keeps a running app's files
+# open), so the script stops with a message rather than quitting anything for you. A running
+# debug build ("Yank Debug") doesn't matter: it is a separate app. Takes about a minute.
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 
 # Stop on the first failure; see check-imports.sh for what each flag does.
@@ -50,6 +52,10 @@ expected='  "com.apple.security.app-sandbox" => true
   "com.apple.security.files.user-selected.read-only" => true
   "com.apple.security.network.client" => true'
 [[ "$entitlements" == "$expected" ]] || { echo "Unexpected entitlements:"; echo "$entitlements"; exit 1; }
+# It is the Release app, com.thattechedguy.Yank, so it opens your real history and settings,
+# not the debug build's (com.thattechedguy.Yank.debug, see project.yml).
+bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")
+[[ "$bundle_id" == com.thattechedguy.Yank ]] || { echo "Unexpected bundle id: $bundle_id"; exit 1; }
 # Apple silicon only.
 [[ "$(lipo -archs "$binary")" == arm64 ]] || { echo "Not an arm64-only binary."; exit 1; }
 # None of the debug-only code (`#if DEBUG`: the Developer window, --seed) made it in.
@@ -60,9 +66,11 @@ echo "Checks passed: $(du -sh "$app" | cut -f1) app, arm64, signed, hardened run
 
 [[ "${1:-}" == "--no-install" ]] && exit 0
 
-# 3. Install. A running Yank (installed or a debug build) would keep the old files open and
-#    would fight the new one over the clipboard and ⇧⌘V, so ask for it to be quit first.
-if pgrep -x Yank > /dev/null; then
+# 3. Install. The installed copy must not be running while its files are replaced (macOS keeps a
+#    running app's files open), so ask for it to be quit first. `pgrep -f` matches the whole
+#    command line, here the executable's path, so a debug build ("Yank Debug", which runs from
+#    the build folder) doesn't count: it is a separate app with its own data.
+if pgrep -f '^/Applications/Yank.app/Contents/MacOS/Yank' > /dev/null; then
     echo "Yank is running. Quit it from its menu bar icon (Quit Yank), then run this again."
     exit 1
 fi
@@ -70,4 +78,8 @@ fi
 # attributes (≈ `cp -R`, but safe for apps). The old copy goes first so no stale file survives.
 rm -rf /Applications/Yank.app
 ditto "$app" /Applications/Yank.app
-echo "Installed /Applications/Yank.app (not opened)."
+# Keep this build's archive under its own name: its dSYM is the only file that can read crash
+# reports from the installed copy, and the next `--no-install` run replaces build/Yank.xcarchive.
+rm -rf build/Installed.xcarchive
+ditto "$archive" build/Installed.xcarchive
+echo "Installed /Applications/Yank.app (not opened). Its symbols: build/Installed.xcarchive."

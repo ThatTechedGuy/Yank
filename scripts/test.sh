@@ -30,18 +30,23 @@ fi
 [[ "${1:-}" == "--fast" ]] && exit 0
 
 echo "UI tests launch Yank and may write to your clipboard."
-# If you're running your everyday copy of Yank, quit it first: two copies would both watch the
-# clipboard and fight over the ⇧⌘V shortcut. We remember where it was and reopen it at the end.
-# Find the running copy's process id, if any. pgrep -x matches the exact process name; `|| true`
-# keeps `set -e` from stopping the script when nothing matches (pgrep exits 1 then).
-daily=$(pgrep -x Yank | head -1 || true)
-# Remember which .app to reopen later, but only if a copy was running (${daily:+...} expands to
-# the command's output only when $daily is non-empty). ps prints the executable's path
-# (…/Yank.app/Contents/MacOS/Yank); sed trims it back to the .app folder that `open` needs.
-daily_path=${daily:+$(ps -o comm= -p "$daily" | sed 's|/Contents/MacOS/Yank$||')}
+# The tests run the Debug build, "Yank Debug" (bundle id com.thattechedguy.Yank.debug), which has
+# its own history and settings. Your everyday Release copy (com.thattechedguy.Yank) is quit while
+# they run anyway: it would save every test copy into your real history, and it holds ⇧⌘V.
+# We remember where it was and reopen it at the end.
+# Find it among the running processes named Yank (both builds have that process name):
+# pgrep -x matches the exact name, `|| true` keeps `set -e` from stopping the script when nothing
+# matches. ps prints each one's executable path (…/Yank.app/Contents/MacOS/Yank), sed trims it
+# back to the .app folder, and PlistBuddy reads that app's bundle id from its Info.plist.
+daily_path=""
+for pid in $(pgrep -x Yank || true); do
+    path=$(ps -o comm= -p "$pid" | sed 's|/Contents/MacOS/Yank$||')
+    id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$path/Contents/Info.plist" 2>/dev/null || true)
+    [[ "$id" == com.thattechedguy.Yank ]] && daily_path=$path
+done
 # Ask the app to quit politely (AppleScript), the same as choosing Quit from its menu, then give
-# it a second to go away before the tests launch their own copy.
-[[ -n "$daily" ]] && osascript -e 'quit app id "com.thattechedguy.Yank"' && sleep 1
+# it a second to go away before the tests start.
+[[ -n "$daily_path" ]] && osascript -e 'quit app id "com.thattechedguy.Yank"' && sleep 1
 # Reopen the everyday copy when the script ends, pass or fail, so a failed test run does not leave
 # you without your clipboard manager. (`trap ... EXIT` ≈ a `finally` block.)
 trap '[[ -n "$daily_path" ]] && open "$daily_path"' EXIT

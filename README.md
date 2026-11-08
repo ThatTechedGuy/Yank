@@ -810,6 +810,87 @@ standard set; a custom one is a `CommandMenu` next to it in `YankApp`.
 - ⌘N, type a note, ⌘S: a text card at the top, source "Yank". ⌘E on it, Cancel: nothing changes.
 - A file card's ⌘K menu has no Edit, and ⌘E on it does nothing.
 
+## Welcome window and accessibility (stage 11)
+
+On the first launch a window opens by itself: "Welcome to Yank", with the panel shortcut (the same
+recorder box as Settings), "Paste for you" (whether macOS lets Yank press ⌘V, with an Allow… button
+while it does not) and the Open at login switch. Get Started, Return or Esc closes it. It never opens
+again, and there is no menu row to reopen it: everything in it is also in Settings.
+
+**How the welcome window works.** It is a SwiftUI `Window` scene in `YankApp` (one window, never two
+copies; ≈ one more screen registered at the navigator's root), with `WelcomeView`
+(`App/Features/Welcome/`) inside. `.defaultLaunchBehavior` decides at launch whether SwiftUI opens it:
+`.presented` while the UserDefaults key `hasShownWelcome` (`SettingsKey.hasShownWelcome`) is missing,
+`.suppressed` after. The view writes `true` to that key in `onAppear`, so quitting without pressing Get
+Started still counts as shown, and `.restorationBehavior(.disabled)` stops macOS from reopening it after
+a quit. The Accessibility line is a copy of `AppModel.isAccessibilityTrusted` (which asks
+`AXIsProcessTrusted` through the paste service) refreshed once a second by a `.task` loop while the
+window is open, because macOS sends no notice when the user flips the switch; the loop stops when the
+window closes. Allow… is `AppModel.requestAccessibility()`, the same macOS dialog as the panel's hint.
+The login switch is `OpenAtLoginToggle` (`App/Features/Settings/`), shared with Settings › General: it
+reads and writes `SMAppService.mainApp`, so macOS stays the only place the setting lives.
+
+To see the window again, start Yank once with the flag that makes a launch look like the first one
+(macOS lets `-key value` stand in for a saved setting for that run only):
+
+```sh
+build/Build/Products/Debug/Yank.app/Contents/MacOS/Yank -hasShownWelcome NO
+```
+
+or forget it for good with `defaults delete com.thattechedguy.Yank hasShownWelcome` (Yank is sandboxed,
+so if that says the key does not exist, delete it from
+`~/Library/Containers/com.thattechedguy.Yank/Data/Library/Preferences/com.thattechedguy.Yank.plist`).
+
+**VoiceOver.** Each card is one element that reads as one sentence, built in `ItemCard.spokenDescription`:
+"Card 1 of 20. Text from Safari, 2 minutes ago: Hello world", then "selected" for the selected card.
+After the colon comes the card's own name if renamed, else by kind the text, the picture's size, the
+page title and address, the hex value, or "File no longer exists". "of 20" is
+`PanelModel.listSizeDescription`: the cards loaded in the row, said as "200 or more" when the row holds
+a full page and more may wait behind it (the row loads 200 at a time). The row itself is a group named
+"Cards"; the search box is named "Search"; the pinboard "+" is "New Pinboard" (a `Label` with the
+icon-only style); the panel window is named "Yank" (its title, never drawn); the menu bar icon says
+"Yank, paused, 3 waiting in the paste stack" when those apply. The resize handle is, to VoiceOver, a
+slider named "Panel height" (`accessibilityRepresentation` with a `Slider` that is never drawn): its
+increase and decrease keys (⌃⌥⇧↑ ↓) make the panel 20 points taller or shorter within 252–412.
+
+**Display settings.** Increase Contrast (System Settings › Accessibility › Display) gives every card a
+thin edge, not only the selected one (`colorSchemeContrast` in `ItemCard`). Reduce Motion needs no code:
+Yank has no animations of its own (the panel appears with `animationBehavior = .none`, the row scrolls
+without animation), and the system popovers follow the setting by themselves. Light and dark come from
+the system colours and materials. Keyboard-only use needs macOS's own "Keyboard navigation" switch
+(System Settings › Keyboard) for Tab to reach buttons and switches in the Settings, editor and welcome
+windows; the panel works with the keyboard either way.
+
+**Tests.** `WelcomeTests`: with `-hasShownWelcome NO` the window is up with its three rows and passes
+the audit, Get Started closes it, and a second launch without the flag shows no window. The audit itself
+is `XCUIApplication.auditAccessibility()` in `AppUITests/AccessibilityAudit.swift`, Apple's
+`performAccessibilityAudit()` (the same checks as Accessibility Inspector's Audit button), run on the
+panel (`PanelTests`, which also checks the first card's sentence), every Settings tab (`SettingsTests`),
+the editor (`EditorTests`) and the welcome window. The helper excuses three things that come from
+Apple's own controls, each with its reason in the file: the contrast check (it fails plain text in
+Apple's standard settings form, so contrast is a hand check), the unnamed group SwiftUI puts around
+every window's content, and the "press" action on pop-up menus, which open with "show menu" instead.
+
+**Maintaining it.** To add a row to the welcome window: a control in the `Form` in `WelcomeView`; if it
+is also a setting, make it a small shared view like `OpenAtLoginToggle` so Settings and the welcome
+window cannot drift apart. To show it again after an update with something new in it, read a different
+key (`hasShownWelcome2`) in `YankApp` and write that one in `WelcomeView`. To change what a card says to
+VoiceOver, edit `spokenContent` and `spokenDescription` in `ItemCard`. When the audit fails, the failure
+names the element: give it a label (`.accessibilityLabel`, or a `Label` for an icon-only button), and
+only if the element is Apple's own and cannot take one, add a case with its reason to the helper.
+
+**Hand checks still open:**
+
+- Fresh install (or the `-hasShownWelcome NO` launch above): the window opens; quit and relaunch: it
+  does not.
+- Allow…, switch Yank on in System Settings › Privacy & Security › Accessibility: within a second the
+  window says "Allowed", without a restart.
+- VoiceOver on (⌘F5): the welcome window, the panel (cards read as sentences, the handle adjusts the
+  height), Settings and the menu bar menu can all be used with VoiceOver and the keyboard alone.
+- Increase Contrast on: every card has an edge, and text everywhere stays readable in light and dark.
+- Reduce Motion on: the panel appears without animation.
+- ⌘W closes the welcome, editor and Settings windows; ⌘Q quits from the menu.
+
 ## Sandbox and copied files (stage 0 spike)
 
 Question: when the user copies a file in Finder, can the sandboxed app, reading the clipboard on a timer

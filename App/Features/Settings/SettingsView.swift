@@ -7,11 +7,9 @@
 //
 // `@AppStorage("key") var x = default` is a property wrapper, like `@State`, that reads the
 // key from UserDefaults, uses the default when it is missing, and writes back on every change.
-// ServiceManagement is the framework behind "open at login"; KeyboardShortcuts (a package)
-// draws the box that records the panel shortcut.
+// KeyboardShortcuts (a package) draws the box that records the panel shortcut.
 import ClipCore
 import KeyboardShortcuts
-import ServiceManagement
 import SwiftUI
 
 struct SettingsView: View {
@@ -40,23 +38,14 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.pasteDestination) private var pasteDestination = PasteDestination.activeApp
         .rawValue
     @AppStorage(SettingsKey.alwaysPlainText) private var alwaysPlainText = false
-    // "Open at login" is not a setting we keep: macOS keeps it, in System Settings › General
-    // › Login Items, and the user can change it there too. So the truth is
-    // `SMAppService.mainApp.status`, read when the tab appears and after each toggle, and
-    // this `@State` is only a copy for the Toggle to bind to.
-    @State private var opensAtLogin = false
-    @State private var loginItemError: String?
 
     var body: some View {
         // `Form` with the `.grouped` style is the standard look of a Mac settings tab: rows
         // with a label on the left and the control on the right, in rounded groups.
         Form {
             Section {
-                Toggle("Open at login", isOn: $opensAtLogin)
-                    .onChange(of: opensAtLogin) { _, wanted in setOpensAtLogin(wanted) }
-                if let loginItemError {
-                    Text(loginItemError).font(.callout).foregroundStyle(.secondary)
-                }
+                // Shared with the welcome window; macOS, not Yank, keeps the setting.
+                OpenAtLoginToggle()
             }
             Section {
                 // A Picker shows as a pop-up menu in a Form. Each option's `.tag` is the value
@@ -82,33 +71,6 @@ private struct GeneralSettings: View {
             }
         }
         .formStyle(.grouped)
-        .onAppear(perform: readLoginItemStatus)
-    }
-
-    /// Copies macOS's answer into the Toggle. `.enabled` is on; `.requiresApproval` means the
-    /// user has to allow it in System Settings, so the Toggle shows off with an explanation.
-    private func readLoginItemStatus() {
-        let status = SMAppService.mainApp.status
-        opensAtLogin = status == .enabled
-        loginItemError =
-            status == .requiresApproval ? "Allow Yank in System Settings › General › Login Items." : nil
-    }
-
-    /// Registers or unregisters the app as a login item, then re-reads what macOS says so the
-    /// Toggle never shows a state that was refused.
-    private func setOpensAtLogin(_ wanted: Bool) {
-        guard wanted != (SMAppService.mainApp.status == .enabled) else { return }
-        do {
-            if wanted {
-                try SMAppService.mainApp.register()
-            } else {
-                try SMAppService.mainApp.unregister()
-            }
-        } catch {
-            Log.ui.error("login item change failed: \(error, privacy: .public)")
-            loginItemError = error.localizedDescription
-        }
-        readLoginItemStatus()
     }
 }
 

@@ -1,6 +1,7 @@
 // The panel as a user meets it: it opens with the cursor in search, the arrow keys move the
 // selection, Return and ⌘1–⌘9 paste, Space shows the selected card's preview, and Esc closes
-// it. The app is launched with a fake history so the test never depends on, or touches, what
+// it; each card reads as one sentence to VoiceOver, and the panel passes Apple's accessibility
+// audit. The app is launched with a fake history so the test never depends on, or touches, what
 // this Mac has really copied. (See LaunchTests for what XCTest and XCUIApplication are.)
 import XCTest
 
@@ -134,6 +135,27 @@ final class PanelTests: XCTestCase {
         XCTAssertTrue(search.exists)
         app.typeKey(.escape, modifierFlags: [])
         XCTAssertTrue(search.waitForNonExistence(timeout: 5))
+    }
+
+    @MainActor
+    func testCardsReadAsOneSentenceAndThePanelPassesTheAccessibilityAudit() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--seed", "20", "--show-panel"]
+        app.launch()
+        let cards = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'card-'"))
+        let first = cards.element(boundBy: 0)
+        XCTAssertTrue(first.waitForExistence(timeout: 5))
+
+        // What VoiceOver reads for the newest fake item, a text copied from Safari a moment ago:
+        // its place in the row, its kind and app, its age (the middle, which depends on the
+        // clock, is not checked) and its words. A card is one piece of text to the
+        // accessibility tree, so the sentence is its `value`.
+        let spoken = first.value as? String ?? ""
+        XCTAssertTrue(spoken.hasPrefix("Card 1 of 20. Text from Safari, "), spoken)
+        XCTAssertTrue(spoken.hasSuffix(": Sample item 0: meeting moved to 3 pm Thursday."), spoken)
+
+        // Apple's accessibility audit (see AccessibilityAudit.swift for what it checks).
+        try app.auditAccessibility()
     }
 
     /// Polls `condition` for up to five seconds. The cards change a moment after a keystroke

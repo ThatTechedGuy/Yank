@@ -55,6 +55,9 @@ final class PanelWindow: NSPanel {
         isReleasedWhenClosed = false
         // No fade or zoom when ordering the window in and out: it should feel instant.
         animationBehavior = .none
+        // The panel has no title bar, so the title is never drawn; VoiceOver and the other
+        // accessibility tools still use it as the window's name.
+        title = "Yank"
         // The SwiftUI content. `NSHostingView` is the bridge that draws a SwiftUI view inside
         // an AppKit window, like a React Native root view inside a native Activity. The view
         // gets a `dismiss` callback for Esc, a `resize` one for the drag handle and

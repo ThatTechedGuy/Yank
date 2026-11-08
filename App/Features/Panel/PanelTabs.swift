@@ -59,7 +59,10 @@ struct PanelTabs: View {
             Button {
                 model.newPinboardPrompt = NewPinboardPrompt()
             } label: {
-                Image(systemName: "plus")
+                // An icon-only button still needs words for VoiceOver: a `Label` with the
+                // `.iconOnly` style shows just the "+" and gives VoiceOver the title.
+                Label("New Pinboard", systemImage: "plus")
+                    .labelStyle(.iconOnly)
             }
             .buttonStyle(.borderless)
             .help("New Pinboard")

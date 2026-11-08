@@ -26,6 +26,13 @@ import SwiftUI
     /// The cards on screen: the search results while something is typed, otherwise the live
     /// list. Computed, so a view reading it re-renders when either source changes.
     var items: [ClipboardItem] { searchResults ?? liveItems }
+    /// How many cards the row holds, as VoiceOver says it in "Card 1 of 20": the number, or
+    /// "200 or more" when the row holds a full page, so more history (or more matches) may be
+    /// waiting beyond it. Counting the whole history would take another query on every change.
+    var listSizeDescription: String {
+        let isFull = searchResults.map { $0.count == Self.pageSize } ?? (liveItems.count == limit)
+        return isFull ? "\(items.count) or more" : "\(items.count)"
+    }
     /// The newest items, kept fresh by the live query. Only the first `limit` of the history.
     private(set) var liveItems: [ClipboardItem] = []
     /// The items matching `searchText`, or nil when the box is empty or holds too little to

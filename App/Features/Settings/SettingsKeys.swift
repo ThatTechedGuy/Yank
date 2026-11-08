@@ -23,6 +23,10 @@ enum SettingsKey {
     /// unless the user turns that off. Read with `linkPreviewsEnabled`, not `bool(forKey:)`,
     /// which would read a missing key as off.
     nonisolated static let linkPreviews = "linkPreviews"
+    /// Whether the welcome window has been shown: a Bool, missing until the first launch opens
+    /// the window, then true for good. `-hasShownWelcome NO` on the command line makes one
+    /// launch behave like the first one again, which is how the UI test checks the window.
+    static let hasShownWelcome = "hasShownWelcome"
 
     /// Whether link previews are on right now, for code outside a SwiftUI view. `nonisolated`
     /// because the Enricher asks from a background task; UserDefaults is safe to read from any

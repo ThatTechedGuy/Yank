@@ -32,7 +32,8 @@ struct CardRow: View {
                         ItemCard(
                             item: item, shortcutNumber: index < 9 ? index + 1 : nil,
                             isSelected: model.selection.contains(item.id), isLead: isLead,
-                            fileIsMissing: model.missingFileIds.contains(item.id), width: cardWidth
+                            fileIsMissing: model.missingFileIds.contains(item.id), width: cardWidth,
+                            position: index + 1, listSize: model.listSizeDescription
                         )
                         // Double-click pastes the card (with ⇧ held: as plain text). It must
                         // come before the single click, or the single click wins and the
@@ -102,6 +103,10 @@ struct CardRow: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 12)
+                // One named group holding the cards, so VoiceOver announces "Cards" on the
+                // way in; `.contain` keeps each card its own element inside it.
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Cards")
             }
             // No scroll bar: the row is browsed with the keys, the wheel or the trackpad, and
             // the bar would sit on top of the cards.

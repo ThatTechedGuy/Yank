@@ -1,7 +1,7 @@
 // The menu and the Settings window as a user meets them: Pause Saving flips the menu to
 // "Paused" and Resume flips it back; a setting changed in the window is still set after a
-// relaunch; cancelling "Erase History…" keeps the history. (See LaunchTests for what XCTest
-// and XCUIApplication are.)
+// relaunch; cancelling "Erase History…" keeps the history; every tab passes Apple's
+// accessibility audit. (See LaunchTests for what XCTest and XCUIApplication are.)
 //
 // These tests drive the real Settings window, so they write to the real UserDefaults of the
 // app on this Mac. Each one puts back what it changed before it ends.
@@ -92,6 +92,22 @@ final class SettingsTests: XCTestCase {
         cancel.click()
         XCTAssertTrue(cancel.waitForNonExistence(timeout: 5))
         XCTAssertEqual(count.value as? String, countBefore)
+    }
+
+    @MainActor
+    func testEverySettingsTabPassesTheAccessibilityAudit() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--seed", "20"]
+        app.launch()
+        let settings = openSettings(app)
+        // Each tab shows different controls, so each gets its own audit (see AccessibilityAudit.swift).
+        for tab in ["General", "Privacy", "Data"] {
+            settings.toolbars.buttons[tab].click()
+            // The window is titled after the open tab; checking it makes sure the audit below
+            // looks at the tab it names, not the one before.
+            XCTAssertEqual(settings.title, tab)
+            try app.auditAccessibility()
+        }
     }
 
     /// Opens Settings from the menu bar menu and returns its window. Settings is a SwiftUI

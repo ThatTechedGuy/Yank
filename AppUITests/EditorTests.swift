@@ -1,7 +1,7 @@
 // The editor as a user meets it: ⌘N from the panel opens an empty editor, typing and Save as
 // New puts a card with those words at the front of the history; ⌘E on a card opens that card
-// with Replace Original on offer, and Cancel closes it without a change. Launched with a fake
-// history, like PanelTests. (See LaunchTests for what XCTest and XCUIApplication are.)
+// with Replace Original on offer, and Cancel closes it without a change; the editor passes
+// Apple's accessibility audit. Launched with a fake history, like PanelTests. (See LaunchTests for what XCTest and XCUIApplication are.)
 import XCTest
 
 final class EditorTests: XCTestCase {
@@ -68,5 +68,19 @@ final class EditorTests: XCTestCase {
         XCTAssertTrue(front.waitForExistence(timeout: 5))
         XCTAssertEqual(front.identifier, frontId)
         XCTAssertEqual(cards.count, count)
+    }
+
+    @MainActor
+    func testTheEditorPassesTheAccessibilityAudit() throws {
+        let app = XCUIApplication()
+        app.launchArguments = ["--seed", "20", "--show-panel"]
+        app.launch()
+        XCTAssertTrue(app.textFields["search"].waitForExistence(timeout: 5))
+
+        // ⌘N opens the editor for a new text item; the audit (see AccessibilityAudit.swift) runs on it.
+        app.typeKey("n", modifierFlags: .command)
+        XCTAssertTrue(app.textViews["editor-text"].waitForExistence(timeout: 5))
+        try app.auditAccessibility()
+        app.buttons["cancel"].click()
     }
 }

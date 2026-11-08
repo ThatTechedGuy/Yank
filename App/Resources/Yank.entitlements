@@ -41,5 +41,21 @@
 	-->
 	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
+	<!--
+	  Let Yank talk to one named system service: com.apple.universalaccessAuthWarn, the part of
+	  macOS that shows the "Yank would like to control this computer" dialog and adds Yank to the
+	  Accessibility list. Without this the sandbox refuses the connection, so the Allow… button
+	  in the welcome window and the panel's hint does nothing (no dialog, and Yank never appears
+	  in the list). ≈ the system dialog Android shows for a runtime permission, except that macOS
+	  only lets a sandboxed app ask for this one if it is allowed to reach the service.
+	  It opens nothing else: the sandbox still blocks every other service, and granting the
+	  permission still takes the user's own switch in System Settings. Apple calls it a
+	  "temporary exception" and the Mac App Store doesn't accept it, which doesn't matter for an
+	  app built and signed for this Mac.
+	-->
+	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
+	<array>
+		<string>com.apple.universalaccessAuthWarn</string>
+	</array>
 </dict>
 </plist>

@@ -55,8 +55,8 @@ import SwiftUI
     /// user flips the switch, so the welcome window reads this once a second while it is open.
     var isAccessibilityTrusted: Bool { pasteService?.isAccessibilityTrusted ?? false }
 
-    /// Opens System Settings at Privacy & Security › Accessibility, where the user switches Yank
-    /// on (or adds it with + first). The same as the panel hint's Allow… button.
+    /// Shows macOS's own "Yank would like to control this computer" dialog, which puts Yank in
+    /// the Accessibility list for the user to switch on. The same dialog as the panel's hint.
     func requestAccessibility() { pasteService?.requestAccessibility() }
 
     /// Whether the panel is on screen right now. Read by the Developer window, which pauses its

@@ -45,12 +45,15 @@ codesign --verify --strict "$app"
 # would then count codesign's broken pipe as a failure.)
 signature=$(codesign -dv "$app" 2>&1)
 [[ "$signature" == *"flags="*"(runtime)"* ]] || { echo "Hardened runtime is off."; exit 1; }
-# The entitlements are exactly the three in App/Resources/Yank.entitlements: no debugger access
-# (get-task-allow) and nothing else crept in. `plutil -p` prints them one per line.
+# The entitlements are exactly the ones in App/Resources/Yank.entitlements: no debugger access
+# (get-task-allow) and nothing else crept in. `plutil -p` prints them one per line (an array's
+# items on their own lines, which is why the one service name sorts first).
 entitlements=$(codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -p - | grep '=>' | sort)
-expected='  "com.apple.security.app-sandbox" => true
+expected='    0 => "com.apple.universalaccessAuthWarn"
+  "com.apple.security.app-sandbox" => true
   "com.apple.security.files.user-selected.read-only" => true
-  "com.apple.security.network.client" => true'
+  "com.apple.security.network.client" => true
+  "com.apple.security.temporary-exception.mach-lookup.global-name" => ['
 [[ "$entitlements" == "$expected" ]] || { echo "Unexpected entitlements:"; echo "$entitlements"; exit 1; }
 # It is the Release app, com.thattechedguy.Yank, so it opens your real history and settings,
 # not the debug build's (com.thattechedguy.Yank.debug, see project.yml).

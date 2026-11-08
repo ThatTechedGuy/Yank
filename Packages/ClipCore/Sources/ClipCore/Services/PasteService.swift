@@ -43,7 +43,7 @@ import Foundation
     /// Whether macOS lets Yank press ⌘V. The panel shows a hint when it doesn't.
     public var isAccessibilityTrusted: Bool { accessibility.isTrusted }
 
-    /// Opens System Settings at Accessibility, where the user grants the permission.
+    /// Shows macOS's own dialog for granting the Accessibility permission.
     public func requestAccessibility() { accessibility.requestAccess() }
 
     /// Pastes `item`. `plainText` keeps only its plain-text type (for ⇧Return and the "always

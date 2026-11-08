@@ -22,6 +22,27 @@ extension ClipboardItem: FetchableRecord, PersistableRecord {
         order(ClipboardItemColumns.copiedAt.desc, ClipboardItemColumns.id.desc)
     }
 
+    /// The items the panel shows for a filter, newest first: the History tab's unpinned items
+    /// or one pinboard's items, only the chosen kind, only those copied since the date range
+    /// began. Each part of the filter adds one `WHERE` clause, or none when it is "any".
+    /// `now` and `calendar` are passed in so the date maths stays testable (see `DateRange`).
+    static func matching(_ filter: ItemFilter, now: Date, calendar: Calendar)
+        -> QueryInterfaceRequest<ClipboardItem>
+    {
+        var request = newestFirst
+        switch filter.list {
+        case .history: request = request.filter(ClipboardItemColumns.pinboardId == nil)
+        case .pinboard(let id): request = request.filter(ClipboardItemColumns.pinboardId == id)
+        }
+        if let kind = filter.kind {
+            request = request.filter(ClipboardItemColumns.kind == kind.rawValue)
+        }
+        if let start = filter.dateRange.start(now: now, calendar: calendar) {
+            request = request.filter(ClipboardItemColumns.copiedAt >= start)
+        }
+        return request
+    }
+
     /// An item's row in the search index. The index has no id column of its own: SQLite gives
     /// every row a hidden `rowid`, and the sync triggers keep it equal to the item's `id`, so
     /// that is the link. ≈ a one-to-one relation in Prisma, declared so the Store can `JOIN`
@@ -36,11 +57,36 @@ extension ClipboardItem: FetchableRecord, PersistableRecord {
 // reserves a nested `Columns` for its own use.)
 enum ClipboardItemColumns {
     static let id = Column("id")
-    static let cardDetail = Column("cardDetail")
     static let kind = Column("kind")
+    static let cardDetail = Column("cardDetail")
     static let copiedAt = Column("copiedAt")
     static let contentFingerprint = Column("contentFingerprint")
     static let pinboardId = Column("pinboardId")
+}
+
+// `Pinboard` as a row of `pinboard`, fetched and updated the same way as items. Inserts go
+// through `NewPinboard` below, for the same reason as `NewClipboardItem`: a `Pinboard` always
+// has an id, and a row about to be inserted has none yet.
+extension Pinboard: FetchableRecord, PersistableRecord {
+    /// Every pinboard in tab order.
+    static var inOrder: QueryInterfaceRequest<Pinboard> {
+        order(PinboardColumns.position, PinboardColumns.id)
+    }
+}
+
+enum PinboardColumns {
+    static let id = Column("id")
+    static let name = Column("name")
+    static let position = Column("position")
+}
+
+// A pinboard about to be inserted: every column but `id`. `insertAndFetch` returns the full
+// `Pinboard` with the id the database chose.
+struct NewPinboard: Encodable, PersistableRecord {
+    static let databaseTableName = Pinboard.databaseTableName
+
+    var name: String
+    var position: Int
 }
 
 // `CardThumbnail` as a row of `cardThumbnail` (the table name comes from the type name). Its

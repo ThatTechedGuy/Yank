@@ -288,9 +288,100 @@ struct StoreTests {
         }
     }
 
+    @Test func pinboardsKeepTheirCreationOrderAndRename() async throws {
+        try await withStore { store in
+            let work = try await store.createPinboard(named: "Work")
+            let snippets = try await store.createPinboard(named: "Snippets")
+            #expect(try await store.pinboards().map(\.name) == ["Work", "Snippets"])
+            #expect(snippets.position == work.position + 1)
+            try await store.renamePinboard(id: work.id, to: "Office")
+            #expect(try await store.pinboards().map(\.name) == ["Office", "Snippets"])
+            // Deleting the first does not move the second: positions are not renumbered.
+            try await store.deletePinboard(id: work.id)
+            #expect(try await store.pinboards() == [snippets])
+        }
+    }
+
+    // Pinning moves an item from the History tab to the pinboard's tab; unpinning or deleting
+    // the pinboard moves it back. Every list here is read through the same filters the panel
+    // uses, so the tabs show what this test shows.
+    @Test func pinningMovesAnItemBetweenHistoryAndItsPinboard() async throws {
+        try await withStore { store in
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            let a = try await store.save(copy([.text("a")], at: t0))
+            let b = try await store.save(copy([.text("b")], at: t0 + 1))
+            let board = try await store.createPinboard(named: "Snippets")
+            let history = ItemFilter()
+            let onBoard = ItemFilter(list: .pinboard(id: board.id))
+            func texts(_ filter: ItemFilter) async throws -> [String] {
+                var list = store.observeItems(matching: filter, limit: 10).makeAsyncIterator()
+                return try await list.next()?.map(\.cardText) ?? []
+            }
+
+            try await store.pin(itemId: a.id, to: board.id)
+            #expect(try await texts(history) == ["b"])
+            #expect(try await texts(onBoard) == ["a"])
+            // A repeat copy of a pinned item moves it up but keeps it pinned.
+            try await store.save(copy([.text("a")], at: t0 + 2))
+            #expect(try await texts(history) == ["b"])
+            #expect(try await texts(onBoard) == ["a"])
+            // Pinning to a pinboard that no longer exists is a quiet no-op.
+            try await store.pin(itemId: b.id, to: board.id + 100)
+            #expect(try await texts(history) == ["b"])
+
+            try await store.unpin(itemId: a.id)
+            #expect(try await texts(history) == ["a", "b"])
+            #expect(try await texts(onBoard) == [])
+
+            try await store.pin(itemId: b.id, to: board.id)
+            try await store.deletePinboard(id: board.id)
+            #expect(try await texts(history) == ["a", "b"])
+            #expect(try await store.pinboards().isEmpty)
+        }
+    }
+
+    // The kind and date filters narrow both the live list and the search, and the search only
+    // sees the tab it is on. Dates are relative to the real clock here because the Store reads
+    // it; the exact day maths is proven in DateRangeTests.
+    @Test func kindAndDateFiltersNarrowTheListAndTheSearch() async throws {
+        try await withStore { store in
+            let now = Date()
+            let old = Calendar.current.date(byAdding: .day, value: -40, to: now)!
+            try await store.save(copy([.text("quarterly report")], at: now - 2))
+            try await store.save(copy([.text("quarterly old")], at: old))
+            try await store.save(copy([.url("https://quarterly.example")], at: now - 1))
+            let board = try await store.createPinboard(named: "Keep")
+            let pinned = try await store.save(copy([.text("quarterly pinned")], at: now))
+            try await store.pin(itemId: pinned.id, to: board.id)
+            func texts(_ filter: ItemFilter) async throws -> [String] {
+                var list = store.observeItems(matching: filter, limit: 10).makeAsyncIterator()
+                return try await list.next()?.map(\.cardText) ?? []
+            }
+
+            #expect(try await texts(ItemFilter(kind: .text)) == ["quarterly report", "quarterly old"])
+            #expect(
+                try await texts(ItemFilter(dateRange: .lastThirtyDays)) == [
+                    "https://quarterly.example", "quarterly report",
+                ])
+            #expect(try await texts(ItemFilter(kind: .text, dateRange: .today)) == ["quarterly report"])
+            #expect(try await texts(ItemFilter(list: .pinboard(id: board.id), kind: .link)) == [])
+
+            let today = ItemFilter(kind: .text, dateRange: .today)
+            #expect(
+                try await store.search("quart", matching: today, limit: 10)?.map(\.cardText) == [
+                    "quarterly report"
+                ])
+            #expect(try await store.search("quart", limit: 10)?.count == 3)
+            let onBoard = ItemFilter(list: .pinboard(id: board.id))
+            #expect(
+                try await store.search("quart", matching: onBoard, limit: 10)?.map(\.cardText) == [
+                    "quarterly pinned"
+                ])
+        }
+    }
+
     // Erase removes the unpinned items with their files and shrinks the database file, and
-    // leaves pinned items alone. Pinning has no Store API yet, so the test puts a pinboard row
-    // in and points one item at it through GRDB directly, on the same file.
+    // leaves pinned items alone.
     @Test func eraseHistoryKeepsPinnedItemsAndShrinksTheFile() async throws {
         try await withStore { store in
             let big = Data((0..<2_000_000).map { UInt8($0 % 251) })
@@ -300,12 +391,10 @@ struct StoreTests {
             for i in 0..<200 {
                 try await store.save(copy([.text(String(repeating: "x", count: 5_000) + "\(i)")]))
             }
+            let board = try await store.createPinboard(named: "Snippets")
+            try await store.pin(itemId: pinned.id, to: board.id)
             let databaseFile = folder.url.appending(path: "yank.sqlite")
             let queue = try DatabaseQueue(path: databaseFile.path)
-            try await queue.write { db in
-                try db.execute(literal: "INSERT INTO pinboard (name, position) VALUES ('Snippets', 0)")
-                try db.execute(literal: "UPDATE clipboardItem SET pinboardId = 1 WHERE id = \(pinned.id)")
-            }
             // Move everything from the write-ahead log into the main file first, so "before" is
             // the file's full size and not whatever an automatic checkpoint had copied so far.
             _ = try await queue.writeWithoutTransaction { db in try db.checkpoint(.truncate) }

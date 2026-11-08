@@ -91,3 +91,18 @@ struct TemporaryFolder {
 extension Tag {
     @Tag static var slow: Self
 }
+
+/// A web that answers every address with the same title and icon, and remembers which addresses
+/// were asked for, so a test can prove an address was fetched once, or never. `@MainActor`
+/// makes the class `Sendable`, which the port requires, without a lock of its own.
+@MainActor final class FakeLinkFetcher: LinkFetching {
+    var fetched: [URL] = []
+    var preview = LinkPreview(
+        title: "Example Domain",
+        icon: LinkPreview.Icon(png: Data([0x89, 0x50, 0x4E, 0x47]), width: 32, height: 32))
+
+    func fetch(_ url: URL) async throws -> LinkPreview {
+        fetched.append(url)
+        return preview
+    }
+}

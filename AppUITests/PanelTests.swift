@@ -77,4 +77,46 @@ final class PanelTests: XCTestCase {
         types = (pasteboard.types ?? []).map(\.rawValue)
         XCTAssertTrue(types.contains("public.url"), "\(types)")
     }
+
+    @MainActor
+    func testTypingFiltersTheCardsAndClearingRestoresThem() {
+        let app = XCUIApplication()
+        // Twenty fake items: every eighth is a file named "report-<n>.pdf" (three of them),
+        // and every sixth was copied from "Safari" (four of them).
+        app.launchArguments = ["--seed", "20", "--show-panel"]
+        app.launch()
+        let search = app.textFields["search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 5))
+        // The row only builds the cards that fit on screen (about ten), so the full list is
+        // "more than a handful", never exactly twenty.
+        let cards = app.staticTexts.matching(NSPredicate(format: "identifier BEGINSWITH 'card-'"))
+        XCTAssertTrue(cards.element(boundBy: 5).waitForExistence(timeout: 5))
+
+        // Typing a word keeps only the cards that contain it, and selects the first of them.
+        search.typeText("report")
+        XCTAssertTrue(waitUntil { cards.count == 3 })
+        XCTAssertTrue(cards.element(boundBy: 0).isSelected)
+
+        // The app's name counts too, so "safari" finds what was copied from Safari even though
+        // the word is not in the text. (A partial word does as well: "saf" would find the same.)
+        search.typeKey("a", modifierFlags: .command)
+        search.typeText("safari")
+        XCTAssertTrue(waitUntil { cards.count == 4 })
+
+        // Clearing the box brings the whole history back.
+        search.typeKey("a", modifierFlags: .command)
+        search.typeKey(.delete, modifierFlags: [])
+        XCTAssertTrue(waitUntil { cards.count > 5 })
+    }
+
+    /// Polls `condition` for up to five seconds. The cards change a moment after a keystroke
+    /// (the search runs in the background), so a plain assert right after typing is too early.
+    private func waitUntil(_ condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            if condition() { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+        }
+        return condition()
+    }
 }

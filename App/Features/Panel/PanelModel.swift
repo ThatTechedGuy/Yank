@@ -9,6 +9,11 @@
 // so a copy made while the panel is open appears on its own. Pasting goes through it too: the
 // views say which card and whether ⇧ was held, and the model adds the user's settings and
 // hands the job to PasteService.
+//
+// Typing in the search box swaps the live list for search results: each keystroke cancels the
+// search still running for the previous text and starts a new one, so the cards always show
+// the latest text and a slow search can never overwrite a newer one. Clearing the box shows
+// the live list again, which kept running underneath.
 import ClipCore
 import SwiftUI
 
@@ -18,13 +23,25 @@ import SwiftUI
     /// covers what is visible and a few screens of scrolling.
     static let pageSize = 200
 
-    /// The cards, newest first. Only the first `limit` items of the history.
-    private(set) var items: [ClipboardItem] = []
+    /// The cards on screen: the search results while something is typed, otherwise the live
+    /// list. Computed, so a view reading it re-renders when either source changes.
+    var items: [ClipboardItem] { searchResults ?? liveItems }
+    /// The newest items, kept fresh by the live query. Only the first `limit` of the history.
+    private(set) var liveItems: [ClipboardItem] = []
+    /// The items matching `searchText`, or nil when the box is empty or holds too little to
+    /// search (one letter, only spaces or punctuation): the full list shows then.
+    // shortcut: results are a snapshot, a copy made while they show does not appear in them,
+    // and they are capped at one page with no paging; revisit if either is ever noticed.
+    private var searchResults: [ClipboardItem]?
     /// The id of the selected card, if any. An id, not an index, so the selection survives a new
     /// copy arriving at the front of the list.
     var selectedId: Int64?
-    /// What is typed in the search box. Not used yet: searching comes later.
-    var searchText = ""
+    /// What is typed in the search box. Every change starts a search for the new text.
+    /// (`didSet` runs after the value is stored, ≈ a setter hook; `oldValue` is the previous
+    /// text. SwiftUI's binding sets it again on focus changes, so same-text sets are ignored.)
+    var searchText = "" {
+        didSet { if searchText != oldValue { startSearch() } }
+    }
     /// Whether the panel is on screen. The view uses it to put the cursor in search on open.
     private(set) var isVisible = false
     /// True when Return would paste into the active app but macOS does not let Yank press ⌘V:
@@ -37,6 +54,8 @@ import SwiftUI
     /// The task running the live query. Cancelling it stops the query; a new one starts when
     /// the limit changes.
     private var liveList: Task<Void, Never>?
+    /// The search running for the current text, if any. Cancelled by the next keystroke.
+    private var search: Task<Void, Never>?
     /// How many items the live query asks for. Grows as the user scrolls towards the end.
     private var limit = pageSize
 
@@ -56,10 +75,10 @@ import SwiftUI
         liveList = Task { [store, limit] in
             do {
                 for try await items in store.observeItems(limit: limit) {
-                    self.items = items
+                    self.liveItems = items
                     // The selected card may have been deleted; fall back to the first one.
-                    if let selectedId, !items.contains(where: { $0.id == selectedId }) {
-                        self.selectedId = items.first?.id
+                    if let selectedId, !self.items.contains(where: { $0.id == selectedId }) {
+                        self.selectedId = self.items.first?.id
                     }
                 }
             } catch {
@@ -75,9 +94,40 @@ import SwiftUI
     // history loaded a copy made while the panel is open re-reads it all; fine up to the
     // measured sizes, switch to paging below a fixed observed window if that ever stalls.
     func cardDidAppear(at index: Int) {
-        guard items.count == limit, index >= items.count - Self.pageSize / 2 else { return }
+        guard searchResults == nil, items.count == limit, index >= items.count - Self.pageSize / 2
+        else { return }
         limit += Self.pageSize
         startLiveList()
+    }
+
+    /// Cancels the search for the previous text and starts one for the current text. An empty
+    /// box needs no database read: the live list comes back at once.
+    private func startSearch() {
+        search?.cancel()
+        guard !searchText.isEmpty else {
+            searchResults = nil
+            selectedId = items.first?.id
+            return
+        }
+        search = Task { [store, searchText] in
+            // A timing marker around the whole search, from keystroke to results assigned, so
+            // `log show --signpost` and Instruments can measure it against the speed limit.
+            let state = Log.timing.beginInterval("Search")
+            do {
+                let results = try await store.search(searchText, limit: Self.pageSize)
+                // A newer keystroke cancelled this search while the database was busy: its
+                // results are stale, and the newer search will set its own.
+                guard !Task.isCancelled else { return }
+                searchResults = results
+                selectedId = items.first?.id
+                Log.timing.endInterval("Search", state)
+                Log.ui.info("search found \(results?.count ?? -1, privacy: .public) items")
+            } catch is CancellationError {
+                // Cancelled mid-read; nothing to show and nothing wrong.
+            } catch {
+                Log.ui.error("search failed: \(error, privacy: .public)")
+            }
+        }
     }
 
     /// Selects the card after the selected one (→). Stays put at the end.

@@ -56,9 +56,13 @@ Logs: open Console.app and filter on subsystem `com.thattechedguy.Yank`, or run
 ## Tests
 
 ```sh
-scripts/test.sh --fast   # import check + package tests, a few seconds, no app launch
-scripts/test.sh          # also the UI tests; quits a running Yank first and reopens it after
+scripts/test.sh --fast   # import check + package tests (minus the slow ones), a few seconds, no app launch
+scripts/test.sh          # everything: slow package tests too, then the UI tests (quits a running Yank first)
 ```
+
+Package tests tagged `.slow` (the tag is in `Tests/ClipCoreTests/Fakes/Fakes.swift`) seed 100,000 items
+and take a few seconds each; `--fast` skips them by name (`swift test --skip /slow`), so give a slow
+test a name that starts with `slow`.
 
 UI tests drive the real app and may write to your clipboard. They use XCTest, not Swift Testing, because
 `XCUIApplication` (launch an app, click its menus) exists only in XCTest; checked against the Xcode 27.2
@@ -125,7 +129,7 @@ window (`resignKey`), which is what "click outside" means to AppKit. A mouse's v
 into sideways scrolling in `sendEvent` by swapping the axes of the underlying `CGEvent`; trackpad events
 report "precise" deltas and are left alone, because a two-finger swipe already goes sideways.
 
-The content is a search field (empty for now, the search itself comes later), a horizontal `LazyHStack`
+The content is a search field (see the search section), a horizontal `LazyHStack`
 of `ItemCard`s inside a `ScrollView`, and `PanelModel`, an `@Observable` class (≈ a store in Zustand or a
 ViewModel) that owns the list and the selected item. The list is one live GRDB query,
 `Store.observeItems(limit:)` (a `ValueObservation`): the database tells the model when rows change, so a
@@ -257,6 +261,61 @@ plain `import`; if a Sauce update ever brings concurrency warnings, `@preconcurr
   mouse wheel; scrolling to the end of 100,000 items; copying while the panel is open.
 - Stage 1 carry-overs: a 200 MB image from Preview, a large range in Numbers, a real Finder ⌘C of several
   files.
+## Search (stage 4)
+
+Typing in the panel's search field filters the cards as you type. Each keystroke sets
+`PanelModel.searchText`, whose `didSet` cancels the search still running for the previous text and starts
+a new `Task` (cancel-and-restart, no debounce: a search is a few ms, so waiting for the typing to pause
+would only add delay). The task calls `Store.search(_:limit:)` and, if it was not cancelled meanwhile,
+assigns `searchResults`; `items` (what the views read) is `searchResults ?? liveItems`, so clearing the
+field shows the live list again, which kept running underneath. Results are a snapshot: a copy made while
+they show does not appear until the next keystroke. They are capped at one page (`pageSize`, 200) with no
+paging, and `cardDidAppear` does not page while results show.
+
+The search is SQLite's full-text index FTS5, through GRDB. The `clipboardItemSearchIndex` virtual table
+mirrors `clipboardItem` (GRDB's `synchronize(withTable:)` installs the triggers that keep it in step) and
+indexes `cardText`, `title`, `imageText`, `linkPageTitle` and `sourceAppName`, so "safari" finds what was
+copied from Safari. The tokenizer is `unicode61` (case- and accent-insensitive, splits on punctuation) with
+prefix tables for 2- and 3-letter prefixes, which is why the two-letter minimum exists: below it the index
+has no prefix table and one letter matches most of the history. `Store.search` turns the typed text into
+an `FTS5Pattern(matchingAllPrefixesIn:)`, so every word is a prefix ("qua" finds "quarterly"), every word
+must match, and quotes, `OR`, `NOT`, `*` and apostrophes are ordinary characters, never operators. It
+returns `nil` when there is nothing searchable yet (under two characters after trimming, or only
+punctuation), and the model shows the full list then. The query is GRDB's query builder:
+`ClipboardItem.joining(required: ClipboardItem.searchIndex.aliased(index).matching(pattern))`, ordered by
+the index's `rank` (FTS5's bm25 score, lowest first) through a `TableAlias`, then `copiedAt` descending.
+
+**Decision: score only narrow matches.** SQLite scores each matching row one at a time, about 1 µs per
+row on an M-series Mac, so ranking all 50,000 matches of a two-letter search over 100,000 items took
+35–45 ms, past the 33 ms limit. `Store.search` counts the matches first (about 1 ms) and orders by score
+only when there are at most `Store.rankedMatchLimit` (5,000); broader searches come newest first, which
+is what a history should do for a prefix of a common word anyway. Measured in `StoreTests`
+(`slowSearchOverAHundredThousandItemsStaysWithinItsLimit`, 100,000 items, debug build): p95 of 12–14 ms
+for the broad newest-first searches ("sa", "me", "mee"), 7 ms for "saf" (ranked), 4 ms for "pages 1"
+(ranked).
+
+**Timing signposts.** The whole search, from keystroke to results assigned, is the `OSSignposter`
+interval `"Search"` in `Log.timing` (`PanelModel.startSearch`), next to `"Open panel"`; the `ui` log also
+prints "search found N items" (N is -1 when the text was not a search). List them with
+`log show --last 5m --signpost --predicate 'subsystem == "com.thattechedguy.Yank"'`.
+
+**Maintaining it.** The index's columns are fixed when the table is created, so to search a new field add
+a migration in `Migrations.swift` that drops `clipboardItemSearchIndex`, drops its triggers
+(`dropFTS5SynchronizationTriggers`) and recreates it with the new column, the way `v2` does; FTS5 rebuilds
+from `clipboardItem` on creation. Never edit a migration that has shipped. To change the ranking
+threshold, edit `Store.rankedMatchLimit`; to change what counts as "too little to search", edit the guard
+at the top of `Store.search`. Searching for an exact phrase or by kind would be a new `FTS5Pattern`
+initializer or a `filter` on the joined request; see GRDB's `FullTextSearch.md`.
+
+**Hand checks still open** (quit Paste first):
+
+- Type a partial word ("quar") and a two-word search ("meet thu"): only matching cards show, the first is
+  selected, and ←/→ still move. Clear the field: the full list is back.
+- Type "safari": cards copied from Safari show even when the word is not in their text.
+- Type `"hello`, `don't`, `c++`, `OR`, `NOT`, `*`: no error in the log, sensible results or the full list.
+- Open with `--seed 100000 --show-panel`, type "sa" letter by letter, then
+  `log show --last 2m --signpost --predicate 'subsystem == "com.thattechedguy.Yank"'`: each "Search"
+  interval is under 33 ms.
 
 ## Sandbox and copied files (stage 0 spike)
 

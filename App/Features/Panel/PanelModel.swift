@@ -33,12 +33,30 @@ import SwiftUI
     // shortcut: results are a snapshot, a copy made while they show does not appear in them,
     // and they are capped at one page with no paging; revisit if either is ever noticed.
     private var searchResults: [ClipboardItem]?
-    /// The id of the selected card, if any. An id, not an index, so the selection survives a new
-    /// copy arriving at the front of the list. A preview belongs to the selected card, so it
-    /// closes when the selection moves.
-    var selectedId: Int64? {
-        didSet { if selectedId != oldValue { closePreview() } }
+    /// Which cards are selected: a lead card the keys move and the outline follows, and
+    /// possibly more (⇧← ⇧→, ⌘-click, ⌘A). Ids, not indexes, so the selection survives a new
+    /// copy arriving at the front of the list. A preview belongs to the lead card, so it
+    /// closes when the lead moves; any prompt open on a card closes with any change.
+    var selection = CardSelection() {
+        didSet {
+            guard selection != oldValue else { return }
+            if selection.lead != oldValue.lead { closePreview() }
+            prompt = nil
+        }
     }
+    /// The lead card's id, or nil. Setting it selects that one card alone (a plain click, an
+    /// arrow key). Most of the panel only cares about this one.
+    var selectedId: Int64? {
+        get { selection.lead }
+        set { selection.select(newValue) }
+    }
+    /// A small dialog open on a card, if any: the actions menu (⌘K), the Rename box or the
+    /// "Delete N items?" question. One value, so only one can be up at a time, and the row
+    /// knows which card to anchor it to. Any change of selection closes it.
+    var prompt: CardPrompt?
+    /// File cards whose file has gone since the copy. Filled in as cards come on screen (each
+    /// card checks its own file); such a card says so and cannot be pasted or dragged.
+    var missingFileIds: Set<Int64> = []
     /// Whether the large preview (text, link, colour) is open above the selected card.
     var showsLargePreview = false
     /// The file Quick Look is showing for the selected image or file, or nil when it is closed.
@@ -77,7 +95,7 @@ import SwiftUI
     /// finish a name, not paste a card.
     var isPrompting: Bool {
         pinChooserItemId != nil || newPinboardPrompt != nil || renamingPinboard != nil
-            || deletingPinboard != nil
+            || deletingPinboard != nil || prompt != nil
     }
     /// Whether the panel is on screen. The view uses it to put the cursor in search on open.
     private(set) var isVisible = false
@@ -88,6 +106,9 @@ import SwiftUI
 
     let store: Store
     private let pasteService: PasteService
+    /// "Add to Stack" in a card's menu. The paste stack belongs to the app model, which sets
+    /// this; on its own the panel has no stack to add to, so the default does nothing.
+    var addToStack: (ClipboardItem) -> Void = { _ in }
     /// The task running the live query. Cancelling it stops the query; a new one starts when
     /// the limit changes.
     private var liveList: Task<Void, Never>?
@@ -116,11 +137,10 @@ import SwiftUI
             do {
                 for try await items in store.observeItems(matching: filter, limit: limit) {
                     self.liveItems = items
-                    // The selected card may have been deleted, pinned away, or belong to the
-                    // tab before a switch; fall back to the first one.
-                    if !self.items.contains(where: { $0.id == selectedId }) {
-                        self.selectedId = self.items.first?.id
-                    }
+                    // Selected cards may have been deleted, pinned away, or belong to the tab
+                    // before a switch: they leave the selection, and the first card takes
+                    // over if the lead went.
+                    self.selection.keep(in: self.items.map(\.id))
                 }
             } catch {
                 Log.ui.error("the panel's live list stopped: \(error, privacy: .public)")
@@ -204,10 +224,22 @@ import SwiftUI
         selectedId = items[target].id
     }
 
-    /// Pastes the selected card (Return). `plainText` is whether ⇧ was held.
+    /// ⇧→ (step 1) or ⇧← (step -1): grows or shrinks the selection by one card.
+    func extendSelection(by step: Int) { selection.extend(by: step, in: items.map(\.id)) }
+
+    /// ⌘-click: adds the card to the selection, or takes it out.
+    func toggleSelection(of id: Int64) { selection.toggle(id) }
+
+    /// ⌘A: selects every card the panel shows.
+    func selectAll() { selection.selectAll(in: items.map(\.id)) }
+
+    /// The selected cards, left to right: the order a paste or a drag of several uses.
+    var selectedItems: [ClipboardItem] { items.filter { selection.contains($0.id) } }
+
+    /// Pastes the selected cards (Return): one, or all of them in order when several are
+    /// selected. `plainText` is whether ⇧ was held.
     func pasteSelected(plainText: Bool) {
-        guard let item = items.first(where: { $0.id == selectedId }) else { return }
-        paste(item, plainText: plainText)
+        paste(selectedItems, plainText: plainText)
     }
 
     /// Pastes the Nth card, 1 to 9, for ⌘1–⌘9. The numbers match the badges on the cards.
@@ -217,14 +249,28 @@ import SwiftUI
     }
 
     /// Pastes one card. `plainText` is whether the user asked for it this time (⇧); the
-    /// "always plain text" setting makes every paste plain. A failure is logged, not shown:
-    /// by then the item is on the clipboard either way, so the user can still press ⌘V.
+    /// "always plain text" setting makes every paste plain.
     func paste(_ item: ClipboardItem, plainText: Bool) {
+        paste([item], plainText: plainText)
+    }
+
+    /// Pastes several cards in one go, left to right, to where the user's "Paste items"
+    /// setting says, unless `destination` says otherwise ("Copy" in the menu: clipboard only).
+    /// A file card whose file is gone stops the whole paste before anything is written. A
+    /// failure is logged, not shown: by then the item is on the clipboard either way, so the
+    /// user can still press ⌘V.
+    func paste(_ items: [ClipboardItem], plainText: Bool, destination: PasteDestination? = nil) {
+        guard !items.isEmpty else { return }
         let plain = plainText || PasteSettings.alwaysPlainText
-        let destination = PasteSettings.destination
+        let destination = destination ?? PasteSettings.destination
         Task {
             do {
-                try await pasteService.paste(item, plainText: plain, destination: destination)
+                try await pasteService.paste(items, plainText: plain, destination: destination)
+            } catch PasteError.fileNoLongerExists {
+                // The cards show it; the live check may not have run yet for a card that was
+                // never on screen, so note it now.
+                for item in items where item.kind == .file { await checkFile(of: item) }
+                Log.paste.notice("paste refused: a file no longer exists")
             } catch {
                 Log.paste.error("paste failed: \(error, privacy: .public)")
             }
@@ -293,6 +339,7 @@ import SwiftUI
         newPinboardPrompt = nil
         renamingPinboard = nil
         deletingPinboard = nil
+        prompt = nil
     }
 
     func didHide() {

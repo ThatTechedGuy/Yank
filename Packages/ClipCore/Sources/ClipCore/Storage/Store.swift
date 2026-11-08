@@ -325,6 +325,30 @@ public final class Store: Sendable {
         }
         try files.delete(fileNames)
     }
+
+    /// Deletes every item that is not on a pinboard, with its data rows, thumbnail (both by
+    /// cascade) and large files, then rebuilds the database file so the space goes back to the
+    /// disk. Pinned items are untouched. The rows go in one transaction, so a crash in the
+    /// middle erases nothing; the files go after it commits (a crash there leaves files for
+    /// the launch sweep). Rebuilding (`VACUUM`, here GRDB's `vacuum`) copies the live rows
+    /// into a fresh file, so it runs last and can take a moment on a big history; the caller
+    /// awaits all of it off the main thread.
+    public func eraseHistory() async throws {
+        let fileNames = try await pool.write { db in
+            let names = try ClipboardItemDataRow.fileNames(in: ClipboardItemDataRow.ofUnpinnedItems)
+                .fetchAll(db)
+            let count = try ClipboardItem.filter(ClipboardItemColumns.pinboardId == nil).deleteAll(db)
+            Log.store.info("erased \(count) items")
+            return names
+        }
+        try files.delete(fileNames)
+        try await pool.vacuum()
+        // The database runs in WAL mode (writes go to a side file first, see the top of this
+        // file), so the rebuilt pages sit in that side file until a checkpoint copies them into
+        // the main file. Doing it now, with `truncate`, is what makes the files on disk small
+        // right away instead of at some later automatic checkpoint.
+        _ = try await pool.writeWithoutTransaction { db in try db.checkpoint(.truncate) }
+    }
 }
 
 // Fake history for trying the panel with thousands of items. Only debug builds contain this

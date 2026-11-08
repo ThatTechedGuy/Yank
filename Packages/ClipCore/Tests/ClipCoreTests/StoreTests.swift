@@ -1,4 +1,5 @@
 import Foundation
+import GRDB
 import Synchronization
 import Testing
 
@@ -284,6 +285,44 @@ struct StoreTests {
             #expect(!items.map(\.cardText).contains("real"))
             // Each fake item has data rows too, so a later paste of one has something to paste.
             #expect(try await store.data(for: items[0].id).count == 1)
+        }
+    }
+
+    // Erase removes the unpinned items with their files and shrinks the database file, and
+    // leaves pinned items alone. Pinning has no Store API yet, so the test puts a pinboard row
+    // in and points one item at it through GRDB directly, on the same file.
+    @Test func eraseHistoryKeepsPinnedItemsAndShrinksTheFile() async throws {
+        try await withStore { store in
+            let big = Data((0..<2_000_000).map { UInt8($0 % 251) })
+            let pinned = try await store.save(copy([.text("keep me")], at: .now - 2))
+            try await store.save(copy([ClipboardItemData(type: "public.png", data: big)], at: .now - 1))
+            // Enough small items that deleting them frees whole pages, so the file can shrink.
+            for i in 0..<200 {
+                try await store.save(copy([.text(String(repeating: "x", count: 5_000) + "\(i)")]))
+            }
+            let databaseFile = folder.url.appending(path: "yank.sqlite")
+            let queue = try DatabaseQueue(path: databaseFile.path)
+            try await queue.write { db in
+                try db.execute(literal: "INSERT INTO pinboard (name, position) VALUES ('Snippets', 0)")
+                try db.execute(literal: "UPDATE clipboardItem SET pinboardId = 1 WHERE id = \(pinned.id)")
+            }
+            // Move everything from the write-ahead log into the main file first, so "before" is
+            // the file's full size and not whatever an automatic checkpoint had copied so far.
+            _ = try await queue.writeWithoutTransaction { db in try db.checkpoint(.truncate) }
+            try queue.close()
+            let sizeBefore =
+                try FileManager.default.attributesOfItem(atPath: databaseFile.path)[.size] as? Int
+            #expect(try largeFiles().count == 1)
+
+            try await store.eraseHistory()
+
+            #expect(try await store.items(limit: 10).map(\.cardText) == ["keep me"])
+            #expect(try await store.data(for: pinned.id).map(\.text) == ["keep me"])
+            #expect(try largeFiles().isEmpty)
+            let sizeAfter = try FileManager.default.attributesOfItem(atPath: databaseFile.path)[.size] as? Int
+            #expect(sizeAfter ?? 0 < sizeBefore ?? 0)
+            // The search index was kept in step by its triggers: the erased text is gone from it.
+            #expect(try await store.search("xxxx", limit: 10)?.isEmpty == true)
         }
     }
 

@@ -97,4 +97,23 @@ import Testing
         #expect(clipboard.reads == 0)
         #expect(try await store.count() == 0)
     }
+
+    // While paused, a copy is neither read nor saved, and it stays unsaved after the pause
+    // ends: only copies made after resuming are saved.
+    @Test func nothingIsSavedWhilePaused() async throws {
+        defer { folder.remove() }
+        let (service, store) = try makeService()
+        service.pause = .pausedUntilResumed
+        clipboard.put([.text("while paused")])
+        try await service.tick()
+        #expect(clipboard.reads == 0)
+        #expect(try await store.count() == 0)
+
+        service.pause = .running
+        try await service.tick()
+        #expect(try await store.count() == 0)
+        clipboard.put([.text("after resuming")])
+        try await service.tick()
+        #expect(try await store.items(limit: 10).map(\.cardText) == ["after resuming"])
+    }
 }

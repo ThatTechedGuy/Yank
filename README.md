@@ -28,7 +28,7 @@ ties permissions such as Accessibility to it, so an unsigned or ad hoc build los
 | Path | What lives there |
 | --- | --- |
 | `App/` | The app target: windows, menu bar, panel. May import ClipCore, ClipSystem, SwiftUI, AppKit, KeyboardShortcuts. `Features/Developer/` is the debug-only Developer window. |
-| `App/Resources/Assets.xcassets` | The app icon, `AppIcon` (10 PNG slots, 16 to 1024 px). The menu bar uses the SF Symbol `list.clipboard` instead. Masters and a `build.py` that regenerates the PNGs are in `~/Downloads/Yank-icons/source`, not in the repo. |
+| `App/Resources/Assets.xcassets` | The app icon, `AppIcon` (10 PNG slots, 16 to 1024 px). The menu bar uses the SF Symbol `list.clipboard` instead (`pause.circle` while saving is paused). Masters and a `build.py` that regenerates the PNGs are in `~/Downloads/Yank-icons/source`, not in the repo. |
 | `Packages/ClipCore/Sources/ClipCore` | Model, rules, storage, services, ports. Foundation, CryptoKit, os only; GRDB only in `Storage/`. `Developer/` and `Storage/StoreInspector.swift` exist in debug builds only. |
 | `Packages/ClipCore/Sources/ClipSystem` | Adapters that talk to macOS, implementing ClipCore's ports. |
 | `AppUITests/` | XCTest UI tests that drive the real app. |
@@ -219,9 +219,10 @@ prompts. The check runs on every open, so granting the permission is noticed on 
 
 **Settings** (`App/Features/Paste/PasteSettings.swift`). "Paste items: to active app / to clipboard
 only" and "Always paste as plain text" live in `UserDefaults` under the keys `pasteDestination`
-(`activeApp` / `clipboardOnly`) and `alwaysPlainText`. The Settings window (later) edits the same keys
-with `@AppStorage`, which is SwiftUI's view wrapper over the same store. Until then, set them for one run
-from the command line, because macOS lets any `-key value` launch argument override a default:
+(`activeApp` / `clipboardOnly`) and `alwaysPlainText`, named in `SettingsKey`. The Settings window's
+General tab edits the same keys with `@AppStorage`, which is SwiftUI's view wrapper over the same store.
+They can also be set for one run from the command line, because macOS lets any `-key value` launch
+argument override a default:
 `build/Build/Products/Debug/Yank.app/Contents/MacOS/Yank --seed 20 --show-panel -pasteDestination clipboardOnly -alwaysPlainText YES`.
 
 **Tests.** `PasteServiceTests` (fakes for the clipboard, key presser and permission): plain text keeps one
@@ -240,8 +241,9 @@ rest, 59 MB (peak 66 MB, `footprint`) after opening the panel. A copy made with 
 
 **Maintaining it.** To add a way to paste (a menu item, a gesture), call `model.paste(_:plainText:)` or
 `model.pasteSelected(plainText:)`; the model adds the settings and the service does the rest. To change
-what "plain text" keeps, edit the filter in `PasteService.paste`. A new setting goes in `PasteSettings`
-with its key, and the service gets it as a parameter, so ClipCore never reads `UserDefaults`. If a layout
+what "plain text" keeps, edit the filter in `PasteService.paste`. A new setting gets its key in
+`SettingsKey`, a reader in `PasteSettings`, and the service gets it as a parameter, so ClipCore never
+reads `UserDefaults`. If a layout
 ever has no key that types "v" with ⌘ held, `KeyPresser` throws `KeyPressError.noKeyTypesV` and the paste
 is logged. Sauce is written in Swift 5 mode and compiles clean under our Swift 6 strict settings with a
 plain `import`; if a Sauce update ever brings concurrency warnings, `@preconcurrency import Sauce` in
@@ -451,6 +453,69 @@ new kind of blob, extend `StoreInspector.preview(of:)`. New Swift files need `xc
 - Open Data Folder: Finder opens on `yank.sqlite` in the right folder (the seed folder when launched with
   `--seed`).
 - Build the Release configuration and confirm the menu has no Developer… row.
+
+## Settings, menu bar and privacy (stage 6)
+
+The menu under the icon has, besides the count and Quit: Open Panel (with the user's shortcut next to
+it), Pause Saving (15 minutes, 1 hour, until resumed; while paused the row says "Paused until 3:45 PM"
+or "Paused", the icon is `pause.circle` and the row is Resume Saving) and Settings… (⌘,). The Settings
+window has three tabs: General (open at login, where pastes go, always plain text, the panel shortcut),
+Privacy (the ignored apps, and whether the panel shows up in screen recordings) and Data (the count and
+Erase History…). ⌘, inside the panel opens it too.
+
+**How a setting works.** Every setting is one key in `UserDefaults`, named once in `SettingsKey`
+(`App/Features/Settings/SettingsKeys.swift`). The window (`SettingsView`) binds each control with
+`@AppStorage`, so a change is on disk at once and there is no save button; the code that acts on it
+reads the same key: `PanelWindow.show` reads `showPanelInScreenSharing` into the window's `sharingType`
+on every open, and the paste code reads `pasteDestination` and `alwaysPlainText`. The ignored apps are
+one JSON list of bundle ids under `ignoredApps` (`IgnoredApps`, a `RawRepresentable` so `@AppStorage`
+can hold it); `AppModel.watchIgnoredApps` copies it into `CaptureService.rules.ignoredApps` at launch
+and on every `UserDefaults.didChangeNotification`, because ClipCore never reads `UserDefaults`. Any key
+can be overridden for one run with `-key value` on the command line.
+
+**Open at login** is not a setting Yank stores: macOS keeps it (System Settings › General › Login
+Items), so the General tab reads `SMAppService.mainApp.status` when it appears and after each toggle,
+and calls `register()` or `unregister()`. If macOS answers `.requiresApproval`, the toggle shows off
+with a line saying where to allow it. The Settings window itself is SwiftUI's `Settings` scene in
+`YankApp`; `SettingsLink` in the menu and `openSettings` from the panel open it, and `AppModel.openSettings`
+hides the panel and activates the app first, so the window comes to the front.
+
+**Pause** is `PauseState` in ClipCore (`.running`, `.pausedUntil(Date)`, `.pausedUntilResumed`), a
+value with no clock inside: `isPaused(at:)` compares with the time passed in. `AppModel` keeps the
+current one and passes every change to `CaptureService.pause`; the capture tick marks the change count
+as handled and returns without reading the clipboard while paused, so a copy made during a pause is
+never saved, not even afterwards. The poll loop notices a timed pause ending and resets the icon. A
+pause is not saved to disk: quitting resumes.
+
+**Erase History** is `Store.eraseHistory`: one transaction deletes every item with no pinboard (data
+rows and thumbnails go by cascade), then the files, then `VACUUM` and a WAL checkpoint so the file on
+disk shrinks right away. Pinned items stay. The panel follows the database on its own; the menu's count
+is re-read when it is done.
+
+**Maintaining it.** To add a setting: a key in `SettingsKey`, a control in the right tab bound with
+`@AppStorage(SettingsKey.x)`, and a read of the same key where it takes effect; nothing else, and no
+migration, since missing keys fall back to the control's default. To add a menu row, edit
+`MenuBarContent`. To change the pause lengths, edit `pauseRows` there. The ignored-apps rows live in
+`IgnoredAppsList`; the Open dialog it shows is a sheet (`beginSheetModal`), not `runModal`, because a
+modal run loop from a menu bar app closed the dialog on its own after a few seconds. ClipCore stays free
+of `UserDefaults` and AppKit: settings cross into it as plain values (`rules`, `pause`).
+
+**Hand checks still open:**
+
+- General › Open at login: switch it on, check Yank appears in System Settings › General › Login Items,
+  log out and in: Yank is running; switch it off and check it is gone from the list.
+- Add an app to Ignored apps, copy something in it: nothing is saved and the menu count stays; remove
+  it and copy again: it is saved.
+- Copy something in 1Password (or any app that marks its copies as private): it is not saved, with or
+  without the ignored list.
+- Pause for 15 minutes, copy, wait, resume: the copy was not saved, and the icon shows the pause sign
+  only while paused. Quit while paused and relaunch: saving is on again.
+- With "Show the panel in screen recordings" off, start a QuickTime screen recording or share the
+  screen in a call and open the panel: it is not in the recording. Switch it on, reopen the panel: it
+  is.
+- Erase History with a pinned item (pin one with the developer tools or the database): the pinned one
+  stays, everything else goes, and the database file on disk is small.
+- Change the panel shortcut in General: the new key opens the panel at once and the menu row shows it.
 
 ## Sandbox and copied files (stage 0 spike)
 

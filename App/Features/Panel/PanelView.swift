@@ -17,6 +17,9 @@ struct PanelView: View {
     /// Asks the window for a new height, in points, while the handle is dragged. The window
     /// keeps it within the allowed range and remembers it.
     let resize: (CGFloat) -> Void
+    /// What ⌘, does: the Mac-wide key for Settings. The window hides itself and opens the
+    /// Settings window; passed in for the same reason as `dismiss`.
+    let openSettings: () -> Void
 
     /// The two places the keyboard focus can be. SwiftUI tracks focus with a `@FocusState`
     /// value: setting it moves the cursor, and clicking something sets it. ≈ a `ref.focus()`
@@ -119,6 +122,15 @@ struct PanelView: View {
         // name for the Escape key (and ⌘. ) on the Mac.
         .onExitCommand {
             if model.showsPreview { model.closePreview() } else { dismiss() }
+        }
+        // ⌘, opens Settings. Yank has no menu bar of its own while the panel is up (it is not
+        // the active app), so the key has to be caught here. Only with ⌘ held: a plain comma
+        // is text for the search box. `phases: .down` means the press, not the repeat or
+        // release.
+        .onKeyPress(.init(","), phases: .down) { press in
+            guard press.modifiers == .command else { return .ignored }
+            openSettings()
+            return .handled
         }
     }
 

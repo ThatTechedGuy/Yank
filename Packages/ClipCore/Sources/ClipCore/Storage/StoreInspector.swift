@@ -14,7 +14,7 @@ import GRDB
 // the results. ≈ an object whose every method is `async` and internally serialised.
 //
 // Only the Store and this type may use GRDB, so the Developer window gets plain values back:
-// `Snapshot` and `ItemRow` below.
+// `Snapshot`, `TableList` and `Page` below.
 #if DEBUG
     /// Read-only facts about the database and its files, for the Developer window.
     public actor StoreInspector {
@@ -25,8 +25,6 @@ import GRDB
             public let countsByKind: [ItemKind: Int]
             /// Rows in the full-text search index. Equals `itemCount` unless the index is stale.
             public let searchIndexRowCount: Int
-            /// The newest items, as the Database tab lists them.
-            public let newestItems: [ItemRow]
             /// Size of yank.sqlite plus its write-ahead log (the -wal file), in bytes.
             public let databaseBytes: Int
             /// Size of every file in the LargeData folder, in bytes.
@@ -36,16 +34,57 @@ import GRDB
             public let dataVersion: Int
         }
 
-        /// One item as the Database tab lists it: the card's facts plus how many bytes of
-        /// clipboard data it carries, in the row and in large-data files together.
-        public struct ItemRow: Sendable, Identifiable, Hashable {
-            public let id: Int64
-            public let kind: ItemKind
-            public let cardText: String
-            public let sourceAppName: String?
-            public let copiedAt: Date
-            public let dataBytes: Int
+        /// One table of the database, as the Database tab's table picker lists it.
+        public struct TableInfo: Sendable, Identifiable, Hashable {
+            public var id: String { name }
+            public let name: String
+            public let rowCount: Int
+            /// Columns in the table's own order.
+            public let columns: [TableColumnInfo]
         }
+
+        /// One column: its name and declared type ("TEXT", "BLOB", "" for an FTS5 column).
+        public struct TableColumnInfo: Sendable, Identifiable, Hashable {
+            public var id: String { name }
+            public let name: String
+            public let type: String
+        }
+
+        /// Every table in the file, read in one go, so the Database tab can offer them all and
+        /// notice when a count changed.
+        public struct TableList: Sendable {
+            public let tables: [TableInfo]
+            /// See `Snapshot.dataVersion`.
+            public let dataVersion: Int
+        }
+
+        /// One cell of one row, as a plain value the Database tab can draw. SQLite stores five
+        /// kinds of value and nothing else; a blob comes back as its size plus a preview, never
+        /// the bytes themselves, so a page of rows stays small.
+        public enum CellValue: Sendable, Hashable {
+            case null
+            case integer(Int64)
+            case real(Double)
+            case text(String)
+            case blob(byteCount: Int, preview: BlobPreview?)
+        }
+
+        /// What a blob looks like, when that can be told from its bytes: readable text, or an
+        /// image small enough to draw in a cell.
+        public enum BlobPreview: Sendable, Hashable {
+            case text(String)
+            case image(Data)
+        }
+
+        /// One page of rows from one table. `rows[r][c]` is the cell for `columns[c]`.
+        public struct Page: Sendable {
+            public let rows: [[CellValue]]
+        }
+
+        /// Blobs longer than this are not sniffed for a preview at all.
+        public static let previewLimit = 512 * 1024
+        /// How many characters of a text blob the preview keeps.
+        public static let previewTextLength = 200
 
         private let queue: DatabaseQueue
         private let folder: URL
@@ -65,13 +104,11 @@ import GRDB
         /// Reads a fresh snapshot, or returns nil when nothing has been written since the
         /// snapshot whose `dataVersion` is passed in, so a caller polling once a second does no
         /// real work while the database is quiet. Pass nil to always read.
-        public func snapshot(ifChangedSince version: Int?, newestLimit: Int) throws -> Snapshot? {
+        public func snapshot(ifChangedSince version: Int?) throws -> Snapshot? {
             try queue.read { db in
-                // `PRAGMA data_version` is SQLite's own "did another connection commit?" counter:
-                // it changes whenever a different connection has written to the file. This is a
-                // question the query builder has no way to ask, so it is the one raw SQL here.
-                let dataVersion = try Int.fetchOne(db, sql: "PRAGMA data_version") ?? 0
-                if dataVersion == version { return nil }
+                guard let dataVersion = try dataVersion(db, ifChangedSince: version) else {
+                    return nil
+                }
                 // `SELECT kind, COUNT(id) FROM clipboardItem GROUP BY kind`, read as plain rows.
                 let countRows = try Row.fetchAll(
                     db,
@@ -82,32 +119,93 @@ import GRDB
                 for row in countRows {
                     if let kind = ItemKind(rawValue: row[0]) { countsByKind[kind] = row[1] }
                 }
-                let newest = try ClipboardItem.newestFirst.limit(newestLimit).fetchAll(db)
                 return Snapshot(
                     itemCount: countsByKind.values.reduce(0, +),
                     countsByKind: countsByKind,
                     searchIndexRowCount: try clipboardItemSearchIndex.fetchCount(db),
-                    newestItems: try newest.map { item in
-                        ItemRow(
-                            id: item.id, kind: item.kind, cardText: item.cardText,
-                            sourceAppName: item.sourceAppName, copiedAt: item.copiedAt,
-                            dataBytes: try dataBytes(of: item.id, db))
-                    },
                     databaseBytes: fileSize("yank.sqlite") + fileSize("yank.sqlite-wal"),
                     largeDataBytes: folderSize("LargeData"),
                     dataVersion: dataVersion)
             }
         }
 
-        /// How many bytes of clipboard data one item has: the row data, measured by SQLite with
-        /// `length()` so the bytes are never loaded, plus the size of each large-data file.
-        nonisolated private func dataBytes(of itemId: Int64, _ db: Database) throws -> Int {
-            let rows = ClipboardItemDataRow.ofItem(itemId)
-            let inline =
-                try rows.select(sum(length(ClipboardItemDataRow.Columns.data)), as: Int.self)
-                .fetchOne(db) ?? 0
-            let files = try ClipboardItemDataRow.fileNames(in: rows).fetchAll(db)
-            return inline + files.reduce(0) { $0 + fileSize("LargeData/\($1)") }
+        /// Every table in the file with its columns and row count, or nil when nothing has been
+        /// written since `version` (see `snapshot(ifChangedSince:)`).
+        public func tables(ifChangedSince version: Int?) throws -> TableList? {
+            try queue.read { db in
+                guard let dataVersion = try dataVersion(db, ifChangedSince: version) else {
+                    return nil
+                }
+                // `sqlite_master` is SQLite's own catalogue of what the file contains. GRDB can
+                // describe a table once you name it (`columns(in:)`, below) but has no call that
+                // lists the tables, so this one line of SQL asks SQLite directly. It returns
+                // everything, including the five `_data`/`_idx`/... shadow tables FTS5 keeps
+                // behind the search index and GRDB's own `grdb_migrations`, so a new table shows
+                // up here without anyone remembering to add it. Creation order, like the file.
+                let names = try String.fetchAll(
+                    db, sql: "SELECT name FROM sqlite_master WHERE type = 'table'")
+                let tables = try names.map { name in
+                    TableInfo(
+                        name: name,
+                        // `SELECT COUNT(*) FROM "name"`.
+                        rowCount: try Table<Row>(name).fetchCount(db),
+                        // `PRAGMA table_info`, through GRDB.
+                        columns: try db.columns(in: name).map {
+                            TableColumnInfo(name: $0.name, type: $0.type)
+                        })
+                }
+                return TableList(tables: tables, dataVersion: dataVersion)
+            }
+        }
+
+        /// `limit` rows of one table starting `offset` rows in, every column, as plain cells.
+        /// Rows come in SQLite's own scan order, which for an ordinary table is rowid order:
+        /// oldest first, the way DB Browser for SQLite lists them. Offset paging means page 500
+        /// of a 100,000-row table skips 99,800 rows on each read, a few milliseconds.
+        public func page(of table: String, offset: Int, limit: Int) throws -> Page {
+            try queue.read { db in
+                // `SELECT * FROM "table" LIMIT ? OFFSET ?`.
+                let rows = try Table<Row>(table).all().limit(limit, offset: offset).fetchAll(db)
+                return Page(rows: rows.map { row in row.map { Self.cell(for: $0.1) } })
+            }
+        }
+
+        /// SQLite's change counter, or nil when it still equals `version`.
+        nonisolated private func dataVersion(_ db: Database, ifChangedSince version: Int?) throws
+            -> Int?
+        {
+            // `PRAGMA data_version` is SQLite's own "did another connection commit?" counter: it
+            // changes whenever a different connection has written to the file. This is a
+            // question the query builder has no way to ask, so it is raw SQL.
+            let dataVersion = try Int.fetchOne(db, sql: "PRAGMA data_version") ?? 0
+            return dataVersion == version ? nil : dataVersion
+        }
+
+        /// A GRDB value as a plain `CellValue`. Blobs are sniffed: the PNG, JPEG or TIFF magic
+        /// bytes make an image preview (whole data, so the cell can draw it); otherwise bytes
+        /// that are valid UTF-8 make a short text preview. Anything else, or anything over
+        /// `previewLimit`, is just a size.
+        nonisolated private static func cell(for value: DatabaseValue) -> CellValue {
+            switch value.storage {
+            case .null: return .null
+            case .int64(let n): return .integer(n)
+            case .double(let d): return .real(d)
+            case .string(let s): return .text(s)
+            case .blob(let data):
+                return .blob(byteCount: data.count, preview: preview(of: data))
+            }
+        }
+
+        nonisolated private static func preview(of data: Data) -> BlobPreview? {
+            guard !data.isEmpty, data.count <= previewLimit else { return nil }
+            let imageMagics: [[UInt8]] = [
+                [0x89, 0x50, 0x4E, 0x47],  // PNG
+                [0xFF, 0xD8, 0xFF],  // JPEG
+                [0x4D, 0x4D, 0x00, 0x2A], [0x49, 0x49, 0x2A, 0x00],  // TIFF
+            ]
+            if imageMagics.contains(where: { data.starts(with: $0) }) { return .image(data) }
+            guard let text = String(data: data, encoding: .utf8) else { return nil }
+            return .text(String(text.prefix(previewTextLength)))
         }
 
         /// Size in bytes of one file inside the data folder; 0 if it does not exist.

@@ -398,8 +398,13 @@ pause while the panel is open, so they never overlap a timing.
   own drawing shows up in the CPU figure, so **Measure for 60 Seconds** hides the window, samples with
   nothing drawing, and shows it again with the result (0.2 % idle with 1,000 items). Instruments stays the
   final word.
-- **Database**: the newest 50 rows with kind, app, time and data bytes, plus the search-index row count.
-  No SQL box: use DB Browser for SQLite on the file via Open Data Folder.
+- **Database**: a read-only browser of every table in the file, like DB Browser for SQLite: a picker of
+  the tables with their row counts (the app's four, the FTS5 search index and the five shadow tables it
+  keeps, `grdb_migrations`, `sqlite_sequence`; found by asking `sqlite_master`, so a table added by a
+  later migration appears by itself), then every column of the chosen table, 200 rows per page, with ◀ ▶
+  to page. Rows come in SQLite's scan order (rowid, oldest first). A blob cell shows its size plus the
+  text or image inside when the bytes say so (PNG/JPEG/TIFF magic, or valid UTF-8; nothing over 512 KB
+  is sniffed). No SQL box: use DB Browser for SQLite on the file via Open Data Folder.
 - **Timings**: one bar chart per timing marker ("Open panel" today) of its last 20 durations, with the
   limit as a red line. Bars come from `Log.timing`, now a `TimingSignposter`: it still emits the
   `OSSignposter` intervals Instruments reads, and in debug builds also remembers the last 20 durations per
@@ -421,19 +426,25 @@ items logs about 100,000 lines in under a second; the Logs tab keeps only the la
 GRDB connection to the same file, so its queries never queue behind the app's and never appear in the SQL
 trace. A read-only connection cannot use `ValueObservation` (it only sees its own connection's writes),
 so the inspector asks `PRAGMA data_version`, SQLite's "did another connection commit?" counter, once a
-second and re-reads only when it changed. That is the one raw SQL statement in the stage.
+second and re-reads only when it changed. The table list comes from `SELECT name FROM sqlite_master`,
+because GRDB can describe a table it is given (`columns(in:)`) but has no call that lists them. Those are
+the two raw SQL statements in the stage; the counts and pages are the query builder (`Table<Row>(name)`).
 
 **Maintaining it.** To time something new, wrap it in `Log.timing.beginInterval("Name")` /
 `endInterval("Name", state)` and it appears in Timings on its own; add its limit to `TimingsView.limits`
 to get the red line (the "Search" entry is a guess at the name the search code will use). To show a new
 number in Overview, add it to `StoreInspector.Snapshot` and one `LabeledContent` row. To change how many
-rows, lines or durations are kept, edit `DatabaseView.rowLimit`, `LogsView.keptLines` and
-`TimingSignposter.keptPerName`. New Swift files need `xcodegen` again.
+rows per page, lines or durations are kept, edit `DatabaseView.pageSize`, `LogsView.keptLines` and
+`TimingSignposter.keptPerName`. The Database tab needs no change for a new table or column; to preview a
+new kind of blob, extend `StoreInspector.preview(of:)`. New Swift files need `xcodegen` again.
 
 **Hand checks still open:**
 
-- Open Developer… and copy a few things in another app: the Database tab gains rows and Overview's
-  counts rise within a second.
+- Open Developer… and copy a few things in another app: the Database tab's row counts and open page
+  update and Overview's counts rise within a second.
+- Database tab with `--seed 100000`: pick each table in turn, page to the last page of `clipboardItem`
+  and `clipboardItemData`, and check paging feels instant; `cardThumbnail` rows show their PNG;
+  `clipboardItemData` text rows show their text next to the size.
 - Press ⇧⌘V a few times: the Timings tab shows a bar per open, all under the 50 ms line.
 - Press Measure for 60 Seconds: the window disappears, comes back a minute later with a CPU and peak
   memory figure.

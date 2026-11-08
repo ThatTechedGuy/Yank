@@ -100,9 +100,8 @@
                 footprint = sample.footprint
                 previous = sample
                 do {
-                    // `newestLimit: 0`: this tab needs the counts and sizes, not the rows.
                     if let fresh = try await inspector.snapshot(
-                        ifChangedSince: snapshot?.dataVersion, newestLimit: 0)
+                        ifChangedSince: snapshot?.dataVersion)
                     {
                         snapshot = fresh
                     }

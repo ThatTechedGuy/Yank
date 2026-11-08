@@ -1,6 +1,6 @@
 // The Developer window: a second window, in debug builds only, for watching the app from the
-// inside while building it. Four tabs: Overview (counts, sizes, memory, CPU), Database (the
-// newest rows), Timings (how long the panel takes to open, as a chart against its limit) and
+// inside while building it. Four tabs: Overview (counts, sizes, memory, CPU), Database (every
+// table, paged), Timings (how long the panel takes to open, as a chart against its limit) and
 // Logs (the app's own log lines). ≈ Android Studio's App Inspection tab, or the React Native dev
 // menu: `#if DEBUG` is Swift's `__DEV__`, except the compiler drops the code from a release build
 // entirely, so the shipped app has none of it.

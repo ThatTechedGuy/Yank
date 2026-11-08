@@ -139,7 +139,8 @@ public final class Enricher: Sendable {
                 try await recognizeText(in: item)
             } catch {
                 Log.store.error(
-                    "could not enrich item \(item.id, privacy: .public): \(error, privacy: .public)")
+                    "could not enrich item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
+                )
             }
         }
     }

@@ -51,7 +51,7 @@ struct OpenAtLoginToggle: View {
                 try SMAppService.mainApp.unregister()
             }
         } catch {
-            Log.ui.error("login item change failed: \(error, privacy: .public)")
+            Log.ui.error("login item change failed: \(error.logDescription, privacy: .public)")
             loginItemError = error.localizedDescription
         }
         readLoginItemStatus()

@@ -147,7 +147,7 @@ import SwiftUI
                         do {
                             try await store.seed(count: count)
                         } catch {
-                            Log.store.error("could not seed: \(error, privacy: .public)")
+                            Log.store.error("could not seed: \(error.logDescription, privacy: .public)")
                         }
                     }
                     if options.showPanel { panel.show() }
@@ -156,7 +156,7 @@ import SwiftUI
                 await self?.poll()
             }
         } catch {
-            Log.store.error("could not open the store: \(error, privacy: .public)")
+            Log.store.error("could not open the store: \(error.logDescription, privacy: .public)")
             startupError = "Could not open the database: \(error.localizedDescription)"
         }
     }
@@ -209,7 +209,7 @@ import SwiftUI
                 try await pasteService.paste(
                     item, plainText: PasteSettings.alwaysPlainText, destination: PasteSettings.destination)
             } catch {
-                Log.paste.error("paste next failed: \(error, privacy: .public)")
+                Log.paste.error("paste next failed: \(error.logDescription, privacy: .public)")
             }
         }
     }
@@ -244,7 +244,7 @@ import SwiftUI
             do {
                 try await capture.tick()
             } catch {
-                Log.capture.error("capture failed: \(error, privacy: .public)")
+                Log.capture.error("capture failed: \(error.logDescription, privacy: .public)")
             }
             // Only assign when the state really changed: every assignment to an `@Observable`
             // property tells SwiftUI to re-render the menu, and four times a second would be waste.
@@ -315,7 +315,7 @@ import SwiftUI
             do {
                 try await store.eraseHistory()
             } catch {
-                Log.store.error("erase failed: \(error, privacy: .public)")
+                Log.store.error("erase failed: \(error.logDescription, privacy: .public)")
             }
             self?.itemCount = (try? await store.count()) ?? 0
         }

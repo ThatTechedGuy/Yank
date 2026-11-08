@@ -67,7 +67,9 @@ import SwiftUI
             loading.remove(item.id)
             version += 1
         } catch {
-            Log.ui.error("could not load thumbnail \(item.id, privacy: .public): \(error, privacy: .public)")
+            Log.ui.error(
+                "could not load thumbnail \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
+            )
         }
     }
 

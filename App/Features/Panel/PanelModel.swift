@@ -153,7 +153,7 @@ import SwiftUI
                     self.selection.keep(in: self.items.map(\.id))
                 }
             } catch {
-                Log.ui.error("the panel's live list stopped: \(error, privacy: .public)")
+                Log.ui.error("the panel's live list stopped: \(error.logDescription, privacy: .public)")
             }
         }
     }
@@ -170,7 +170,7 @@ import SwiftUI
                     }
                 }
             } catch {
-                Log.ui.error("the panel's pinboard list stopped: \(error, privacy: .public)")
+                Log.ui.error("the panel's pinboard list stopped: \(error.logDescription, privacy: .public)")
             }
         }
     }
@@ -213,7 +213,7 @@ import SwiftUI
             } catch is CancellationError {
                 // Cancelled mid-read; nothing to show and nothing wrong.
             } catch {
-                Log.ui.error("search failed: \(error, privacy: .public)")
+                Log.ui.error("search failed: \(error.logDescription, privacy: .public)")
             }
         }
     }
@@ -282,7 +282,7 @@ import SwiftUI
                 for item in items where item.kind == .file { await checkFile(of: item) }
                 Log.paste.notice("paste refused: a file no longer exists")
             } catch {
-                Log.paste.error("paste failed: \(error, privacy: .public)")
+                Log.paste.error("paste failed: \(error.logDescription, privacy: .public)")
             }
         }
     }
@@ -313,7 +313,7 @@ import SwiftUI
                 guard selectedId == item.id else { return }
                 quickLookURL = url
             } catch {
-                Log.ui.error("could not write the Quick Look file: \(error, privacy: .public)")
+                Log.ui.error("could not write the Quick Look file: \(error.logDescription, privacy: .public)")
             }
         }
     }

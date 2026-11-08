@@ -48,6 +48,28 @@ struct PrivacyRulesTests {
     }
 }
 
+// Proves a pause ends when it should and not before: a timed pause is over the moment its end
+// time passes, and "until resumed" never ends on its own. The state carries no clock, so each
+// check passes a made-up time; nothing waits.
+struct PauseStateTests {
+    let start = Date(timeIntervalSince1970: 1_000_000)
+
+    @Test func aTimedPauseEndsAfterItsDuration() {
+        let state = PauseState.paused(for: .seconds(15 * 60), from: start)
+        #expect(state == .pausedUntil(start + 15 * 60))
+        #expect(state.isPaused(at: start))
+        #expect(state.isPaused(at: start + 15 * 60 - 1))
+        // At exactly 15 minutes the pause is over: the end time itself is not paused.
+        #expect(!state.isPaused(at: start + 15 * 60))
+        #expect(!state.isPaused(at: start + 24 * 60 * 60))
+    }
+
+    @Test func untilResumedNeverEndsOnItsOwnAndRunningIsNeverPaused() {
+        #expect(PauseState.pausedUntilResumed.isPaused(at: start + 365 * 24 * 60 * 60))
+        #expect(!PauseState.running.isPaused(at: start))
+    }
+}
+
 struct KindDetectionTests {
     @Test func plainTextIsText() {
         #expect(ItemKind.detect([.text("hello")]) == .text)

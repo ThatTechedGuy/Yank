@@ -18,7 +18,12 @@ import Foundation
     private let clipboard: any Clipboard
     private let frontmostApp: any FrontmostApp
     private let store: Store
-    private let rules: PrivacyRules
+    /// The privacy rules. A `var` because the user can add or remove ignored apps while the
+    /// app runs; the app writes the new list here and the next copy is judged by it.
+    public var rules: PrivacyRules
+    /// Whether the user has paused saving. `.running` unless the menu bar says otherwise; the
+    /// app sets it and reads it back to draw the paused icon.
+    public var pause: PauseState = .running
     private let settle: Duration
 
     /// The change count we last handled. Set at start, so what is already on the clipboard when
@@ -55,6 +60,12 @@ import Foundation
         let count = clipboard.changeCount
         guard count != lastChangeCount else { return }
         lastChangeCount = count
+        // Paused: this copy is never saved, not even after the pause ends, because the change
+        // count was just marked as handled. The clipboard is not read at all.
+        if pause.isPaused(at: Date()) {
+            Log.capture.info("paused, skipped a copy")
+            return
+        }
         // Record who copied, and when, *now*, before the settle wait: by the time the data is
         // read the user may have switched apps. Plain locals, because nothing outside this one
         // tick needs them.

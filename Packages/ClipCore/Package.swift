@@ -61,7 +61,13 @@ let package = Package(
             swiftSettings: strict
         ),
         // Test targets: run with `swift test`. Each can only see the module it depends on.
-        .testTarget(name: "ClipCoreTests", dependencies: ["ClipCore"], swiftSettings: strict),
+        // ClipCoreTests also sees GRDB, so a test can poke a row the Store has no API for yet
+        // (a pinned item); the import rules in check-imports.sh cover Sources/ only.
+        .testTarget(
+            name: "ClipCoreTests",
+            dependencies: ["ClipCore", .product(name: "GRDB", package: "GRDB.swift")],
+            swiftSettings: strict
+        ),
         .testTarget(name: "ClipSystemTests", dependencies: ["ClipSystem"], swiftSettings: strict),
     ]
 )

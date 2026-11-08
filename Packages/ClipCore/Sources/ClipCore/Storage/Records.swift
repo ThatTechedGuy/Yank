@@ -40,6 +40,7 @@ enum ClipboardItemColumns {
     static let kind = Column("kind")
     static let copiedAt = Column("copiedAt")
     static let contentFingerprint = Column("contentFingerprint")
+    static let pinboardId = Column("pinboardId")
 }
 
 // `CardThumbnail` as a row of `cardThumbnail` (the table name comes from the type name). Its
@@ -92,6 +93,16 @@ struct ClipboardItemDataRow: Codable, FetchableRecord, PersistableRecord {
     /// The rows of one item, in the source app's order.
     static func ofItem(_ itemId: Int64) -> QueryInterfaceRequest<ClipboardItemDataRow> {
         filter(Columns.clipboardItemId == itemId).order(Columns.position)
+    }
+
+    /// The rows of every item that is not on a pinboard: what "Erase history" removes.
+    /// `clipboardItemId IN (SELECT id FROM clipboardItem WHERE pinboardId IS NULL)`, written
+    /// with the builder: the inner request selects only the id column.
+    static var ofUnpinnedItems: QueryInterfaceRequest<ClipboardItemDataRow> {
+        let unpinnedIds =
+            ClipboardItem.filter(ClipboardItemColumns.pinboardId == nil)
+            .select(ClipboardItemColumns.id, as: Int64.self)
+        return filter(unpinnedIds.contains(Columns.clipboardItemId))
     }
 
     /// Just the file names, from any request for rows. Rows without a file are skipped.

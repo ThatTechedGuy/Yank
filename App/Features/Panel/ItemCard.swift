@@ -51,7 +51,7 @@ struct ItemCard: View {
     private var header: some View {
         let tint = appIcons.tint(for: item.sourceAppBundleId)
         return HStack(spacing: 6) {
-            Text(kindName)
+            Text(item.kind.displayName)
                 .font(.caption.weight(.semibold))
             Spacer()
             // "2 minutes ago", "yesterday". `TimelineView` re-renders its content on a
@@ -108,17 +108,6 @@ struct ItemCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-    }
-
-    /// The kind as the user reads it on the card.
-    private var kindName: String {
-        switch item.kind {
-        case .text: "Text"
-        case .image: "Image"
-        case .link: "Link"
-        case .file: "File"
-        case .color: "Color"
-        }
     }
 
     /// White on a dark tint, black on a light one (a yellow icon, say), by the W3C's formula

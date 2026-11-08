@@ -50,6 +50,24 @@ struct CardRow: View {
                         ) {
                             LargePreview(item: item, model: model)
                         }
+                        // Right-click: pin the card to a pinboard, or unpin it.
+                        .contextMenu { PinChoices(item: item, model: model) }
+                        // The ⌘P chooser, when there are several pinboards to pick from: the
+                        // same rows as the menu, above the card. Same one-live-binding trick
+                        // as the preview.
+                        .popover(
+                            isPresented: model.pinChooserItemId == item.id
+                                ? Binding(
+                                    get: { true }, set: { if !$0 { model.pinChooserItemId = nil } })
+                                : .constant(false),
+                            arrowEdge: .top
+                        ) {
+                            VStack(alignment: .leading, spacing: 4) {
+                                PinChoices(item: item, model: model)
+                                    .buttonStyle(.borderless)
+                            }
+                            .padding(12)
+                        }
                         // Tells the model "card N is on screen"; near the end, that loads more.
                         .onAppear { model.cardDidAppear(at: index) }
                     }

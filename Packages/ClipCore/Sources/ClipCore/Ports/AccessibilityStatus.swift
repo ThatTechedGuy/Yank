@@ -11,7 +11,7 @@
 @MainActor public protocol AccessibilityStatus: AnyObject {
     /// True when the user has allowed Yank under Accessibility in System Settings.
     var isTrusted: Bool { get }
-    /// Shows macOS's own "Yank would like to control this computer" dialog, which adds Yank to
-    /// the Accessibility list for the user to switch on. Does nothing when already trusted.
+    /// Takes the user to where the permission is granted (System Settings › Privacy &
+    /// Security › Accessibility), so they can switch Yank on there.
     func requestAccess()
 }

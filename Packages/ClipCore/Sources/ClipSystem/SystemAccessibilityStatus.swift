@@ -1,4 +1,6 @@
-// ApplicationServices is the framework with the Accessibility (AX) C functions.
+// ApplicationServices is the framework with the Accessibility (AX) C functions; AppKit gives us
+// NSWorkspace, which opens a link in the app that handles it (here, System Settings).
+import AppKit
 import ApplicationServices
 import ClipCore
 
@@ -11,13 +13,20 @@ import ClipCore
 
     public var isTrusted: Bool { AXIsProcessTrusted() }
 
+    // macOS has a call that shows its own "would like to control this computer" dialog
+    // (`AXIsProcessTrustedWithOptions` with the prompt option), but from inside the App Sandbox
+    // it does nothing: the dialog comes from a system service the sandbox won't let Yank reach
+    // (the log says "denied lookup: com.apple.universalaccessAuthWarn … Sandbox restriction").
+    // So, like other sandboxed apps, we open System Settings at Privacy & Security ›
+    // Accessibility instead, where the user switches Yank on, or adds it with + first. Opening a
+    // link is allowed from the sandbox, because macOS opens it on Yank's behalf. (≈ an Android
+    // app sending the user to Settings with an ACTION_ACCESSIBILITY_SETTINGS intent.) The
+    // `x-apple.systempreferences:` link names the settings pane and the section inside it.
     public func requestAccess() {
-        // The same check with the "prompt" option: when not trusted, macOS shows its own
-        // "Yank would like to control this computer" dialog, which adds Yank to the
-        // Accessibility list in System Settings with the switch off, for the user to turn on.
-        // The option's name is spelled out because Swift 6 refuses the C constant
-        // `kAXTrustedCheckOptionPrompt` (it is declared as a global variable, which strict
-        // concurrency checking treats as unsafe shared state). Its value is this string.
-        AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
+        guard
+            let url = URL(
+                string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        else { return }
+        NSWorkspace.shared.open(url)
     }
 }

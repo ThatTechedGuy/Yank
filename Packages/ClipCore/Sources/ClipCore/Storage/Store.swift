@@ -165,12 +165,23 @@ public final class Store: Sendable {
     /// the time changes; the data rows and files stay as they are. The live list (`observeItems`)
     /// sees the write and delivers the new order on its own.
     public func moveToTop(id: Int64) async throws {
+        try await moveToTop(ids: [id])
+    }
+
+    /// Moves several items to the top in one transaction, keeping their order: the first id
+    /// ends up newest. Each gets a time one millisecond older than the one before, because
+    /// the column keeps milliseconds and two items with the same time would fall back to id
+    /// order.
+    public func moveToTop(ids: [Int64]) async throws {
+        let now = Date()
         // `updateAll` on a filtered request is GRDB's "UPDATE ... SET ... WHERE": one statement,
         // no need to fetch the row first. It returns how many rows changed (0 if the item was
         // deleted meanwhile), which nobody needs here, hence the `_ =`.
-        _ = try await pool.write { db in
-            try ClipboardItem.filter(key: id)
-                .updateAll(db, [ClipboardItemColumns.copiedAt.set(to: Date())])
+        try await pool.write { db in
+            for (offset, id) in ids.enumerated() {
+                _ = try ClipboardItem.filter(key: id)
+                    .updateAll(db, [ClipboardItemColumns.copiedAt.set(to: now - Double(offset) / 1000)])
+            }
         }
     }
 
@@ -393,15 +404,80 @@ public final class Store: Sendable {
 
     /// Deletes an item, its data rows (SQLite does that by cascade) and its files on disk.
     public func delete(id: Int64) async throws {
+        try await delete(ids: [id])
+    }
+
+    /// Deletes several items at once: one transaction for the rows, then their files. The
+    /// live list drops them all in one delivery, so the panel never shows a half-deleted
+    /// selection.
+    public func delete(ids: [Int64]) async throws {
         // Rows first, files second: a crash in between leaves an unreferenced file for the sweep,
         // never a row pointing at a missing file.
         let fileNames = try await pool.write { db in
-            let names = try ClipboardItemDataRow.fileNames(in: ClipboardItemDataRow.ofItem(id))
+            let names = try ClipboardItemDataRow.fileNames(in: ClipboardItemDataRow.ofItems(ids))
                 .fetchAll(db)
-            try ClipboardItem.deleteOne(db, key: id)
+            let count = try ClipboardItem.deleteAll(db, keys: ids)
+            Log.store.info("deleted \(count) items")
             return names
         }
         try files.delete(fileNames)
+    }
+
+    /// Gives an item your own name, shown on its card instead of the first line and found by
+    /// search (the index's triggers pick the column up). Nil, or a blank name, clears it so
+    /// the first line is back.
+    public func rename(id: Int64, to title: String?) async throws {
+        let title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stored = title.flatMap { $0.isEmpty ? nil : $0 }
+        _ = try await pool.write { db in
+            try ClipboardItem.filter(key: id).updateAll(db, [ClipboardItemColumns.title.set(to: stored)])
+        }
+    }
+
+    /// Makes a second, separate item with the same content, title and pinboard, copied now,
+    /// so it sits at the top. The two share a fingerprint: copying that content again moves
+    /// whichever is newest to the top, and the other stays where it is. Large data files are
+    /// copied too, so deleting one item never takes the other's bytes away. Returns the new
+    /// item, or nil if the original was deleted meanwhile.
+    @discardableResult
+    public func duplicate(id: Int64) async throws -> ClipboardItem? {
+        let files = self.files
+        // The files are copied before the transaction, like a save writes them first: a row
+        // never points at a file that is not there yet. On failure they are removed again.
+        let rows = try await pool.read { db in try ClipboardItemDataRow.ofItem(id).fetchAll(db) }
+        let copiedFileNames: [String?] = try rows.map { row in
+            try row.largeDataFileName.map { try files.write(try files.read($0)) }
+        }
+        do {
+            return try await pool.write { db in
+                guard let original = try ClipboardItem.fetchOne(db, key: id) else { return nil }
+                let now = Date()
+                let copy = try NewClipboardItem(
+                    kind: original.kind, title: original.title, cardText: original.cardText,
+                    cardDetail: original.cardDetail, sourceAppBundleId: original.sourceAppBundleId,
+                    sourceAppName: original.sourceAppName, createdAt: now, copiedAt: now,
+                    contentFingerprint: original.contentFingerprint, imageText: original.imageText,
+                    linkPageTitle: original.linkPageTitle, pinboardId: original.pinboardId
+                ).insertAndFetch(db, as: ClipboardItem.self)
+                for (row, fileName) in zip(rows, copiedFileNames) {
+                    var row = row
+                    row.id = nil
+                    row.clipboardItemId = copy.id
+                    row.largeDataFileName = fileName
+                    try row.insert(db)
+                }
+                // The thumbnail is keyed by item id, so the copy gets its own row of it.
+                if var thumbnail = try CardThumbnail.fetchOne(db, key: id) {
+                    thumbnail.clipboardItemId = copy.id
+                    try thumbnail.insert(db)
+                }
+                Log.store.info("duplicated item \(id, privacy: .public) as \(copy.id, privacy: .public)")
+                return copy
+            }
+        } catch {
+            try? files.delete(copiedFileNames.compactMap { $0 })
+            throw error
+        }
     }
 
     /// Deletes every item that is not on a pinboard, with its data rows, thumbnail (both by

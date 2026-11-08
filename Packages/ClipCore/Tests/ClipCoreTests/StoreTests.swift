@@ -415,6 +415,66 @@ struct StoreTests {
         }
     }
 
+    @Test func renameShowsInSearchAndABlankNameClearsIt() async throws {
+        try await withStore { store in
+            let item = try await store.save(copy([.text("1 Infinite Loop, Cupertino")]))
+            try await store.rename(id: item.id, to: "  Home address ")
+            // The title is stored trimmed, and the index's UPDATE trigger picked it up.
+            #expect(try await store.items(limit: 1).first?.title == "Home address")
+            #expect(try await found("home", in: store) == ["1 Infinite Loop, Cupertino"])
+            try await store.rename(id: item.id, to: "   ")
+            #expect(try await store.items(limit: 1).first?.title == nil)
+            #expect(try await found("home", in: store) == [])
+        }
+    }
+
+    @Test func duplicateIsASeparateItemAndARepeatCopyMovesTheNewestOne() async throws {
+        try await withStore { store in
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            let big = Data((0..<2_000_000).map { UInt8($0 % 251) })
+            let original = try await store.save(
+                copy([ClipboardItemData(type: "public.png", data: big), .text("same")], at: t0))
+            try await store.rename(id: original.id, to: "Logo")
+            try await store.save(copy([.text("other")], at: t0 + 1))
+
+            let twin = try #require(try await store.duplicate(id: original.id))
+            #expect(twin.id != original.id)
+            #expect(twin.title == "Logo")
+            #expect(try await store.items(limit: 3).map(\.id) == [twin.id, original.id + 1, original.id])
+            // The copy has its own bytes and its own file: deleting it leaves the original's.
+            #expect(try await store.data(for: twin.id) == (try await store.data(for: original.id)))
+            #expect(try largeFiles().count == 2)
+
+            // Copying the same content again moves the newest of the two, not the original.
+            let again = try await store.save(
+                copy([ClipboardItemData(type: "public.png", data: big), .text("same")]))
+            #expect(again.id == twin.id)
+            #expect(try await store.count() == 3)
+
+            try await store.delete(id: twin.id)
+            #expect(try largeFiles().count == 1)
+            #expect(try await store.data(for: original.id).count == 2)
+        }
+    }
+
+    @Test func deletingSeveralRemovesThemAllAtOnce() async throws {
+        try await withStore { store in
+            let big = Data((0..<2_000_000).map { UInt8($0 % 251) })
+            let a = try await store.save(
+                copy([ClipboardItemData(type: "public.png", data: big)], at: .now - 3))
+            let b = try await store.save(copy([.text("b")], at: .now - 2))
+            let c = try await store.save(copy([.text("c")], at: .now - 1))
+            // The live list delivers the result of the delete in one go: the delivery after
+            // the delete is already down to the one remaining item, never a halfway state.
+            var deliveries = store.observeItems(limit: 10).makeAsyncIterator()
+            #expect(try await deliveries.next()?.map(\.id) == [c.id, b.id, a.id])
+            try await store.delete(ids: [a.id, c.id])
+            #expect(try await deliveries.next()?.map(\.id) == [b.id])
+            #expect(try largeFiles().isEmpty)
+            #expect(try await store.data(for: a.id).isEmpty)
+        }
+    }
+
     @Test func aSaveComputesTheFooterDetailItCan() async throws {
         try await withStore { store in
             let text = try await store.save(copy([.text("hello world")]))

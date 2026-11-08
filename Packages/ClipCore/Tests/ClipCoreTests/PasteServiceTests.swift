@@ -76,6 +76,56 @@ import Testing
         #expect(clipboard.contents.map(\.type) == ["public.png", PrivacyRules().ownMarker])
     }
 
+    /// Three cards, one of them a Finder copy of two files, pasted together: the clipboard
+    /// gets one pasteboard item per card (two for the two files), left to right, each with
+    /// every type the card has, the marker on the first, all in one write. Afterwards the
+    /// three sit at the top in the same order.
+    @Test func pastingSeveralWritesOneClipboardItemPerCardInOrder() async throws {
+        defer { folder.remove() }
+        let (service, store, older) = try await makeService()
+        let files = try await store.save(
+            CapturedCopy(
+                data: [
+                    .fileURL("/tmp/one.txt", item: 0), .fileURL("/tmp/two.txt", item: 1),
+                ], sourceApp: nil, copiedAt: Date()))
+        let image = try await store.save(
+            CapturedCopy(data: [.png([1, 2, 3])], sourceApp: nil, copiedAt: Date()))
+        // Both files exist, so the paste is allowed.
+        for path in ["/tmp/one.txt", "/tmp/two.txt"] {
+            FileManager.default.createFile(atPath: path, contents: Data())
+        }
+        defer {
+            for path in ["/tmp/one.txt", "/tmp/two.txt"] { try? FileManager.default.removeItem(atPath: path) }
+        }
+        let before = clipboard.changeCount
+
+        try await service.paste([older, files, image], plainText: false, destination: .activeApp)
+
+        #expect(clipboard.changeCount == before + 1)
+        #expect(
+            clipboard.contents.map { ($0.pasteboardItemIndex, $0.type) }.map { "\($0.0):\($0.1)" } == [
+                "0:public.rtf", "0:\(ClipboardType.plainText)", "1:\(ClipboardType.fileURL)",
+                "2:\(ClipboardType.fileURL)", "3:public.png", "0:\(PrivacyRules().ownMarker)",
+            ])
+        #expect(keys.presses == 1)
+        #expect(try await store.items(limit: 4).map(\.id) == [older.id, files.id, image.id, older.id + 1])
+    }
+
+    @Test func aFileThatIsGoneRefusesThePasteBeforeAnythingIsWritten() async throws {
+        defer { folder.remove() }
+        let (service, store, older) = try await makeService()
+        let gone = try await store.save(
+            CapturedCopy(
+                data: [.fileURL("/tmp/yank-tests-\(UUID().uuidString).txt")], sourceApp: nil,
+                copiedAt: Date()))
+        let before = clipboard.changeCount
+        await #expect(throws: PasteError.fileNoLongerExists) {
+            try await service.paste([older, gone], plainText: false, destination: .activeApp)
+        }
+        #expect(clipboard.changeCount == before)
+        #expect(keys.presses == 0)
+    }
+
     @Test func pasteIsNeverPressedWithoutPermissionOrInClipboardOnlyMode() async throws {
         defer { folder.remove() }
         let (service, _, older) = try await makeService()

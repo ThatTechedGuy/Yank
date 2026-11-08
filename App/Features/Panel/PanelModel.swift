@@ -50,6 +50,35 @@ import SwiftUI
     var searchText = "" {
         didSet { if searchText != oldValue { startSearch() } }
     }
+    /// Which tab the panel is on (History or a pinboard) and the kind and date it is narrowed
+    /// to. Both the live list and the search read it, so a change restarts both. It is kept
+    /// while the panel is hidden: the panel reopens where it was left, like a browser tab.
+    var filter = ItemFilter() {
+        didSet {
+            guard filter != oldValue else { return }
+            limit = Self.pageSize
+            startLiveList()
+            startSearch()
+        }
+    }
+    /// The pinboards, in tab order, kept fresh by a live query like the items.
+    private(set) var pinboards: [Pinboard] = []
+    /// The card ⌘P or "Pin to" is choosing a pinboard for: a small chooser opens on it. Nil
+    /// when none is open. (Only used when there is more than one pinboard to choose from.)
+    var pinChooserItemId: Int64?
+    /// Whether the "New Pinboard" name prompt is up, and which card to pin to the new board
+    /// once it exists (nil: just create it). The view shows the prompt while this is non-nil.
+    var newPinboardPrompt: NewPinboardPrompt?
+    /// The pinboard whose Rename prompt, or Delete confirmation, is up; nil when none is.
+    var renamingPinboard: Pinboard?
+    var deletingPinboard: Pinboard?
+    /// True while any of the small popovers above is open. The keyboard is then in that
+    /// popover, so the panel leaves Return, Space, Tab and the arrow keys to it: Return must
+    /// finish a name, not paste a card.
+    var isPrompting: Bool {
+        pinChooserItemId != nil || newPinboardPrompt != nil || renamingPinboard != nil
+            || deletingPinboard != nil
+    }
     /// Whether the panel is on screen. The view uses it to put the cursor in search on open.
     private(set) var isVisible = false
     /// True when Return would paste into the active app but macOS does not let Yank press ⌘V:
@@ -57,11 +86,13 @@ import SwiftUI
     /// permission in System Settings is noticed on the next ⇧⌘V without a restart.
     private(set) var needsAccessibility = false
 
-    private let store: Store
+    let store: Store
     private let pasteService: PasteService
     /// The task running the live query. Cancelling it stops the query; a new one starts when
     /// the limit changes.
     private var liveList: Task<Void, Never>?
+    /// The task keeping `pinboards` fresh. Runs for as long as the model lives.
+    private var pinboardList: Task<Void, Never>?
     /// The search running for the current text, if any. Cancelled by the next keystroke.
     private var search: Task<Void, Never>?
     /// How many items the live query asks for. Grows as the user scrolls towards the end.
@@ -71,26 +102,45 @@ import SwiftUI
         self.store = store
         self.pasteService = pasteService
         startLiveList()
+        startPinboardList()
     }
 
-    /// Starts (or restarts, with the current limit) the live query that keeps `items` fresh.
-    /// It runs all the time, not only while the panel is open, so the cards are already loaded
-    /// when the panel appears and opening it costs no database read.
+    /// Starts (or restarts, with the current limit and filter) the live query that keeps
+    /// `items` fresh. It runs all the time, not only while the panel is open, so the cards are
+    /// already loaded when the panel appears and opening it costs no database read.
     private func startLiveList() {
         liveList?.cancel()
         // `for try await` loops over each delivery as it arrives, like `for await` over an
         // async iterator in JS. The body runs on the main thread, because this class does.
-        liveList = Task { [store, limit] in
+        liveList = Task { [store, limit, filter] in
             do {
-                for try await items in store.observeItems(limit: limit) {
+                for try await items in store.observeItems(matching: filter, limit: limit) {
                     self.liveItems = items
-                    // The selected card may have been deleted; fall back to the first one.
-                    if let selectedId, !self.items.contains(where: { $0.id == selectedId }) {
+                    // The selected card may have been deleted, pinned away, or belong to the
+                    // tab before a switch; fall back to the first one.
+                    if !self.items.contains(where: { $0.id == selectedId }) {
                         self.selectedId = self.items.first?.id
                     }
                 }
             } catch {
                 Log.ui.error("the panel's live list stopped: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    /// Starts the live query that keeps the tab row's pinboards fresh. If the tab the panel is
+    /// on is deleted (from the menu, or by the database being erased), it falls back to History.
+    private func startPinboardList() {
+        pinboardList = Task { [store] in
+            do {
+                for try await pinboards in store.observePinboards() {
+                    self.pinboards = pinboards
+                    if case .pinboard(let id) = filter.list, !pinboards.contains(where: { $0.id == id }) {
+                        filter.list = .history
+                    }
+                }
+            } catch {
+                Log.ui.error("the panel's pinboard list stopped: \(error, privacy: .public)")
             }
         }
     }
@@ -117,12 +167,12 @@ import SwiftUI
             selectedId = items.first?.id
             return
         }
-        search = Task { [store, searchText] in
+        search = Task { [store, searchText, filter] in
             // A timing marker around the whole search, from keystroke to results assigned, so
             // `log show --signpost` and Instruments can measure it against the speed limit.
             let state = Log.timing.beginInterval("Search")
             do {
-                let results = try await store.search(searchText, limit: Self.pageSize)
+                let results = try await store.search(searchText, matching: filter, limit: Self.pageSize)
                 // A newer keystroke cancelled this search while the database was busy: its
                 // results are stale, and the newer search will set its own.
                 guard !Task.isCancelled else { return }
@@ -237,9 +287,18 @@ import SwiftUI
 
     /// Called by the window when the panel leaves the screen. A list that grew while scrolling
     /// shrinks back to one page, so the live query does little work while the panel is hidden.
+    /// Closes whichever popover is open (Esc, or the panel hiding).
+    func closePrompts() {
+        pinChooserItemId = nil
+        newPinboardPrompt = nil
+        renamingPinboard = nil
+        deletingPinboard = nil
+    }
+
     func didHide() {
         isVisible = false
         closePreview()
+        closePrompts()
         if limit != Self.pageSize {
             limit = Self.pageSize
             startLiveList()

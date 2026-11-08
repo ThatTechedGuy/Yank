@@ -217,6 +217,55 @@ struct CardDetailTests {
     }
 }
 
+// Proves the date ranges start at local midnight and count calendar days, with the clock and
+// the calendar fixed so the answers never depend on when or where the test runs. Each test
+// builds moments in UTC (`utc`) and asks where a range starts for a calendar in some time zone.
+struct DateRangeTests {
+    func utc(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 0, _ minute: Int = 0) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        return calendar.date(
+            from: DateComponents(year: year, month: month, day: day, hour: hour, minute: minute))!
+    }
+
+    func calendar(in zone: String) -> Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: zone)!
+        return calendar
+    }
+
+    // 23:30 UTC on 8 November is already 09:30 on the 9th in Brisbane (UTC+10, no summer
+    // time), so "today" is the 9th there and starts ten hours before its UTC midnight.
+    @Test func todayIsTheLocalDayNotTheUTCOne() {
+        let now = utc(2026, 11, 8, 23, 30)
+        let brisbane = calendar(in: "Australia/Brisbane")
+        #expect(DateRange.today.start(now: now, calendar: brisbane) == utc(2026, 11, 8, 14))
+        #expect(DateRange.lastSevenDays.start(now: now, calendar: brisbane) == utc(2026, 11, 2, 14))
+        #expect(DateRange.lastThirtyDays.start(now: now, calendar: brisbane) == utc(2026, 10, 10, 14))
+        #expect(DateRange.anyTime.start(now: now, calendar: brisbane) == nil)
+    }
+
+    // New York's clocks went back on 1 November 2026, so that day was 25 hours long. At noon
+    // (now EST, UTC−5) the day began 13 hours earlier at midnight EDT (UTC−4), not 12.
+    @Test func theDayTheClocksChangeStartsAtItsOwnMidnight() throws {
+        let noon = utc(2026, 11, 1, 17)
+        let newYork = calendar(in: "America/New_York")
+        let start = try #require(DateRange.today.start(now: noon, calendar: newYork))
+        #expect(start == utc(2026, 11, 1, 4))
+        #expect(noon.timeIntervalSince(start) == 13 * 3600)
+    }
+
+    // Counting back across the change: seven days back from 2 November reaches 27 October,
+    // whose midnight was still on summer time. Six blocks of 24 hours would land an hour late.
+    @Test func sevenDaysBackAcrossTheChangeIsSevenCalendarDays() {
+        let now = utc(2026, 11, 2, 17)
+        let newYork = calendar(in: "America/New_York")
+        #expect(DateRange.today.start(now: now, calendar: newYork) == utc(2026, 11, 2, 5))
+        #expect(DateRange.lastSevenDays.start(now: now, calendar: newYork) == utc(2026, 10, 27, 4))
+        #expect(DateRange.lastThirtyDays.start(now: now, calendar: newYork) == utc(2026, 10, 4, 4))
+    }
+}
+
 struct PanelHeightTests {
     @Test func heightsOutsideTheLimitsArePulledBack() {
         #expect(PanelHeight.clamped(10) == PanelHeight.minimum)

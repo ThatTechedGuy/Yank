@@ -182,8 +182,9 @@ public final class Store: Sendable {
         }
     }
 
-    /// The newest `limit` items, delivered now and again every time they change, so the panel
-    /// shows a new copy the moment it is saved without asking for the list again.
+    /// The newest `limit` items that match `filter` (History or a pinboard, a kind, a date
+    /// range; the default is all of History), delivered now and again every time they change,
+    /// so the panel shows a new copy the moment it is saved without asking for the list again.
     ///
     /// This is a live query: GRDB watches the tables the fetch read and re-runs it after every
     /// write that touches them, on its own background thread, then hands the fresh list to
@@ -193,11 +194,82 @@ public final class Store: Sendable {
     /// list shows (for example, bytes of an item below the limit), so the panel is not redrawn
     /// for nothing. (`some AsyncSequence<...>` hides GRDB's own type: callers only see "a
     /// sequence of item lists that can fail", so the app never has to import GRDB.)
-    public func observeItems(limit: Int) -> some AsyncSequence<[ClipboardItem], any Error> {
-        ValueObservation
-            .tracking { db in try ClipboardItem.newestFirst.limit(limit).fetchAll(db) }
+    // shortcut: a date range is worked out once, when the query starts, so a panel left open
+    // across midnight keeps yesterday's "today" until the filter or the panel changes; restart
+    // the query on a day change if anyone notices.
+    public func observeItems(matching filter: ItemFilter = ItemFilter(), limit: Int)
+        -> some AsyncSequence<[ClipboardItem], any Error>
+    {
+        let request = ClipboardItem.matching(filter, now: Date(), calendar: .current)
+        return
+            ValueObservation
+            .tracking { db in try request.limit(limit).fetchAll(db) }
             .removeDuplicates()
             .values(in: pool)
+    }
+
+    /// Every pinboard in tab order, delivered now and again whenever one is added, renamed or
+    /// deleted: the same kind of live query as `observeItems`, for the panel's tab row.
+    public func observePinboards() -> some AsyncSequence<[Pinboard], any Error> {
+        ValueObservation
+            .tracking { db in try Pinboard.inOrder.fetchAll(db) }
+            .removeDuplicates()
+            .values(in: pool)
+    }
+
+    /// Every pinboard in tab order, once.
+    public func pinboards() async throws -> [Pinboard] {
+        try await pool.read { db in try Pinboard.inOrder.fetchAll(db) }
+    }
+
+    /// Adds a pinboard after the existing ones and returns it. The name is used as given;
+    /// the panel trims it and refuses an empty one before calling this.
+    public func createPinboard(named name: String) async throws -> Pinboard {
+        try await pool.write { db in
+            // The new tab goes last: one past the highest position so far (0 for the first).
+            let last = try Pinboard.select(max(PinboardColumns.position), as: Int.self).fetchOne(db)
+            let pinboard = try NewPinboard(name: name, position: (last ?? -1) + 1)
+                .insertAndFetch(db, as: Pinboard.self)
+            Log.store.info("created pinboard \(pinboard.id, privacy: .public)")
+            return pinboard
+        }
+    }
+
+    /// Gives a pinboard a new name. Nothing happens if it was deleted in the meantime.
+    public func renamePinboard(id: Int64, to name: String) async throws {
+        _ = try await pool.write { db in
+            try Pinboard.filter(key: id).updateAll(db, [PinboardColumns.name.set(to: name)])
+        }
+    }
+
+    /// Deletes a pinboard. Its items are not deleted: the foreign key on `clipboardItem` is
+    /// declared `ON DELETE SET NULL` (see Migrations), so SQLite clears their `pinboardId` in
+    /// the same statement and they are back in History at once.
+    public func deletePinboard(id: Int64) async throws {
+        _ = try await pool.write { db in
+            let deleted = try Pinboard.deleteOne(db, key: id)
+            Log.store.info("deleted pinboard \(id, privacy: .public): \(deleted, privacy: .public)")
+        }
+    }
+
+    /// Puts an item on a pinboard. An item is on one pinboard at most, so this also takes it
+    /// off whichever one it was on, and off History. Nothing happens if either was deleted.
+    public func pin(itemId: Int64, to pinboardId: Int64) async throws {
+        _ = try await pool.write { db in
+            // The foreign key would refuse a missing pinboard with an error; checking first
+            // turns a race with a delete into a quiet no-op, which is what the user would want.
+            guard try Pinboard.exists(db, key: pinboardId) else { return }
+            try ClipboardItem.filter(key: itemId)
+                .updateAll(db, [ClipboardItemColumns.pinboardId.set(to: pinboardId)])
+        }
+    }
+
+    /// Takes an item off its pinboard, back into History.
+    public func unpin(itemId: Int64) async throws {
+        _ = try await pool.write { db in
+            try ClipboardItem.filter(key: itemId)
+                .updateAll(db, [ClipboardItemColumns.pinboardId.set(to: nil)])
+        }
     }
 
     /// How many items are saved. The menu shows this number.
@@ -280,13 +352,16 @@ public final class Store: Sendable {
     /// when the match is narrow enough to score (see `rankedMatchLimit`), newest first among
     /// equals and otherwise. Matches the card text, a title, text read out of an image, a
     /// link's page title and the source app's name, each word as a prefix ("qua" finds
-    /// "quarterly"), and every word must match.
+    /// "quarterly"), and every word must match. Only items that `filter` allows (the tab,
+    /// kind and date the panel is on) are searched, so the two narrow the list together.
     ///
     /// Returns `nil` when the text is not a search yet: fewer than two letters, or nothing
     /// searchable in it (only spaces or punctuation). The caller shows the full list then.
     /// Two letters is where the index's prefix tables begin; a single letter would match most
     /// of the history, which is the one slow case.
-    public func search(_ query: String, limit: Int) async throws -> [ClipboardItem]? {
+    public func search(_ query: String, matching filter: ItemFilter = ItemFilter(), limit: Int)
+        async throws -> [ClipboardItem]?
+    {
         // Full-text search has no `filter` equivalent: SQLite's `MATCH` takes a search pattern
         // in its own little language, with special words (OR, NOT) and symbols (quotes, *).
         // `FTS5Pattern` turns anything the user typed into a safe pattern, so "don't" or "c++"
@@ -294,6 +369,7 @@ public final class Store: Sendable {
         guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2,
             let pattern = FTS5Pattern(matchingAllPrefixesIn: query)
         else { return nil }
+        let filtered = ClipboardItem.matching(filter, now: Date(), calendar: .current)
         return try await pool.read { db in
             // Counting the matches first is cheap (the index answers it without scoring), and
             // it decides whether scoring all of them would fit in the speed limit.
@@ -302,10 +378,12 @@ public final class Store: Sendable {
             // MATCH in the join condition, which is how SQLite wants a full-text query over a
             // separate content table. The `TableAlias` names the index's side of the join, so
             // the ordering can reach its `rank` column: FTS5's score, lowest first = best match.
+            // `order` here replaces the newest-first order `matching` set; its `WHERE` clauses
+            // stay, so the search only sees the items the panel's tab and filter allow.
             let index = TableAlias()
             let byScore: [any SQLOrderingTerm] = matches <= Self.rankedMatchLimit ? [index[Column.rank]] : []
             return
-                try ClipboardItem
+                try filtered
                 .joining(required: ClipboardItem.searchIndex.aliased(index).matching(pattern))
                 .order(byScore + [ClipboardItemColumns.copiedAt.desc, ClipboardItemColumns.id.desc])
                 .limit(limit)
@@ -363,12 +441,14 @@ public final class Store: Sendable {
             URL.applicationSupportDirectory.appending(path: "Yank-seed")
         }
 
-        /// Replaces everything in this store with `count` fake items, all small, with a mix of
-        /// kinds and apps and times spread over the past, newest first by id. One transaction,
-        /// so 100,000 items take a second or two instead of minutes of single saves.
+        /// Replaces everything in this store (items and pinboards) with `count` fake items, all
+        /// small, with a mix of kinds and apps and times spread over the past, newest first by
+        /// id. One transaction, so 100,000 items take a second or two instead of minutes of
+        /// single saves.
         public func seed(count: Int) async throws {
             try await pool.write { db in
                 try ClipboardItem.deleteAll(db)
+                try Pinboard.deleteAll(db)
                 let now = Date()
                 // Real bundle ids of apps every Mac has, so the cards get real icons and colours.
                 let apps = [

@@ -67,8 +67,9 @@ public final class Store: Sendable {
     // The app's data folder. In a sandboxed app (one macOS keeps inside its own private folder),
     // `.applicationSupportDirectory` resolves to
     // ~/Library/Containers/com.thattechedguy.Yank/Data/Library/Application Support, the
-    // sandbox's private home, like an Android app's /data/data/<id>/files. Tests pass a
-    // temporary folder instead.
+    // sandbox's private home, like an Android app's /data/data/<id>/files. A debug build has the
+    // bundle id com.thattechedguy.Yank.debug, so the same line gives it a separate folder under
+    // ~/Library/Containers/com.thattechedguy.Yank.debug. Tests pass a temporary folder instead.
     /// Where the real app keeps its data.
     public static var defaultFolder: URL {
         URL.applicationSupportDirectory.appending(path: "Yank")

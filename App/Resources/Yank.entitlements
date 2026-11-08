@@ -14,7 +14,8 @@
 <plist version="1.0">
 <dict>
 	<!--
-	  App Sandbox: the app runs in its own container, ~/Library/Containers/com.thattechedguy.Yank,
+	  App Sandbox: the app runs in its own container, ~/Library/Containers/com.thattechedguy.Yank
+	  (com.thattechedguy.Yank.debug for debug builds, which are a separate app with their own data),
 	  and can't read or write anything else on disk unless the user hands it a file (via a picker,
 	  a drag, or the clipboard). ≈ Android's per-app private storage. Our database lives inside it.
 	  We want it because it limits what a bug in Yank could touch, and the Mac App Store requires it.

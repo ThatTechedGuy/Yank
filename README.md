@@ -27,22 +27,47 @@ ties permissions such as Accessibility to it, so an unsigned or ad hoc build los
 
 `scripts/release.sh` is the one command for the copy you use every day. ≈ `./gradlew bundleRelease` plus
 installing the APK. It archives the Release configuration into `build/Yank.xcarchive`, checks the result,
-and copies `Yank.app` to `/Applications`. It never opens the app, and it refuses to run while any Yank is
-running. `scripts/release.sh --no-install` builds and checks only.
+and copies `Yank.app` to `/Applications`. It never opens the app, and it refuses to install while the
+installed copy is running. `scripts/release.sh --no-install` builds and checks only.
 
 **Installing and updating.** Quit Yank from its menu bar icon, then run `scripts/release.sh`, then open
 `/Applications/Yank.app` from Finder (Applications folder). Open the copy in `/Applications` and not one in
 `build/`: Spotlight can also list the copy inside the archive. Run the script again after every merge to
 `main` that you want in your everyday copy.
 
-**One Yank at a time.** The installed copy and the debug builds from Xcode share the bundle id
-`com.thattechedguy.Yank`. So they share one sandbox folder (history, settings, pinboards), one set of
-permissions (Accessibility, Paste from Other Apps) and the ⇧⌘V shortcut. Two running at once would both
-save every copy and fight over the shortcut. Quit the installed one before ⌘R in Xcode, or let
-`scripts/test.sh` do it: it quits a running Yank and reopens it afterwards. If "Open at login" was turned
-on from a debug build, turn it off and on again in the installed copy's Settings › General, so macOS
-starts the copy in `/Applications`. If ⌘V pasting stops after the switch, turn Yank off and on in System
-Settings › Privacy & Security › Accessibility.
+**Release and Debug are two apps.** ≈ an Android `applicationIdSuffix ".debug"`. The installed Release
+copy is "Yank", bundle id `com.thattechedguy.Yank`. Debug builds (⌘R in Xcode, the UI tests) are "Yank
+Debug", bundle id `com.thattechedguy.Yank.debug`, set under `configs: Debug:` of the Yank target in
+`project.yml`. macOS keys everything per bundle id, so each has its own:
+
+| | Release ("Yank") | Debug ("Yank Debug") |
+| --- | --- | --- |
+| History, pinboards, large files | `~/Library/Containers/com.thattechedguy.Yank/` | `~/Library/Containers/com.thattechedguy.Yank.debug/` |
+| Settings (`defaults`) | `com.thattechedguy.Yank` | `com.thattechedguy.Yank.debug` |
+| Accessibility, Paste from Other Apps | its own row in System Settings | its own row, granted separately |
+| Open at login | its own login item | its own login item |
+
+A test run or a debug session never touches your real history or settings. What they still share: the
+log subsystem `com.thattechedguy.Yank` (both builds log under it; Console.app's Process column shows
+which), the process name `Yank`, the system clipboard and the global shortcuts. Two copies can both run,
+but both would claim ⇧⌘V and both save every copy, each into its own history. So quit the installed one
+before ⌘R in Xcode. `scripts/test.sh` does that for the UI tests: it quits the
+Release copy (found by its bundle id) and reopens it afterwards, so test copies never land in your real
+history.
+
+**Permissions for Yank Debug.** The first debug build after this change starts with none of them, like a
+new app. Grant them once:
+
+1. **Accessibility** (for pressing ⌘V): System Settings › Privacy & Security › Accessibility, switch on
+   **Yank Debug**. If it isn't listed, open the panel and choose Allow… in its hint, or press + and pick
+   `build/Build/Products/Debug/Yank.app`.
+2. **Paste from Other Apps** (for reading what other apps copy): on the first read macOS asks "Yank Debug
+   would like to paste from …". Choose Allow, then in System Settings › Privacy & Security › Paste from
+   Other Apps set Yank Debug to **Allow** so it stops asking.
+
+Because the bundle id and the signing certificate stay the same from build to build, these grants survive
+rebuilds. Release's grants are unaffected. The old "Yank" rows that debug builds created before this
+change now belong to the Release copy.
 
 **What Release changes** (`project.yml`, under `settings`):
 
@@ -110,8 +135,10 @@ Hardened runtime and no `get-task-allow`, which notarization requires, are alrea
 - New debug-only code goes inside `#if DEBUG`. If it has a distinctive name, add it to the script's
   `strings` check.
 - Log a new error with `\(error.logDescription, privacy: .public)`, never `\(error, privacy: .public)`.
-- Keep `build/Yank.xcarchive` for as long as you run that build: its dSYM is what turns a crash report's
-  addresses back into function names (Xcode › Window › Organizer, or `atos`).
+- `build/Installed.xcarchive` is the archive of the copy in `/Applications` (the script copies it there on
+  each install; `build/Yank.xcarchive` is only the latest build). Keep it: its dSYM is what turns a crash
+  report's addresses back into function names (Xcode › Window › Organizer, or `atos`). `dwarfdump --uuid`
+  on the app and on the dSYM must print the same UUID.
 
 ## Layout
 
@@ -192,7 +219,8 @@ re-reads the count from the database so it stays right. Whatever is on the clipb
 is not saved.
 
 Data lives in the sandbox container: `~/Library/Containers/com.thattechedguy.Yank/Data/Library/Application
-Support/Yank/` (`yank.sqlite` plus `LargeData/`). Delete that folder to start fresh.
+Support/Yank/` (`yank.sqlite` plus `LargeData/`) for the Release copy, and the same path under
+`com.thattechedguy.Yank.debug` for debug builds. Delete that folder to start fresh.
 
 **Clipboard permission.** On macOS 15.4 and later the first read shows "Yank would like to paste from
 <app>". Choose **Allow**; then open System Settings › Privacy & Security › Paste from Other Apps and set
@@ -927,9 +955,12 @@ To see the window again, start Yank once with the flag that makes a launch look 
 build/Build/Products/Debug/Yank.app/Contents/MacOS/Yank -hasShownWelcome NO
 ```
 
-or forget it for good with `defaults delete com.thattechedguy.Yank hasShownWelcome` (Yank is sandboxed,
-so if that says the key does not exist, delete it from
-`~/Library/Containers/com.thattechedguy.Yank/Data/Library/Preferences/com.thattechedguy.Yank.plist`).
+or forget it for good with `defaults delete com.thattechedguy.Yank.debug hasShownWelcome` (drop `.debug`
+for the Release copy, and quit that copy first; Yank is sandboxed, so if that says the key does not
+exist, delete it from
+`~/Library/Containers/com.thattechedguy.Yank.debug/Data/Library/Preferences/com.thattechedguy.Yank.debug.plist`).
+For the installed Release copy, quit it and run `open /Applications/Yank.app --args -hasShownWelcome NO`
+to see the window once.
 
 **VoiceOver.** Each card is one element that reads as one sentence, built in `ItemCard.spokenDescription`:
 "Card 1 of 20. Text from Safari, 2 minutes ago: Hello world", then "selected" for the selected card.

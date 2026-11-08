@@ -43,7 +43,8 @@ enum SettingsKey {
 ///
 /// Stored as one JSON string under `SettingsKey.ignoredApps`. `@AppStorage` can hold a value
 /// whose `rawValue` is a String (`RawRepresentable`), and JSON is the natural way to put a list
-/// in a string; `defaults read com.thattechedguy.Yank ignoredApps` shows it as is. A list, not a
+/// in a string; `defaults read com.thattechedguy.Yank ignoredApps` shows it as is (add `.debug`
+/// to the id for a debug build's settings). A list, not a
 /// set, so the Settings window shows the apps in a stable order; the privacy rules turn it
 /// into a set for their lookups.
 struct IgnoredApps: RawRepresentable, Equatable {

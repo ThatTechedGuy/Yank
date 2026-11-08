@@ -73,6 +73,12 @@ private struct GeneralSettings: View {
                 // shortcut is saved and registered at once; the panel reacts to the new key
                 // without a restart because it listens by name, not by key.
                 KeyboardShortcuts.Recorder("Show panel", name: .togglePanel)
+                KeyboardShortcuts.Recorder("Paste next from the stack", name: .pasteNext)
+                KeyboardShortcuts.Recorder("Turn the paste stack on or off", name: .toggleStack)
+            } footer: {
+                Text(
+                    "The paste stack queues everything you copy while it is on, and pastes it back one "
+                        + "item per press, in order. Turn it on from the menu bar.")
             }
         }
         .formStyle(.grouped)

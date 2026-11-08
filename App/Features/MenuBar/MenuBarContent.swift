@@ -45,6 +45,8 @@ struct MenuBarContent: View {
             .keyboardShortcut(KeyboardShortcuts.getShortcut(for: .togglePanel)?.toSwiftUI)
         pauseRows
         Divider()
+        stackRows
+        Divider()
         // Debug builds only: "Developer…" opens the Developer window and "Open Data Folder"
         // shows the database in Finder. The compiler leaves both out of a release build.
         #if DEBUG
@@ -60,6 +62,28 @@ struct MenuBarContent: View {
         Button("Quit Yank") { NSApplication.shared.terminate(nil) }
             // Lets ⌘Q quit while the menu is open, as users expect from any Mac app.
             .keyboardShortcut("q")
+    }
+
+    /// The paste stack: the on/off switch, with the shortcut recorded for it if any, and while
+    /// it is on, what is waiting, oldest first, each row the first line of the item. The rows
+    /// are labels: the only way to take an item out is to paste it (⌃⌥⌘V) or turn the stack off.
+    @ViewBuilder private var stackRows: some View {
+        Button(model.stack.isOn ? "Turn Paste Stack Off" : "Turn Paste Stack On") { model.toggleStack() }
+            .keyboardShortcut(KeyboardShortcuts.getShortcut(for: .toggleStack)?.toSwiftUI)
+        if model.stack.isOn {
+            let queue = model.stack.queue
+            if queue.isEmpty {
+                Text("Nothing waiting. Copy something to add it.")
+            } else {
+                let key = KeyboardShortcuts.getShortcut(for: .pasteNext)?.description ?? "the paste-next key"
+                Text("^[\(queue.count) items](inflect: true) waiting; \(key) pastes the next")
+                // Keyed by position, not item id: copying the same thing twice queues the same
+                // item twice, and SwiftUI needs each row's key to be unique.
+                ForEach(Array(queue.enumerated()), id: \.offset) { _, item in
+                    Text(item.title ?? item.cardText)
+                }
+            }
+        }
     }
 
     /// While running: a Pause submenu with the three lengths. While paused: a line saying

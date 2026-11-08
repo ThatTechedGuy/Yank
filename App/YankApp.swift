@@ -47,9 +47,20 @@ struct YankApp: App {
         //
         // The `{ ... }` after the parentheses is a trailing closure: the last argument is a
         // function, written outside the call. ≈ passing `children` in JSX. The icon swaps to a
-        // pause sign while saving is paused, so the state is visible without opening the menu.
-        MenuBarExtra("Yank", systemImage: model.isPaused ? "pause.circle" : "list.clipboard") {
+        // pause sign while saving is paused, so the state is visible without opening the menu,
+        // and the number of items waiting in the paste stack sits next to it while there are
+        // any (the badge from the paste stack's picture).
+        MenuBarExtra {
             MenuBarContent(model: model)
+        } label: {
+            let waiting = model.stack.queue.count
+            Label {
+                Text(waiting > 0 ? "\(waiting)" : "")
+            } icon: {
+                Image(systemName: model.isPaused ? "pause.circle" : "list.clipboard")
+            }
+            .labelStyle(.titleAndIcon)
+            .accessibilityLabel("Yank")
         }
         // The Settings window. SwiftUI owns it: the scene gives us the window, ⌘, from the
         // menu, and `SettingsLink` to open it from anywhere. It is built the first time it is

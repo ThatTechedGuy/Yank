@@ -33,9 +33,13 @@ import SwiftUI
     /// `pause` as a yes/no for right now, for the icon and the menu. A timed pause ends on its
     /// own, so the poll loop refreshes this when the time comes.
     private(set) var isPaused = false
+    /// The paste stack: off, or on with the copies made since it was turned on waiting in
+    /// order. The menu bar shows its count and its items; ⌃⌥⌘V pastes the oldest.
+    private(set) var stack = PasteStack.off
 
     private var capture: CaptureService?
     private var store: Store?
+    private var pasteService: PasteService?
     /// The panel's window, created once and kept hidden until ⇧⌘V. Nil if the store failed.
     private var panel: PanelWindow?
 
@@ -66,17 +70,22 @@ import SwiftUI
             let pasteService = PasteService(
                 store: store, clipboard: clipboard, keyPresser: KeyPresser(),
                 accessibility: SystemAccessibilityStatus())
+            self.pasteService = pasteService
             // Previews: the Enricher makes them after each save with ClipSystem's decoders, the
             // cache keeps the ones the cards draw, and the icon cache gives each card its app's
             // icon and header colour.
             let enricher = Enricher(store: store, makePreview: Thumbnailer.preview)
             // The panel and its state. Built now, while nothing is urgent, so that the first
             // ⇧⌘V only has to put an existing window on screen.
+            let panelModel = PanelModel(store: store, pasteService: pasteService)
             let panel = PanelWindow(
-                model: PanelModel(store: store, pasteService: pasteService),
+                model: panelModel,
                 thumbnails: ThumbnailCache(store: store, enricher: enricher), appIcons: SourceAppIcons(),
                 openSettings: { [weak self] in self?.openSettings() })
             self.panel = panel
+            // "Add to Stack" in a card's menu queues the card by hand, whether or not the
+            // stack is on: the stack is this model's, so the panel is handed a way to reach it.
+            panelModel.addToStack = { [weak self] item in self?.add(toStack: item) }
             // Before pressing ⌘V the service hides the panel and waits until it has let go of
             // the keyboard, or the ⌘V would land in our own search box. `[weak panel]`: the
             // service must not keep the window alive on its own.
@@ -91,6 +100,10 @@ import SwiftUI
             // effect's cleanup.
             capture.onCapture = { [weak self] item in
                 enricher.enrichInBackground(item)
+                // While the stack is on, every copy joins its queue; a repeat copy is a new
+                // copy and joins too. The app's own pastes never reach here (the capture loop
+                // skips its marker), so pasting from the stack cannot feed the stack.
+                self?.stack.add(item)
                 Task { [weak self] in
                     self?.itemCount = (try? await store.count()) ?? 0
                 }
@@ -123,13 +136,55 @@ import SwiftUI
         }
     }
 
-    /// Shows or hides the panel on every press of ⇧⌘V, from any app, for as long as Yank runs.
+    /// Watches the global shortcuts for as long as Yank runs: ⇧⌘V shows or hides the panel,
+    /// ⌃⌥⌘V pastes the next item from the stack, and the (unset by default) stack key turns
+    /// the stack on or off.
     private func watchShortcut() {
         Task { [weak self] in
             // Each press is one value of an endless async stream (≈ `for await` over an event
             // iterator). `.keyDown` only: a shortcut also reports its release, which we ignore.
             for await _ in KeyboardShortcuts.events(.keyDown, for: .togglePanel) {
                 self?.togglePanel()
+            }
+        }
+        Task { [weak self] in
+            for await _ in KeyboardShortcuts.events(.keyDown, for: .pasteNext) {
+                self?.pasteNext()
+            }
+        }
+        Task { [weak self] in
+            for await _ in KeyboardShortcuts.events(.keyDown, for: .toggleStack) {
+                self?.toggleStack()
+            }
+        }
+    }
+
+    /// The menu bar's "Turn Paste Stack On/Off". Turning it off drops the queue; the items
+    /// are still in the history.
+    func toggleStack() {
+        if stack.isOn { stack.turnOff() } else { stack.turnOn() }
+        Log.paste.info("paste stack \(self.stack.isOn ? "on" : "off", privacy: .public)")
+    }
+
+    /// Queues a card from its menu. The stack is turned on first if it was off, so the card
+    /// is not silently dropped.
+    func add(toStack item: ClipboardItem) {
+        stack.turnOn()
+        stack.add(item)
+    }
+
+    /// ⌃⌥⌘V: pastes the oldest queued item into the app in front, with the user's paste
+    /// settings, and takes it off the queue. Nothing waiting: nothing happens. The item leaves
+    /// the queue before the paste, so a paste that can only reach the clipboard (no
+    /// Accessibility permission) still moves the stack along.
+    func pasteNext() {
+        guard let pasteService, let item = stack.popNext() else { return }
+        Task {
+            do {
+                try await pasteService.paste(
+                    item, plainText: PasteSettings.alwaysPlainText, destination: PasteSettings.destination)
+            } catch {
+                Log.paste.error("paste next failed: \(error, privacy: .public)")
             }
         }
     }

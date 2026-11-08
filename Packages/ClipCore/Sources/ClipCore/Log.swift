@@ -3,6 +3,7 @@
 // "subsystem" (≈ an Android log tag namespace) and a "category" (≈ the tag itself).
 // Read our logs in Console.app by searching for the subsystem, or in Terminal:
 //     log stream --predicate 'subsystem == "com.thattechedguy.Yank"' --info
+import Foundation
 import os
 
 // One place that defines every logger Yank uses, so each file logs the same way and you can filter
@@ -46,4 +47,24 @@ public enum Log {
     // durations in its Developer window; see that file.
     /// Timing markers, for measuring the app against its speed limits.
     public static let timing = TimingSignposter(subsystem: subsystem, category: "timing")
+}
+
+// An error's full text can hold what the user copied: a failed link preview's error carries the
+// link's address, a file error carries the file's path. Errors are logged at the `.error` level,
+// which macOS keeps on disk, so in a release build only the error's kind goes into the log.
+// `extension Error` adds a member to every error type, ≈ adding a method to an interface in
+// Kotlin with an extension function.
+extension Error {
+    /// What a log line may say about this error, marked public: in debug builds the full
+    /// message, in release builds only its domain and code, such as "NSURLErrorDomain -1001".
+    public var logDescription: String {
+        #if DEBUG
+            String(describing: self)
+        #else
+            // Every Swift error converts to NSError, Foundation's error type, which always has
+            // a domain (for a Swift error, its type's name) and a number (for an enum, the case).
+            let error = self as NSError
+            return "\(error.domain) \(error.code)"
+        #endif
+    }
 }

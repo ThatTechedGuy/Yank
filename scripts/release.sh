@@ -1,0 +1,73 @@
+#!/bin/bash
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+# release.sh — builds the Release version of Yank, checks it, and installs it in /Applications.
+# ≈ `./gradlew bundleRelease` + installing the APK, or `next build` + deploy.
+#
+# Usage: scripts/release.sh               Build, check, then install to /Applications/Yank.app.
+#        scripts/release.sh --no-install  Build and check only; the app stays in build/.
+#
+# What it makes:
+#   build/Yank.xcarchive                  An "archive": the app plus its dSYM (debug symbols,
+#                                         ≈ a source map or ProGuard's mapping.txt). Keep it to
+#                                         read crash reports from this exact build.
+#   /Applications/Yank.app                The installed app. Not opened: start it from Finder,
+#                                         Spotlight or Launchpad.
+#
+# Yank must not be running while it installs (macOS keeps a running app's files open), so the
+# script stops with a message rather than quitting anything for you. Takes about a minute.
+# ─────────────────────────────────────────────────────────────────────────────────────────────
+
+# Stop on the first failure; see check-imports.sh for what each flag does.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+archive=build/Yank.xcarchive
+app=$archive/Products/Applications/Yank.app
+binary=$app/Contents/MacOS/Yank
+
+# 1. Regenerate the Xcode project, then archive. `archive` always builds the Release
+#    configuration (set in project.yml) and signs the app with the Apple Development
+#    certificate. `generic/platform=macOS` means "any Mac" rather than this one, the
+#    destination Xcode expects for an archive; project.yml limits it to Apple silicon.
+xcodegen --quiet
+rm -rf "$archive"
+xcodebuild archive -scheme Yank -destination 'generic/platform=macOS' \
+    -derivedDataPath build/release -archivePath "$archive" -quiet
+
+# 2. Check the result before it goes anywhere. Each check stops the script if it fails.
+# The signature covers every file in the app and is intact (≈ `apksigner verify`).
+codesign --verify --strict "$app"
+# Hardened runtime is on: macOS refuses injected code, unsigned plug-ins and libraries signed by
+# anyone but Apple or this team ("library validation"). codesign shows it as the runtime flag.
+# (Read into a variable first: `grep -q` straight off a pipe stops reading early, and pipefail
+# would then count codesign's broken pipe as a failure.)
+signature=$(codesign -dv "$app" 2>&1)
+[[ "$signature" == *"flags="*"(runtime)"* ]] || { echo "Hardened runtime is off."; exit 1; }
+# The entitlements are exactly the three in App/Resources/Yank.entitlements: no debugger access
+# (get-task-allow) and nothing else crept in. `plutil -p` prints them one per line.
+entitlements=$(codesign -d --entitlements - --xml "$app" 2>/dev/null | plutil -p - | grep '=>' | sort)
+expected='  "com.apple.security.app-sandbox" => true
+  "com.apple.security.files.user-selected.read-only" => true
+  "com.apple.security.network.client" => true'
+[[ "$entitlements" == "$expected" ]] || { echo "Unexpected entitlements:"; echo "$entitlements"; exit 1; }
+# Apple silicon only.
+[[ "$(lipo -archs "$binary")" == arm64 ]] || { echo "Not an arm64-only binary."; exit 1; }
+# None of the debug-only code (`#if DEBUG`: the Developer window, --seed) made it in.
+# grep -c counts matching lines; `|| true` because no match makes grep exit 1.
+debug=$(strings "$binary" | grep -c -E 'StoreInspector|Open Data Folder|--seed' || true)
+[[ "$debug" == 0 ]] || { echo "Debug-only code found in the Release binary."; exit 1; }
+echo "Checks passed: $(du -sh "$app" | cut -f1) app, arm64, signed, hardened runtime, sandboxed."
+
+[[ "${1:-}" == "--no-install" ]] && exit 0
+
+# 3. Install. A running Yank (installed or a debug build) would keep the old files open and
+#    would fight the new one over the clipboard and ⇧⌘V, so ask for it to be quit first.
+if pgrep -x Yank > /dev/null; then
+    echo "Yank is running. Quit it from its menu bar icon (Quit Yank), then run this again."
+    exit 1
+fi
+# `ditto` copies an app bundle exactly, keeping its signature, symlinks and extended
+# attributes (≈ `cp -R`, but safe for apps). The old copy goes first so no stale file survives.
+rm -rf /Applications/Yank.app
+ditto "$app" /Applications/Yank.app
+echo "Installed /Applications/Yank.app (not opened)."

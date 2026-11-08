@@ -119,7 +119,8 @@ extension PanelModel {
                 try await store.delete(ids: ids)
             } catch {
                 Log.ui.error(
-                    "could not delete \(ids.count, privacy: .public) items: \(error, privacy: .public)")
+                    "could not delete \(ids.count, privacy: .public) items: \(error.logDescription, privacy: .public)"
+                )
             }
         }
     }
@@ -132,7 +133,9 @@ extension PanelModel {
             do {
                 try await store.rename(id: item.id, to: title)
             } catch {
-                Log.ui.error("could not rename item \(item.id, privacy: .public): \(error, privacy: .public)")
+                Log.ui.error(
+                    "could not rename item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
+                )
             }
         }
     }
@@ -144,7 +147,8 @@ extension PanelModel {
                 if let copy = try await store.duplicate(id: item.id) { selectedId = copy.id }
             } catch {
                 Log.ui.error(
-                    "could not duplicate item \(item.id, privacy: .public): \(error, privacy: .public)")
+                    "could not duplicate item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
+                )
             }
         }
     }

@@ -69,7 +69,9 @@ extension PanelModel {
             do {
                 try await store.pin(itemId: itemId, to: pinboardId)
             } catch {
-                Log.ui.error("could not pin item \(itemId, privacy: .public): \(error, privacy: .public)")
+                Log.ui.error(
+                    "could not pin item \(itemId, privacy: .public): \(error.logDescription, privacy: .public)"
+                )
             }
         }
     }
@@ -80,7 +82,9 @@ extension PanelModel {
             do {
                 try await store.unpin(itemId: itemId)
             } catch {
-                Log.ui.error("could not unpin item \(itemId, privacy: .public): \(error, privacy: .public)")
+                Log.ui.error(
+                    "could not unpin item \(itemId, privacy: .public): \(error.logDescription, privacy: .public)"
+                )
             }
         }
     }
@@ -100,7 +104,7 @@ extension PanelModel {
                 }
                 filter.list = .pinboard(id: pinboard.id)
             } catch {
-                Log.ui.error("could not create a pinboard: \(error, privacy: .public)")
+                Log.ui.error("could not create a pinboard: \(error.logDescription, privacy: .public)")
             }
         }
     }
@@ -115,7 +119,8 @@ extension PanelModel {
                 try await store.renamePinboard(id: pinboard.id, to: name)
             } catch {
                 Log.ui.error(
-                    "could not rename pinboard \(pinboard.id, privacy: .public): \(error, privacy: .public)")
+                    "could not rename pinboard \(pinboard.id, privacy: .public): \(error.logDescription, privacy: .public)"
+                )
             }
         }
     }
@@ -128,7 +133,8 @@ extension PanelModel {
                 try await store.deletePinboard(id: pinboard.id)
             } catch {
                 Log.ui.error(
-                    "could not delete pinboard \(pinboard.id, privacy: .public): \(error, privacy: .public)")
+                    "could not delete pinboard \(pinboard.id, privacy: .public): \(error.logDescription, privacy: .public)"
+                )
             }
         }
     }

@@ -59,6 +59,26 @@ settings:
     CODE_SIGN_IDENTITY: Apple Development
     # Your Apple developer team id (the OU field of that certificate).
     DEVELOPMENT_TEAM: ZT5VFPR74U
+    # ── Size and speed ────────────────────────────────────────────────────────────────────
+    # Build for Apple silicon only. Without this, Release builds also contain an Intel copy of
+    # every function (a "universal" binary), doubling the app's size for Macs we don't target.
+    # ≈ shipping only the arm64-v8a ABI in an Android build instead of every ABI.
+    ARCHS: arm64
+    # Drop functions and data nothing calls, when linking. ≈ tree-shaking in a JS bundler, or
+    # R8's shrinking on Android. Xcode's own project templates turn this on; XcodeGen doesn't.
+    DEAD_CODE_STRIPPING: YES
+  # Settings for one build configuration only. Debug is what ⌘R and the tests use; Release is
+  # what `xcodebuild archive` and scripts/release.sh use (≈ `next dev` vs `next build`).
+  # Release already gets Xcode's defaults of -O (optimise for speed), whole-module compilation
+  # (the compiler sees every file of a module at once, so it can inline across files) and a
+  # separate dSYM file holding the debug symbols (≈ a source map, or ProGuard's mapping.txt).
+  configs:
+    Release:
+      # Never seal the "get-task-allow" entitlement into a Release build. That entitlement lets
+      # a debugger (or any process running as you) attach to Yank and read its memory, and
+      # Yank's memory holds whatever you copied, passwords included. Debug builds keep it, so
+      # Xcode's debugger and Instruments' memory tools still work there.
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
 
 # Swift packages (libraries) the targets can depend on. ≈ `dependencies` in package.json.
 packages:

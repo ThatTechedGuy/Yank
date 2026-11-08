@@ -1,6 +1,6 @@
 # Yank
 
-A Paste-style clipboard manager for macOS 26 and later. Menu bar only, sandboxed, no sync. The full
+A Paste-style clipboard manager for macOS 26.4 and later. Menu bar only, sandboxed, no sync. The full
 spec is the plan at `~/Documents/clipboard-manager-plan.html` on thattechedguy's Mac: the single source of
 truth, kept outside the repo on purpose. Finished work is struck through there and every decision made
 while building is in its change log; every build thread reads it first. This README covers building,
@@ -653,6 +653,84 @@ and drag. The stack's shortcut defaults live in `ShortcutNames`.
   TextEdit, ⌃⌥⌘V three times: they paste oldest first and the count falls to 0. Turn it off: the
   count goes; the three are still in History.
 - Share… on a text card opens the share sheet with the text; on an image, with the picture.
+
+## Text in images and link previews (stage 9)
+
+Copy a screenshot and, a few seconds later, search for a word that is only in the picture: the card is
+found. Copy a web address and the card turns into a bookmark: the site's icon, the page's title in bold,
+the address underneath; the title is searchable too. Settings › Privacy › Link previews turns the fetch
+off (the switch's text says why you might: opening a one-time link uses it up). Nothing is ever fetched
+for an address on this Mac or the local network, whatever the switch says. The minimum macOS is 26.4
+from this stage on, for `LinkMetadata`.
+
+**Reading text.** `TextRecognizer` (`Packages/ClipCore/Sources/ClipSystem/TextRecognizer.swift`) runs
+Vision's `RecognizeTextRequest` on the copy's first image type, `.accurate`, with language correction and
+per-image language detection, and joins the recognised lines with newlines. It runs on the Mac; nothing
+leaves it. `Enricher.recognizeText(in:)` calls it after `enrich` (the thumbnail must not wait the second
+or so the model takes) and saves the words in the item's `imageText` column, which the search index has
+covered since stage 4, so the GRDB sync triggers index them on that write. `enrichInBackground`, the
+capture path's call, does both steps in order.
+
+**Fetching a link.** `LinkFetching` (`ClipCore/Ports/LinkFetching.swift`) is the port: `fetch(URL) async
+throws -> LinkPreview` (title, icon as a card-sized PNG). `LinkFetcher` (`ClipSystem/LinkFetcher.swift`)
+is the real one: `LinkMetadata(fetching:timeout:includeSubresources:)` from LinkPresentation loads the
+page the way Safari would (so a title written by JavaScript still comes through), `media(.icon, as:
+Data.self)` gives the icon in whatever format the site serves, and `Thumbnailer.imageThumbnail` turns it
+into a PNG. The ten-second `timeout` is the API's; an address that swallows the connection instead of
+refusing it took a minute in testing, which is the `shortcut:` comment in the file. In `Enricher`, a
+link is fetched only if `linkPreviewsEnabled()` says yes (the app passes a closure that reads the
+UserDefaults key, so ClipCore never reads defaults itself) and `LocalAddress.isLocal(url)` says no; a
+skipped local address logs "skipped: local address". The icon is saved as the item's `cardThumbnail`
+row and the title in `linkPageTitle` (`Store.setPreview`, one transaction). The in-flight table from
+stage 5 means a link is fetched once however many cards ask.
+
+**Local addresses.** `LocalAddress` (`ClipCore/Rules/LocalAddress.swift`) is a pure function over the
+URL's host: `localhost` and `*.localhost`, `*.local`, and by number (parsed with `inet_pton`) 0/8, 10/8,
+127/8, 169.254/16, 172.16/12, 192.168/16, IPv6 `::`/`::1`, fc00::/7, fe80::/10 and an IPv4 address
+carried as `::ffff:a.b.c.d`. A URL with no host counts as local. Known limit, as the `shortcut:` comment
+says: a public name that resolves to a local address, or a public page that redirects to one, is still
+fetched; the check sees only the address as written.
+
+**On screen.** `ThumbnailCache.image(for:)` now loads for `.link` too, so a link card gets its icon the
+same way an image gets its thumbnail. `ItemCard` has a link branch: icon (32 pt, rounded), then the
+renamed title or `linkPageTitle` in semibold with the address in a caption below; with no title yet
+(fetch pending, previews off, local address), the address alone as before.
+
+**Settings.** `SettingsKey.linkPreviews`, a Bool that is on when missing, so `SettingsKey.
+linkPreviewsEnabled` (not `bool(forKey:)`, which reads a missing key as off) is what `AppModel` hands
+the Enricher. The Toggle is in `PrivacySettings`, identifier `link-previews`. Like every other setting,
+`-linkPreviews NO` on the command line turns it off for one run.
+
+**Tests.** `LocalAddressTests` (`RulesTests.swift`): nineteen local and eleven public addresses, both
+sides of every boundary (172.15 vs 172.16, 172.31 vs 172.32, 192.168 vs 192.169, 127 vs 11, `[::1]`,
+`[fd00::1]`, `[fe80::1%en0]`, `::ffff:` forms, `.local` vs `.localdomain`). `EnricherTests` with
+`FakeLinkFetcher` (records every address it is asked for): a public link is fetched once and its title
+is searchable and its icon is the thumbnail; nothing is fetched while previews are off; a local address
+is never fetched, copied as a URL type or as plain text; a text with addresses in it is not fetched; and
+a fake recognizer's words land in the search index. `TextRecognizerTests` (ClipSystemTests) draws a
+sentence into a PNG, saves it as an image copy and finds it by one of its words through real Vision,
+the Store and the Enricher; its name starts with `slow` because Vision's first model load takes tens of
+seconds, so `test.sh --fast` skips it.
+
+**Maintaining it.** To block another address range: a line in `LocalAddress.isLocalIPv4` or
+`isLocalIPv6`, and a case on each side of the boundary in `LocalAddressTests`. To change what a link
+card shows: the `.link` branch of `ItemCard.content`. To fetch more from a page (a description, a hero
+image): a field on `LinkPreview`, filled in `LinkFetcher.fetch` from `LinkMetadata`, and a column plus
+migration if it should be stored. To change how text is read (fast mode, a fixed language): the request
+setup in `TextRecognizer.text(in:)`. To add a setting the core must see, follow `linkPreviewsEnabled`:
+a key in `SettingsKey`, a `@AppStorage` Toggle, and a closure passed in from `AppModel`.
+
+**Hand checks still open:**
+
+- Fresh install, copy `https://www.apple.com`: within seconds the card says "Apple" with the Apple icon,
+  and searching "apple" finds it.
+- Copy `http://192.168.1.1/` and `http://localhost:8080/`: the cards stay as addresses, and
+  `log stream --predicate 'subsystem == "com.thattechedguy.Yank"' --info` shows "skipped: local address".
+- Previews off, copy a new link: address only, and no request in Little Snitch or the log. Back on, the
+  next copied link gets its title.
+- Copy a screenshot of a web page, wait ~10 s, search a word that is only in the picture: found. Delete
+  the item and search the word in Spotlight: nothing from Yank.
+- Copy an image with no text (a photo): the card still gets its thumbnail; nothing else changes.
 
 ## Sandbox and copied files (stage 0 spike)
 

@@ -71,10 +71,14 @@ import SwiftUI
                 store: store, clipboard: clipboard, keyPresser: KeyPresser(),
                 accessibility: SystemAccessibilityStatus())
             self.pasteService = pasteService
-            // Previews: the Enricher makes them after each save with ClipSystem's decoders, the
-            // cache keeps the ones the cards draw, and the icon cache gives each card its app's
-            // icon and header colour.
-            let enricher = Enricher(store: store, makePreview: Thumbnailer.preview)
+            // Previews: the Enricher makes them after each save with ClipSystem's decoders (a
+            // thumbnail, the words in an image, a link's page title and icon), the cache keeps
+            // the ones the cards draw, and the icon cache gives each card its app's icon and
+            // header colour. The link switch is read on every fetch, so a change in Settings
+            // counts from the next copy; ClipCore itself never reads UserDefaults.
+            let enricher = Enricher(
+                store: store, makePreview: Thumbnailer.preview, recognizeText: TextRecognizer.text(in:),
+                linkFetcher: LinkFetcher(), linkPreviewsEnabled: { SettingsKey.linkPreviewsEnabled })
             // The panel and its state. Built now, while nothing is urgent, so that the first
             // ⇧⌘V only has to put an existing window on screen.
             let panelModel = PanelModel(store: store, pasteService: pasteService)

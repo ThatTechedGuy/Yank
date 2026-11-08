@@ -303,16 +303,23 @@ public final class Store: Sendable {
         }
     }
 
-    /// Adds what the Enricher worked out for an item: its thumbnail and/or footer detail. One
-    /// transaction, so the live list sees both at once. A thumbnail replaces the item's old one
-    /// (`upsert`); a nil part leaves that side alone. Nothing happens if the item was deleted in
-    /// the meantime: the thumbnail's foreign key would refuse it, so it is checked first.
+    /// Adds what the Enricher worked out for an item: its thumbnail, footer detail, the text
+    /// read out of an image and/or a link's page title. One transaction, so the live list sees
+    /// all of it at once. A thumbnail replaces the item's old one (`upsert`); a nil part leaves
+    /// that side alone. The text columns are in the search index, which SQLite's triggers
+    /// update on this write, so a screenshot is searchable by its words the moment they land.
+    /// Nothing happens if the item was deleted in the meantime: the thumbnail's foreign key
+    /// would refuse it, so it is checked first.
     public func setPreview(_ preview: CardPreview, for itemId: Int64) async throws {
         try await pool.write { db in
             guard try ClipboardItem.exists(db, key: itemId) else { return }
-            if let detail = preview.detail {
-                _ = try ClipboardItem.filter(key: itemId)
-                    .updateAll(db, [ClipboardItemColumns.cardDetail.set(to: detail)])
+            let changes = [
+                preview.detail.map { ClipboardItemColumns.cardDetail.set(to: $0) },
+                preview.imageText.map { ClipboardItemColumns.imageText.set(to: $0) },
+                preview.linkPageTitle.map { ClipboardItemColumns.linkPageTitle.set(to: $0) },
+            ].compactMap { $0 }
+            if !changes.isEmpty {
+                _ = try ClipboardItem.filter(key: itemId).updateAll(db, changes)
             }
             try preview.thumbnail?.upsert(db)
         }

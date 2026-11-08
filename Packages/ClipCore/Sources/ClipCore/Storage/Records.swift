@@ -60,6 +60,8 @@ enum ClipboardItemColumns {
     static let kind = Column("kind")
     static let title = Column("title")
     static let cardDetail = Column("cardDetail")
+    static let imageText = Column("imageText")
+    static let linkPageTitle = Column("linkPageTitle")
     static let copiedAt = Column("copiedAt")
     static let contentFingerprint = Column("contentFingerprint")
     static let pinboardId = Column("pinboardId")

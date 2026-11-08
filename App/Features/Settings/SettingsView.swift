@@ -112,9 +112,11 @@ private struct GeneralSettings: View {
     }
 }
 
-/// Which apps are never saved from, and whether the panel shows up in screen recordings.
+/// Which apps are never saved from, whether the panel shows up in screen recordings, and
+/// whether copied links are fetched for their title and icon.
 private struct PrivacySettings: View {
     @AppStorage(SettingsKey.showPanelInScreenSharing) private var showPanelInScreenSharing = false
+    @AppStorage(SettingsKey.linkPreviews) private var linkPreviews = true
 
     var body: some View {
         Form {
@@ -131,6 +133,18 @@ private struct PrivacySettings: View {
                 Toggle("Show the panel in screen recordings and sharing", isOn: $showPanelInScreenSharing)
             } footer: {
                 Text("Off hides the panel from recordings and shared screens, so your history stays private.")
+            }
+            Section {
+                Toggle("Link previews", isOn: $linkPreviews)
+                    .accessibilityIdentifier("link-previews")
+            } footer: {
+                // Fetching a page is the one time Yank goes on the network, and opening a
+                // one-time link (a sign-in link, an unsubscribe link) uses it up, so the user
+                // is told what the switch does.
+                Text(
+                    "On, a copied link's page is fetched for its title and icon. Turn off if you copy "
+                        + "sign-in or one-time links, which fetching can use up. Links to this Mac and "
+                        + "your local network are never fetched.")
             }
         }
         .formStyle(.grouped)

@@ -19,6 +19,20 @@ enum SettingsKey {
     /// "Show the panel in screen recordings and sharing": a Bool, off when missing, so the
     /// panel is hidden from recordings unless the user says otherwise.
     static let showPanelInScreenSharing = "showPanelInScreenSharing"
+    /// "Link previews": a Bool, on when missing, so a copied link gets its page's title and icon
+    /// unless the user turns that off. Read with `linkPreviewsEnabled`, not `bool(forKey:)`,
+    /// which would read a missing key as off.
+    nonisolated static let linkPreviews = "linkPreviews"
+
+    /// Whether link previews are on right now, for code outside a SwiftUI view. `nonisolated`
+    /// because the Enricher asks from a background task; UserDefaults is safe to read from any
+    /// thread.
+    nonisolated static var linkPreviewsEnabled: Bool {
+        // `bool(forKey:)` also understands "NO" typed on the command line, which arrives as a
+        // string that `as? Bool` would miss; only a missing key needs the "on" default.
+        let defaults = UserDefaults.standard
+        return defaults.object(forKey: linkPreviews) == nil || defaults.bool(forKey: linkPreviews)
+    }
 }
 
 /// The apps whose copies are never saved, by bundle id, in the order the user added them.

@@ -22,9 +22,9 @@ let strict: [SwiftSetting] = [.treatAllWarnings(as: .error)]
 // (`Package(...)` calls Package's initializer, ≈ `new Package({...})`.)
 let package = Package(
     name: "ClipCore",
-    // Oldest macOS this package supports. Must match the app's deployment target (26) so both
+    // Oldest macOS this package supports. Must match the app's deployment target (26.4) so both
     // sides agree on which Apple APIs may be used without `if #available` checks.
-    platforms: [.macOS(.v26)],
+    platforms: [.macOS("26.4")],
     // Products are what other code can depend on. ≈ the `exports` map in package.json.
     // We export two separate libraries so the app links each one explicitly, and so the
     // import rules (scripts/check-imports.sh) can keep macOS code out of ClipCore.

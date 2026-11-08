@@ -274,3 +274,32 @@ struct PanelHeightTests {
         #expect(PanelHeight.clamped(PanelHeight.initial) == PanelHeight.initial)
     }
 }
+
+// Proves a link preview is never fetched for this Mac or the local network: every private
+// range the rule knows, by name and by number, both sides of each boundary (172.15 is public,
+// 172.16 is private, 172.31 is private, 172.32 is public), and the IPv6 forms a browser
+// accepts. A miss here would send a request to a router or a development server.
+struct LocalAddressTests {
+    func isLocal(_ string: String) -> Bool { LocalAddress.isLocal(URL(string: string)!) }
+
+    @Test(arguments: [
+        "http://localhost:3000/", "http://api.localhost/", "http://printer.local/", "http://127.0.0.1/",
+        "http://127.255.0.1/", "http://10.0.0.1/", "http://172.16.0.1/", "http://172.31.255.255/",
+        "http://192.168.1.1/admin", "http://169.254.1.1/", "http://0.0.0.0/", "http://[::1]/",
+        "http://[::]/", "http://[fd00::1]/", "http://[fc00::1]/", "http://[fe80::1%25en0]/",
+        "http://[::ffff:10.0.0.1]/", "http://[::ffff:127.0.0.1]/", "file:///Users/me/notes.txt",
+    ])
+    func localAddressesAreLocal(address: String) {
+        #expect(isLocal(address))
+    }
+
+    @Test(arguments: [
+        "https://apple.com/", "https://www.github.com/ThatTechedGuy/Yank", "http://172.15.0.1/",
+        "http://172.32.0.1/", "http://11.0.0.1/", "http://192.169.0.1/", "http://8.8.8.8/",
+        "http://[2606:4700::1111]/", "http://[::ffff:8.8.8.8]/", "https://notlocalhost.com/",
+        "https://example.localdomain/",
+    ])
+    func publicAddressesAreNotLocal(address: String) {
+        #expect(!isLocal(address))
+    }
+}

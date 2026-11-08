@@ -35,6 +35,11 @@ let package = Package(
     // Third-party packages, fetched from Git and pinned to an exact tag.
     // GRDB is a typed SQLite toolkit with migrations, full-text search and live queries.
     // ≈ Drizzle (TS) or Room (Android). Package.resolved records the exact commit, like a lockfile.
+    // It also pins KeyboardShortcuts, which only the app uses: Xcode (16 and later) writes the
+    // whole app's pins into a local package's Package.resolved on every build, so the committed
+    // file is the one Xcode writes, and `swift build` / `swift test` leave it as it is. Don't run
+    // `swift package resolve` or `update` here unless a version changes: they would drop that pin,
+    // and the next Xcode build would put it back.
     // Sauce (from the Clipy clipboard manager, MIT) answers "which physical key types this letter
     // on the user's keyboard layout?", which pressing ⌘V needs on Dvorak and similar layouts.
     dependencies: [

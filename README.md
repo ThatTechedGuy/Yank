@@ -20,6 +20,15 @@ open build/Build/Products/Debug/Yank.app
 `project.yml` is the source of truth for targets, build settings, signing and dependencies. Change it,
 not the Xcode project, then run `xcodegen` again. Adding or removing a Swift file also needs a rerun.
 
+**The lockfile.** `Packages/ClipCore/Package.resolved` (≈ `bun.lock`) pins all three packages: GRDB and
+Sauce for the package, and KeyboardShortcuts for the app. It holds the app's pin because Xcode 16 and
+later write the whole app's pins into a local package's `Package.resolved` on every build (the generated
+project has no lockfile of its own). The committed file is exactly what Xcode writes, and `swift build`
+and `swift test` leave it unchanged, so builds no longer dirty the tree. To change a version, edit
+`project.yml` or `Package.swift`, run one `xcodebuild` build, and commit the rewritten file. Avoid
+`swift package resolve` and `swift package update` otherwise: they drop the app's pin, and the next Xcode
+build puts it back.
+
 Signing uses the "Apple Development" certificate of team `ZT5VFPR74U`. A stable signature matters: macOS
 ties permissions such as Accessibility to it, so an unsigned or ad hoc build loses them on every rebuild.
 

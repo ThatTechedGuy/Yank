@@ -1,5 +1,5 @@
 {
-  "originHash" : "7b964aa5e74e24acd540f3afa630d34cfcff748a2e8d9feca8ff7ca8d5e746de",
+  "originHash" : "630f4cf9337e466a8ff0089ccd2ffb4c615761e59e64ab9a44ee3647412b7a3a",
   "pins" : [
     {
       "identity" : "grdb.swift",
@@ -8,6 +8,15 @@
       "state" : {
         "revision" : "92a554cd0d5e8d67cb18993c6054e73fe42c066c",
         "version" : "7.12.0"
+      }
+    },
+    {
+      "identity" : "keyboardshortcuts",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sindresorhus/KeyboardShortcuts",
+      "state" : {
+        "revision" : "772133d9dbe800fdac0473226822994c5c162c58",
+        "version" : "3.1.0"
       }
     },
     {

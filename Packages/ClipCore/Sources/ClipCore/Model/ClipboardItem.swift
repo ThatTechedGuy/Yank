@@ -19,6 +19,10 @@ public struct ClipboardItem: Identifiable, Hashable, Sendable, Codable {
     public var title: String?
     /// The first 200 characters, tidied: what the card shows and what search matches.
     public var cardText: String
+    /// The one line in the card's footer: "52 characters", "212 KB", "apple.com", "1280 × 800",
+    /// "#2B59D6". Set at save time (see `CardDetail`), or by the Enricher when it needs the
+    /// bytes decoded. Nil until then.
+    public var cardDetail: String?
     /// Bundle id of the app you copied from, such as "com.apple.Safari".
     public var sourceAppBundleId: String?
     /// Display name of that app, such as "Safari".
@@ -37,7 +41,7 @@ public struct ClipboardItem: Identifiable, Hashable, Sendable, Codable {
     public var pinboardId: Int64?
 
     public init(
-        id: Int64, kind: ItemKind, title: String? = nil, cardText: String,
+        id: Int64, kind: ItemKind, title: String? = nil, cardText: String, cardDetail: String? = nil,
         sourceAppBundleId: String? = nil, sourceAppName: String? = nil, createdAt: Date,
         copiedAt: Date, contentFingerprint: String, imageText: String? = nil,
         linkPageTitle: String? = nil, pinboardId: Int64? = nil
@@ -46,6 +50,7 @@ public struct ClipboardItem: Identifiable, Hashable, Sendable, Codable {
         self.kind = kind
         self.title = title
         self.cardText = cardText
+        self.cardDetail = cardDetail
         self.sourceAppBundleId = sourceAppBundleId
         self.sourceAppName = sourceAppName
         self.createdAt = createdAt

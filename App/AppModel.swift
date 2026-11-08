@@ -46,22 +46,30 @@ import SwiftUI
             let pasteService = PasteService(
                 store: store, clipboard: clipboard, keyPresser: KeyPresser(),
                 accessibility: SystemAccessibilityStatus())
+            // Previews: the Enricher makes them after each save with ClipSystem's decoders, the
+            // cache keeps the ones the cards draw, and the icon cache gives each card its app's
+            // icon and header colour.
+            let enricher = Enricher(store: store, makePreview: Thumbnailer.preview)
             // The panel and its state. Built now, while nothing is urgent, so that the first
             // ⇧⌘V only has to put an existing window on screen.
-            let panel = PanelWindow(model: PanelModel(store: store, pasteService: pasteService))
+            let panel = PanelWindow(
+                model: PanelModel(store: store, pasteService: pasteService),
+                thumbnails: ThumbnailCache(store: store, enricher: enricher), appIcons: SourceAppIcons())
             self.panel = panel
             // Before pressing ⌘V the service hides the panel and waits until it has let go of
             // the keyboard, or the ⌘V would land in our own search box. `[weak panel]`: the
             // service must not keep the window alive on its own.
             pasteService.hidePanel = { [weak panel] in await panel?.hide() }
             watchShortcut()
-            // After every save, re-read the number the menu shows. Asking the database instead of
-            // adding one keeps the menu right when a save was really a repeat (the item moved to the
-            // top, the count did not grow). `[weak self]` stops this callback from keeping the model
-            // alive forever: without it the model holds the service, the service holds this callback
-            // and the callback holds the model, so none of them could ever be freed. It is the same
-            // reason you unsubscribe in a React effect's cleanup.
-            capture.onCapture = { [weak self] _ in
+            // After every save, start the item's preview in the background and re-read the number
+            // the menu shows. Asking the database instead of adding one keeps the menu right when a
+            // save was really a repeat (the item moved to the top, the count did not grow). `[weak
+            // self]` stops this callback from keeping the model alive forever: without it the model
+            // holds the service, the service holds this callback and the callback holds the model,
+            // so none of them could ever be freed. It is the same reason you unsubscribe in a React
+            // effect's cleanup.
+            capture.onCapture = { [weak self] item in
+                enricher.enrichInBackground(item)
                 Task { [weak self] in
                     self?.itemCount = (try? await store.count()) ?? 0
                 }

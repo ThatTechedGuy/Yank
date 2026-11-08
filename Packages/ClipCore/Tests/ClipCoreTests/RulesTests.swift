@@ -153,3 +153,53 @@ struct DuplicateKeyTests {
         #expect(text != file)
     }
 }
+
+// The footer line and the counts behind the large preview. Each case is one the card could
+// get wrong: the singular, a file that is gone, a site with "www.", a kind that must wait.
+struct CardDetailTests {
+    @Test func textsCountTheirCharactersWithTheRightPlural() {
+        #expect(CardDetail.make(kind: .text, data: [.text("x")]) == "1 character")
+        #expect(CardDetail.make(kind: .text, data: [.text("héllo 👋🏽")]) == "7 characters")
+    }
+
+    @Test func filesShowTheirSizeOrTheirCount() throws {
+        let folder = TemporaryFolder()
+        defer { folder.remove() }
+        try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
+        let file = folder.url.appending(path: "a.bin")
+        try Data(repeating: 0, count: 2048).write(to: file)
+        // "2 KB" or "2 kB", whichever the Mac's locale writes.
+        #expect(CardDetail.make(kind: .file, data: [.fileURL(file.path)])?.lowercased() == "2 kb")
+        #expect(
+            CardDetail.make(kind: .file, data: [.fileURL("/tmp/a"), .fileURL("/tmp/b", item: 1)]) == "2 files"
+        )
+        // A file deleted since the copy has no size; the card shows nothing rather than "0 B".
+        #expect(CardDetail.make(kind: .file, data: [.fileURL("/tmp/does-not-exist-\(UUID())")]) == nil)
+    }
+
+    @Test func linksShowTheirSiteWithoutWWW() {
+        #expect(CardDetail.make(kind: .link, data: [.text(" https://www.apple.com/mac \n")]) == "apple.com")
+        #expect(CardDetail.make(kind: .link, data: [.url("https://ampcode.com/x")]) == "ampcode.com")
+    }
+
+    @Test func imagesAndColoursWaitForTheEnricher() {
+        #expect(CardDetail.make(kind: .image, data: [.png([1])]) == nil)
+        #expect(CardDetail.make(kind: .color, data: [.marker(ClipboardType.color)]) == nil)
+    }
+
+    @Test func wordsAreRunsOfNonWhitespace() {
+        let counts = TextCounts("don't  stop\nat 3 pm —")
+        #expect(counts.words == 6)
+        #expect(counts.characters == 21)
+        #expect(TextCounts("a").description == "1 character · 1 word")
+    }
+}
+
+struct PanelHeightTests {
+    @Test func heightsOutsideTheLimitsArePulledBack() {
+        #expect(PanelHeight.clamped(10) == PanelHeight.minimum)
+        #expect(PanelHeight.clamped(9999) == PanelHeight.maximum)
+        #expect(PanelHeight.clamped(300) == 300)
+        #expect(PanelHeight.clamped(PanelHeight.initial) == PanelHeight.initial)
+    }
+}

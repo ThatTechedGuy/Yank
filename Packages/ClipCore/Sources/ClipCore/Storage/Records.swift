@@ -36,9 +36,15 @@ extension ClipboardItem: FetchableRecord, PersistableRecord {
 // reserves a nested `Columns` for its own use.)
 enum ClipboardItemColumns {
     static let id = Column("id")
+    static let cardDetail = Column("cardDetail")
     static let copiedAt = Column("copiedAt")
     static let contentFingerprint = Column("contentFingerprint")
 }
+
+// `CardThumbnail` as a row of `cardThumbnail` (the table name comes from the type name). Its
+// primary key is the item's id, so writing one with `upsert` replaces the item's old thumbnail
+// in place: ≈ `INSERT ... ON CONFLICT DO UPDATE`.
+extension CardThumbnail: FetchableRecord, PersistableRecord {}
 
 // A clipboard item about to be inserted. It has every column of `clipboardItem` except `id`,
 // because the database hands out the id on insert; a `ClipboardItem` always has an id, so it
@@ -50,6 +56,7 @@ struct NewClipboardItem: Encodable, PersistableRecord {
 
     var kind: ItemKind
     var cardText: String
+    var cardDetail: String?
     var sourceAppBundleId: String?
     var sourceAppName: String?
     var createdAt: Date

@@ -34,8 +34,16 @@ import SwiftUI
     // and they are capped at one page with no paging; revisit if either is ever noticed.
     private var searchResults: [ClipboardItem]?
     /// The id of the selected card, if any. An id, not an index, so the selection survives a new
-    /// copy arriving at the front of the list.
-    var selectedId: Int64?
+    /// copy arriving at the front of the list. A preview belongs to the selected card, so it
+    /// closes when the selection moves.
+    var selectedId: Int64? {
+        didSet { if selectedId != oldValue { closePreview() } }
+    }
+    /// Whether the large preview (text, link, colour) is open above the selected card.
+    var showsLargePreview = false
+    /// The file Quick Look is showing for the selected image or file, or nil when it is closed.
+    /// SwiftUI's `.quickLookPreview` opens and closes the Quick Look panel as this changes.
+    var quickLookURL: URL?
     /// What is typed in the search box. Every change starts a search for the new text.
     /// (`didSet` runs after the value is stored, ≈ a setter hook; `oldValue` is the previous
     /// text. SwiftUI's binding sets it again on focus changes, so same-text sets are ignored.)
@@ -176,6 +184,47 @@ import SwiftUI
     /// Shows macOS's own prompt for the Accessibility permission (the hint's button).
     func requestAccessibility() { pasteService.requestAccessibility() }
 
+    /// Whether a preview of any kind is open.
+    var showsPreview: Bool { showsLargePreview || quickLookURL != nil }
+
+    /// Space: opens the selected card's preview, or closes the one that is open. Images and
+    /// files go to Quick Look, which needs a file on disk (the Store writes one, off the main
+    /// thread); everything else opens the large preview.
+    func togglePreview() {
+        guard !showsPreview else {
+            closePreview()
+            return
+        }
+        guard let item = items.first(where: { $0.id == selectedId }) else { return }
+        guard item.kind == .image || item.kind == .file else {
+            showsLargePreview = true
+            return
+        }
+        Task { [store] in
+            do {
+                let url = try await store.quickLookFile(for: item)
+                // Still the same card? The user may have moved on while the file was written.
+                guard selectedId == item.id else { return }
+                quickLookURL = url
+            } catch {
+                Log.ui.error("could not write the Quick Look file: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    /// Closes whichever preview is open. Esc does this before it closes the panel.
+    func closePreview() {
+        showsLargePreview = false
+        quickLookURL = nil
+    }
+
+    /// The item's whole text, for the large preview. The card only carries the first 200
+    /// characters; this reads the saved bytes. Nil when they cannot be read.
+    func fullText(for item: ClipboardItem) async -> String? {
+        let data = try? await store.data(for: item.id)
+        return data?.first { $0.type == ClipboardType.plainText }?.text
+    }
+
     /// Called by the window when the panel comes on screen: the newest card is selected and
     /// search starts empty, the way Paste opens.
     func didShow() {
@@ -190,6 +239,7 @@ import SwiftUI
     /// shrinks back to one page, so the live query does little work while the panel is hidden.
     func didHide() {
         isVisible = false
+        closePreview()
         if limit != Self.pageSize {
             limit = Self.pageSize
             startLiveList()

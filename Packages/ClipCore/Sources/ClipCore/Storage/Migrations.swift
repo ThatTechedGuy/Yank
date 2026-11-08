@@ -116,6 +116,15 @@ enum Migrations {
                 t.column("sourceAppName")
             }
         }
+
+        // The card footer's one line ("52 characters", "212 KB", "1280 × 800"). A plain new
+        // column: items saved before it stay NULL, and the card shows nothing there, which is
+        // fine. Not in the search index: nobody searches for "212 KB".
+        migrator.registerMigration("v3") { db in
+            try db.alter(table: "clipboardItem") { t in
+                t.add(column: "cardDetail", .text)
+            }
+        }
         return migrator
     }
 }

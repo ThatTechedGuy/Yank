@@ -317,6 +317,71 @@ initializer or a `filter` on the joined request; see GRDB's `FullTextSearch.md`.
   `log show --last 2m --signpost --predicate 'subsystem == "com.thattechedguy.Yank"'`: each "Search"
   interval is under 33 ms.
 
+## Previews and card design (stage 5)
+
+Cards look like Paste's: a band at the top in the source app's colour with the kind ("Text", "File"), the
+age and the app's icon; the content in the middle; a footer with the ⌘N badge and a one-line detail
+("46 characters", "1.4 MB", "example.com", "1280 × 800", "#2B59D6"). Image and file cards show a
+thumbnail; colour cards fill with the colour. The card's width follows the panel's height (`CardRow`,
+0.82 × the row height), and the panel's height follows the user: drag the handle at its top edge
+(`PanelView`, the `resize-handle`), between `PanelHeight.minimum` and `.maximum` (252–412 points, Paste's
+own limits); `PanelWindow` saves it in `UserDefaults` and uses it on the next open.
+
+**How a card gets its preview.** `Store.save` computes the footer detail it can from the bytes it already
+has (`CardDetail.make`: character count, file size, link host) into the new `cardDetail` column
+(migration `v3`). What needs decoding happens after the save, off the main thread, in `Enricher`:
+`AppModel` wires it after each capture (`enrichInBackground`, priority `.utility`) and the card asks for
+it again on screen if it is still missing. The Enricher reads the item's bytes and calls one function,
+ClipSystem's `Thumbnailer.preview`, which uses ImageIO for images (`CGImageSourceCreateThumbnailAtIndex`,
+at most 512 pixels on the long side, never scaled up, plus the real pixel size), Quick Look for files
+(`QLThumbnailGenerator`, the same previews Finder shows) with the Finder icon as fallback, and
+`NSKeyedUnarchiver` + `NSColor` for a colour's hex value. The answer is saved in one transaction
+(`Store.setPreview`): the PNG in the `cardThumbnail` table (one row per item, deleted with it) and the
+detail on the item. Text and links never reach the Thumbnailer. ClipCore stays free of AppKit: the
+Enricher takes the function as a closure, so its tests pass a fake.
+
+**On screen.** `ThumbnailCache` (an `NSCache` of decoded `NSImage`s, keyed by item id) hands a card its
+picture: a hit is synchronous, a miss starts one load (`Store.thumbnail`, decoded off the main thread)
+and the card redraws when it lands. A thumbnail is at most 512 pixels, so a row of ten thousand cards
+never decodes a 50 MB photo. The source app's icon and tint come from `SourceAppIcons`
+(`NSWorkspace.shared.icon(forFile:)` of the app found by bundle id, and `dominantColor`: the most common
+saturated colour among its opaque pixels; grey when the icon has none).
+
+**Large preview.** Space on the selected card (`PanelModel.togglePreview`): an image or a file opens in
+Quick Look (`PanelView`'s `.quickLookPreview` bound to `model.quickLookURL`; `Store.quickLookFile` hands
+Quick Look the file itself, or the item's bytes written to a temporary file with the right extension);
+anything else opens `LargePreview`, a popover above the card with the full text (read on demand from the
+Store) and its counts (`TextCounts`), the link with its site, or the colour swatch. Space while typing
+a search with words in it stays a space. Esc closes the preview first and the panel second; moving the
+selection or hiding the panel closes it too. Quick Look's panel is the system's and takes the keyboard
+from nobody when it opens, because Yank is never the active app; `PanelWindow.resignKey` notices, moves
+the Quick Look panel into the space above the panel on the same screen and takes the keyboard back, so
+Esc, Space and the arrows keep working. A click inside Quick Look hands it the keyboard; from then on
+the panel listens for its close (`willCloseNotification`: take the keyboard back) and for a click
+elsewhere (`didResignKeyNotification` with no key window left: hide).
+
+**Maintaining it.** To change what a footer says, edit `CardDetail.make` (save time) or
+`Thumbnailer.preview` (after decoding); to add a kind of preview, add a case to both and the card's
+`content` in `ItemCard`. The thumbnail size is `Thumbnailer.maxPixelSize`; the panel's limits are in
+`PanelHeight`; the card's proportions are `cardWidth` in `CardRow`. The tint rule is
+`SourceAppIcons.dominantColor`: tune its saturation threshold (0.25) there. Adding a column to a card
+means a migration in `Migrations.swift`, never an edit to `v3`. Previews for items saved before this
+version are made the first time their card appears.
+
+**Hand checks still open** (quit Paste first):
+
+- Copy a photo from Photos or Preview, a PDF from Finder, a colour from the Digital Color Meter and a
+  long text: each card shows the right picture or swatch and the right footer; the photo shows its
+  pixel size, the PDF its first page and size.
+- Press Space on each kind: Quick Look for the photo and the PDF, on the panel's screen with the panel
+  still in front; the popover for the text and the colour. Esc closes the preview, Esc again the panel.
+  Click inside Quick Look, then press Esc: Quick Look closes and the panel is still open and takes keys.
+- Drag the panel's top edge up and down: it stops at the limits and the cards grow with it; quit and
+  relaunch: the height is kept.
+- Copy a 200 MB TIFF: the card appears at once and the thumbnail a moment later; memory stays flat.
+- Open Paste.app next to Yank with the same copies and compare the two side by side: the tints, the
+  footer details and the card proportions.
+
 ## Sandbox and copied files (stage 0 spike)
 
 Question: when the user copies a file in Finder, can the sandboxed app, reading the clipboard on a timer

@@ -25,9 +25,10 @@ Sauce for the package, and KeyboardShortcuts for the app. It holds the app's pin
 later write the whole app's pins into a local package's `Package.resolved` on every build (the generated
 project has no lockfile of its own). The committed file is exactly what Xcode writes, and `swift build`
 and `swift test` leave it unchanged, so builds no longer dirty the tree. To change a version, edit
-`project.yml` or `Package.swift`, run one `xcodebuild` build, and commit the rewritten file. Avoid
-`swift package resolve` and `swift package update` otherwise: they drop the app's pin, and the next Xcode
-build puts it back.
+`project.yml` or `Package.swift`, run one `xcodebuild` build, and commit the rewritten file. Any edit to
+`Package.swift`, even a comment, changes the file's `originHash` (SwiftPM hashes the manifest), so after
+one run `scripts/test.sh --fast` and commit the new hash with it. Avoid `swift package resolve` and
+`swift package update` otherwise: they drop the app's pin, and the next Xcode build puts it back.
 
 Signing uses the "Apple Development" certificate of team `ZT5VFPR74U`. A stable signature matters: macOS
 ties permissions such as Accessibility to it, so an unsigned or ad hoc build loses them on every rebuild.
@@ -68,8 +69,9 @@ history.
 new app. Grant them once:
 
 1. **Accessibility** (for pressing ⌘V): System Settings › Privacy & Security › Accessibility, switch on
-   **Yank Debug**. If it isn't listed, open the panel and choose Allow… in its hint, or press + and pick
-   `build/Build/Products/Debug/Yank.app`.
+   **Yank Debug**. If it isn't listed (the sandbox stops Yank adding itself), press + and pick
+   `build/Build/Products/Debug/Yank.app`. Allow… in the panel's hint or the welcome window opens this
+   page.
 2. **Paste from Other Apps** (for reading what other apps copy): on the first read macOS asks "Yank Debug
    would like to paste from …". Choose Allow, then in System Settings › Privacy & Security › Paste from
    Other Apps set Yank Debug to **Allow** so it stops asking.
@@ -337,12 +339,17 @@ held on the current layout, then posts a key down and key up with the ⌘ flag t
 reads each enabled layout's key table once, caches the answer and follows layout switches. Asking with ⌘
 held is what makes "Dvorak – QWERTY ⌘" work: that layout types Dvorak letters but keeps QWERTY positions
 for ⌘ shortcuts. Posting events needs the Accessibility
-permission; `SystemAccessibilityStatus` wraps `AXIsProcessTrusted` and the "ask the user" variant.
+permission; `SystemAccessibilityStatus` wraps `AXIsProcessTrusted` and opens the Accessibility settings.
 
 **The hint.** When the panel opens, `PanelModel.didShow()` checks whether Return could press ⌘V
 (destination is the active app and Accessibility is granted). If not, a one-line hint and an "Allow…"
-button appear next to the search field; the button shows macOS's own permission dialog. Nothing else ever
-prompts. The check runs on every open, so granting the permission is noticed on the next ⇧⌘V.
+button appear next to the search field; the button opens System Settings at Privacy & Security ›
+Accessibility, where you switch Yank on (press + and pick Yank first if it isn't listed). Nothing else
+ever prompts. macOS's own "would like to control this computer" dialog
+(`AXIsProcessTrustedWithOptions` with the prompt option) can't be used: from the App Sandbox it does
+nothing, because the system service that shows it refuses the sandboxed app ("denied lookup:
+com.apple.universalaccessAuthWarn … Sandbox restriction" in the log), so Yank is never added to the list
+on its own. The check runs on every open, so granting the permission is noticed on the next ⇧⌘V.
 
 **Settings** (`App/Features/Paste/PasteSettings.swift`). "Paste items: to active app / to clipboard
 only" and "Always paste as plain text" live in `UserDefaults` under the keys `pasteDestination`
@@ -380,7 +387,7 @@ plain `import`; if a Sauce update ever brings concurrency warnings, `@preconcurr
 
 - Accessibility allowed: in Notes, ⇧⌘V, pick a card, Return. Pasted at the cursor. Same in Safari.
 - Accessibility off: same steps; the item is on the clipboard, the panel closes, the hint is shown, ⌘V
-  pastes it. Click "Allow…" and check macOS's dialog opens.
+  pastes it. Click "Allow…" and check System Settings opens at Privacy & Security › Accessibility.
 - Dvorak and Dvorak – QWERTY ⌘ layouts: still pastes, no stray character.
 - `-pasteDestination clipboardOnly`: Return puts the item on the clipboard and presses nothing.
 - ⇧Return and ⇧-double-click paste formatted text (copied from Safari) into TextEdit without formatting;
@@ -953,7 +960,8 @@ Started still counts as shown, and `.restorationBehavior(.disabled)` stops macOS
 a quit. The Accessibility line is a copy of `AppModel.isAccessibilityTrusted` (which asks
 `AXIsProcessTrusted` through the paste service) refreshed once a second by a `.task` loop while the
 window is open, because macOS sends no notice when the user flips the switch; the loop stops when the
-window closes. Allow… is `AppModel.requestAccessibility()`, the same macOS dialog as the panel's hint.
+window closes. Allow… is `AppModel.requestAccessibility()`, which opens System Settings at Accessibility,
+the same as the panel hint's button (see Pasting for why it isn't macOS's own dialog).
 The login switch is `OpenAtLoginToggle` (`App/Features/Settings/`), shared with Settings › General: it
 reads and writes `SMAppService.mainApp`, so macOS stays the only place the setting lives.
 
@@ -1013,8 +1021,8 @@ only if the element is Apple's own and cannot take one, add a case with its reas
 
 - Fresh install (or the `-hasShownWelcome NO` launch above): the window opens; quit and relaunch: it
   does not.
-- Allow…, switch Yank on in System Settings › Privacy & Security › Accessibility: within a second the
-  window says "Allowed", without a restart.
+- Allow…: System Settings opens at Privacy & Security › Accessibility. Press +, pick
+  /Applications/Yank.app, switch it on: within a second the window says "Allowed", without a restart.
 - VoiceOver on (⌘F5): the welcome window, the panel (cards read as sentences, the handle adjusts the
   height), Settings and the menu bar menu can all be used with VoiceOver and the keyboard alone.
 - Increase Contrast on: every card has an edge, and text everywhere stays readable in light and dark.

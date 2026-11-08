@@ -2,10 +2,10 @@
 // cards. Top: a header tinted with the source app's icon colour, naming the kind of thing it
 // is, how long ago it was copied, and the app's icon. Middle: the content, as a preview: the
 // text (or the item's own name, if renamed), the picture for an image or a file, a swatch for
-// a colour. Bottom: the ⌘1–⌘9 hint for the first nine cards and one detail: how long the text
-// is, the image's size, the link's site, the file's size, the colour's hex value. Selected
-// cards get a coloured outline, the lead one brightest; a file card whose file is gone says
-// so instead of a preview. ≈ a list-row component that gets its item as a prop.
+// a colour, the site's icon and page title for a link. Bottom: the ⌘1–⌘9 hint for the first
+// nine cards and one detail: how long the text is, the image's size, the link's site, the
+// file's size, the colour's hex value. Selected cards get a coloured outline, the lead one
+// brightest; a file card whose file is gone says so instead of a preview. ≈ a list-row component that gets its item as a prop.
 import AppKit
 import ClipCore
 import ClipSystem
@@ -91,6 +91,27 @@ struct ItemCard: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if item.kind == .color, let color = Self.color(hex: item.cardDetail ?? "") {
             color
+        } else if item.kind == .link {
+            // A link reads like a bookmark: the site's icon, the page's title in bold, and the
+            // address underneath, once the page has been fetched; until then (or with previews
+            // off) just the address. The renamed title wins over the page's.
+            VStack(alignment: .leading, spacing: 8) {
+                if let icon = thumbnails.image(for: item) {
+                    Image(nsImage: icon)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(width: 32, height: 32)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                }
+                if let heading = item.title ?? item.linkPageTitle {
+                    Text(heading).font(.body.weight(.semibold)).lineLimit(3)
+                    Text(item.cardText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                } else {
+                    Text(item.cardText).font(.body).lineLimit(8)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(10)
         } else if let image = thumbnails.image(for: item) {
             // A photo fills the card, like a thumbnail in Photos; a file's preview (a page, an
             // icon) is shown whole, like in Finder. The picture is drawn as an overlay on an

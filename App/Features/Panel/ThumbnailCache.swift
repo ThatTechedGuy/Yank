@@ -36,11 +36,13 @@ import SwiftUI
     }
 
     /// The item's thumbnail if it is in memory. Otherwise nil, and a background read starts
-    /// that re-draws the caller when it lands. Only images and files have thumbnails.
+    /// that re-draws the caller when it lands. Images and files have thumbnails; a link's is
+    /// its site's icon, when the page offered one.
     func image(for item: ClipboardItem) -> NSImage? {
         _ = version
         if let image = images.object(forKey: item.id as NSNumber) { return image }
-        guard item.kind == .image || item.kind == .file, !loading.contains(item.id) else { return nil }
+        guard item.kind == .image || item.kind == .file || item.kind == .link, !loading.contains(item.id)
+        else { return nil }
         loading.insert(item.id)
         Task { await load(item) }
         return nil

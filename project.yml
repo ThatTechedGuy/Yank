@@ -26,10 +26,10 @@ name: Yank # Becomes Yank.xcodeproj and the default product name.
 options:
   # Targets without an explicit PRODUCT_BUNDLE_IDENTIFIER get "<prefix>.<target name>".
   bundleIdPrefix: com.thattechedguy
-  # Oldest macOS the app runs on. ≈ Android `minSdk`. macOS 26 gives us the newest SwiftUI and
+  # Oldest macOS the app runs on. ≈ Android `minSdk`. macOS 26.4 gives us the newest SwiftUI, LinkPresentation and
   # NSPasteboard APIs without `if #available` checks everywhere.
   deploymentTarget:
-    macOS: "26.0"
+    macOS: "26.4"
   # Mirror our folders as groups in Xcode's file navigator so it matches what's on disk.
   createIntermediateGroups: true
 

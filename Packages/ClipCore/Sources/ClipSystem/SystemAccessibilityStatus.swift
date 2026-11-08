@@ -15,9 +15,12 @@ import ClipCore
         // The same check with the "prompt" option: when not trusted, macOS shows its own
         // "Yank would like to control this computer" dialog, which adds Yank to the
         // Accessibility list in System Settings with the switch off, for the user to turn on.
-        // The option's name is spelled out because Swift 6 refuses the C constant
-        // `kAXTrustedCheckOptionPrompt` (it is declared as a global variable, which strict
-        // concurrency checking treats as unsafe shared state). Its value is this string.
+        // The dialog comes from a system service, com.apple.universalaccessAuthWarn, which the
+        // App Sandbox normally won't let Yank reach (the call then does nothing, and the log
+        // says "denied lookup … Sandbox restriction"); Yank.entitlements allows that one
+        // service by name. The option's name is spelled out because Swift 6 refuses the C
+        // constant `kAXTrustedCheckOptionPrompt` (it is declared as a global variable, which
+        // strict concurrency checking treats as unsafe shared state). Its value is this string.
         AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary)
     }
 }

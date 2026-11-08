@@ -25,9 +25,10 @@ Sauce for the package, and KeyboardShortcuts for the app. It holds the app's pin
 later write the whole app's pins into a local package's `Package.resolved` on every build (the generated
 project has no lockfile of its own). The committed file is exactly what Xcode writes, and `swift build`
 and `swift test` leave it unchanged, so builds no longer dirty the tree. To change a version, edit
-`project.yml` or `Package.swift`, run one `xcodebuild` build, and commit the rewritten file. Avoid
-`swift package resolve` and `swift package update` otherwise: they drop the app's pin, and the next Xcode
-build puts it back.
+`project.yml` or `Package.swift`, run one `xcodebuild` build, and commit the rewritten file. Any edit to
+`Package.swift`, even a comment, changes the file's `originHash` (SwiftPM hashes the manifest), so after
+one run `scripts/test.sh --fast` and commit the new hash with it. Avoid `swift package resolve` and
+`swift package update` otherwise: they drop the app's pin, and the next Xcode build puts it back.
 
 Signing uses the "Apple Development" certificate of team `ZT5VFPR74U`. A stable signature matters: macOS
 ties permissions such as Accessibility to it, so an unsigned or ad hoc build loses them on every rebuild.
@@ -68,8 +69,9 @@ history.
 new app. Grant them once:
 
 1. **Accessibility** (for pressing ⌘V): System Settings › Privacy & Security › Accessibility, switch on
-   **Yank Debug**. If it isn't listed, open the panel and choose Allow… in its hint, or press + and pick
-   `build/Build/Products/Debug/Yank.app`.
+   **Yank Debug**. If it isn't listed, press + and pick
+   `build/Build/Products/Debug/Yank.app`. Allow… in the panel's hint or the welcome window shows macOS's
+   dialog, which adds it to the list.
 2. **Paste from Other Apps** (for reading what other apps copy): on the first read macOS asks "Yank Debug
    would like to paste from …". Choose Allow, then in System Settings › Privacy & Security › Paste from
    Other Apps set Yank Debug to **Allow** so it stops asking.
@@ -90,10 +92,11 @@ change now belong to the Release copy.
 | `CODE_SIGN_INJECT_BASE_ENTITLEMENTS` | `NO` (Release only) | Keeps `get-task-allow` out: that entitlement lets a debugger attach and read Yank's memory, which holds what you copied. Debug keeps it for Xcode's debugger | `android:debuggable="false"` |
 | `ENABLE_HARDENED_RUNTIME` | `YES` (already) | macOS refuses injected code and libraries not signed by Apple or this team (library validation) | — |
 
-The entitlements stay the three in `App/Resources/Yank.entitlements`: the sandbox, outgoing network for
-link previews, and read-only access to files you pick. The script checks that the signature is intact, the
-hardened runtime is on, the entitlements are exactly those three, the binary is arm64 only and contains
-none of the `#if DEBUG` code.
+The entitlements are the four in `App/Resources/Yank.entitlements`: the sandbox, outgoing network for
+link previews, read-only access to files you pick, and one named system service the sandbox may reach,
+`com.apple.universalaccessAuthWarn`, which shows macOS's Accessibility dialog (see Pasting). The script
+checks that the signature is intact, the hardened runtime is on, the entitlements are exactly those, the
+binary is arm64 only and contains none of the `#if DEBUG` code.
 
 Logs: in a Release build an error is logged as its domain and code only, such as
 `NSURLErrorDomain -1001`, through `Error.logDescription`. The full text of an error can hold what you
@@ -341,8 +344,13 @@ permission; `SystemAccessibilityStatus` wraps `AXIsProcessTrusted` and the "ask 
 
 **The hint.** When the panel opens, `PanelModel.didShow()` checks whether Return could press ⌘V
 (destination is the active app and Accessibility is granted). If not, a one-line hint and an "Allow…"
-button appear next to the search field; the button shows macOS's own permission dialog. Nothing else ever
-prompts. The check runs on every open, so granting the permission is noticed on the next ⇧⌘V.
+button appear next to the search field; the button shows macOS's own "Yank would like to control this
+computer" dialog (`AXIsProcessTrustedWithOptions` with the prompt option), whose Open System Settings
+button leads to the Accessibility list with Yank already in it, switched off. Nothing else ever prompts.
+The dialog comes from a system service, `com.apple.universalaccessAuthWarn`, that the App Sandbox blocks
+by default: without the `temporary-exception.mach-lookup.global-name` entitlement for it the call does
+nothing at all and the log says "denied lookup: name = com.apple.universalaccessAuthWarn … Sandbox
+restriction". The check runs on every open, so granting the permission is noticed on the next ⇧⌘V.
 
 **Settings** (`App/Features/Paste/PasteSettings.swift`). "Paste items: to active app / to clipboard
 only" and "Always paste as plain text" live in `UserDefaults` under the keys `pasteDestination`
@@ -953,7 +961,8 @@ Started still counts as shown, and `.restorationBehavior(.disabled)` stops macOS
 a quit. The Accessibility line is a copy of `AppModel.isAccessibilityTrusted` (which asks
 `AXIsProcessTrusted` through the paste service) refreshed once a second by a `.task` loop while the
 window is open, because macOS sends no notice when the user flips the switch; the loop stops when the
-window closes. Allow… is `AppModel.requestAccessibility()`, the same macOS dialog as the panel's hint.
+window closes. Allow… is `AppModel.requestAccessibility()`, the same macOS dialog as the panel's hint
+(see Pasting for the sandbox entitlement it needs).
 The login switch is `OpenAtLoginToggle` (`App/Features/Settings/`), shared with Settings › General: it
 reads and writes `SMAppService.mainApp`, so macOS stays the only place the setting lives.
 
@@ -1013,8 +1022,8 @@ only if the element is Apple's own and cannot take one, add a case with its reas
 
 - Fresh install (or the `-hasShownWelcome NO` launch above): the window opens; quit and relaunch: it
   does not.
-- Allow…, switch Yank on in System Settings › Privacy & Security › Accessibility: within a second the
-  window says "Allowed", without a restart.
+- Allow…: macOS asks "Yank would like to control this computer"; Open System Settings, switch Yank on:
+  within a second the window says "Allowed", without a restart.
 - VoiceOver on (⌘F5): the welcome window, the panel (cards read as sentences, the handle adjusts the
   height), Settings and the menu bar menu can all be used with VoiceOver and the keyboard alone.
 - Increase Contrast on: every card has an edge, and text everywhere stays readable in light and dark.

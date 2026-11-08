@@ -65,9 +65,13 @@ struct PanelView: View {
                 // History and the pinboards as tabs, with the filter button at the right.
                 PanelTabs(model: model)
                 // A scrolling row cannot take keyboard focus on its own; `focusable()` lets Tab
-                // land on it so typing stops going into the search box.
+                // land on it so typing stops going into the search box. The system's blue focus
+                // ring around the whole row is turned off: the selected card's own highlight
+                // already shows where the keys go, and a ring around the container looked
+                // like a stray outline whenever a click landed on the row.
                 CardRow(model: model)
                     .focusable()
+                    .focusEffectDisabled()
                     .focused($focus, equals: .cards)
             }
         }

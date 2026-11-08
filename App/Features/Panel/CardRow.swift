@@ -28,30 +28,58 @@ struct CardRow: View {
                 // `key`.
                 LazyHStack(spacing: 10) {
                     ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
-                        let isSelected = item.id == model.selectedId
+                        let isLead = item.id == model.selectedId
                         ItemCard(
                             item: item, shortcutNumber: index < 9 ? index + 1 : nil,
-                            isSelected: isSelected, width: cardWidth
+                            isSelected: model.selection.contains(item.id), isLead: isLead,
+                            fileIsMissing: model.missingFileIds.contains(item.id), width: cardWidth
                         )
                         // Double-click pastes the card (with ⇧ held: as plain text). It must
                         // come before the single click, or the single click wins and the
                         // double one never fires. SwiftUI's tap gives no modifier keys, so
-                        // they are read from AppKit's current keyboard state.
+                        // they are read from AppKit's current keyboard state. A single click
+                        // selects the card alone; with ⌘ held it joins or leaves the selection.
                         .onTapGesture(count: 2) {
                             model.paste(item, plainText: NSEvent.modifierFlags.contains(.shift))
                         }
-                        .onTapGesture { model.selectedId = item.id }
-                        // The large preview, anchored to the selected card so it opens above
-                        // it. Only the selected card gets the modifier with a live binding;
-                        // the others get a constant false, so SwiftUI tracks one popover.
+                        .onTapGesture {
+                            if NSEvent.modifierFlags.contains(.command) {
+                                model.toggleSelection(of: item.id)
+                            } else {
+                                model.selectedId = item.id
+                            }
+                        }
+                        .cardDrag(model: model, item: item)
+                        // The large preview, anchored to the lead card so it opens above it.
+                        // Only the lead card gets the modifier with a live binding; the others
+                        // get a constant false, so SwiftUI tracks one popover.
                         .popover(
-                            isPresented: isSelected ? $model.showsLargePreview : .constant(false),
+                            isPresented: isLead ? $model.showsLargePreview : .constant(false),
                             arrowEdge: .top
                         ) {
                             LargePreview(item: item, model: model)
                         }
-                        // Right-click: pin the card to a pinboard, or unpin it.
-                        .contextMenu { PinChoices(item: item, model: model) }
+                        // Right-click: the actions menu.
+                        .contextMenu { ItemActionsMenu(item: item, model: model) }
+                        // The ⌘K menu, the Rename box or the Delete question, whichever is
+                        // open on this card. Same one-live-binding trick as the preview.
+                        .popover(
+                            isPresented: model.prompt?.anchorId == item.id
+                                ? Binding(get: { true }, set: { if !$0 { model.prompt = nil } })
+                                : .constant(false),
+                            arrowEdge: .top
+                        ) {
+                            switch model.prompt {
+                            case .actions: ActionsPopover(item: item, model: model)
+                            case .rename: RenamePrompt(item: item, model: model)
+                            case .delete(let ids, _): DeletePrompt(ids: ids, model: model)
+                            case nil: EmptyView()
+                            }
+                        }
+                        // A file card checks, as it comes on screen, that its file is still
+                        // there. `.task` runs when the card appears and is cancelled when it
+                        // leaves, like a `useEffect` with cleanup.
+                        .task { if item.kind == .file { await model.checkFile(of: item) } }
                         // The ⌘P chooser, when there are several pinboards to pick from: the
                         // same rows as the menu, above the card. Same one-live-binding trick
                         // as the preview.

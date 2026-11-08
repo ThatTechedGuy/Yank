@@ -58,6 +58,7 @@ extension ClipboardItem: FetchableRecord, PersistableRecord {
 enum ClipboardItemColumns {
     static let id = Column("id")
     static let kind = Column("kind")
+    static let title = Column("title")
     static let cardDetail = Column("cardDetail")
     static let copiedAt = Column("copiedAt")
     static let contentFingerprint = Column("contentFingerprint")
@@ -98,11 +99,13 @@ extension CardThumbnail: FetchableRecord, PersistableRecord {}
 // because the database hands out the id on insert; a `ClipboardItem` always has an id, so it
 // can't stand in for a row that has none yet. Inserting one with `insertAndFetch` returns the
 // full `ClipboardItem` as stored, id and all. `kind` and `cardText` and the rest mirror the
-// model on purpose: the column names must match.
+// model on purpose: the column names must match. The optional columns a fresh copy never has
+// (title, recognised text, pinboard) default to nil; a duplicate fills them from the original.
 struct NewClipboardItem: Encodable, PersistableRecord {
     static let databaseTableName = ClipboardItem.databaseTableName
 
     var kind: ItemKind
+    var title: String? = nil
     var cardText: String
     var cardDetail: String?
     var sourceAppBundleId: String?
@@ -110,6 +113,9 @@ struct NewClipboardItem: Encodable, PersistableRecord {
     var createdAt: Date
     var copiedAt: Date
     var contentFingerprint: String
+    var imageText: String? = nil
+    var linkPageTitle: String? = nil
+    var pinboardId: Int64? = nil
 }
 
 // One row of `clipboardItemData`, with the storage-only columns the public `ClipboardItemData`
@@ -139,6 +145,11 @@ struct ClipboardItemDataRow: Codable, FetchableRecord, PersistableRecord {
     /// The rows of one item, in the source app's order.
     static func ofItem(_ itemId: Int64) -> QueryInterfaceRequest<ClipboardItemDataRow> {
         filter(Columns.clipboardItemId == itemId).order(Columns.position)
+    }
+
+    /// The rows of several items, for deleting them together.
+    static func ofItems(_ itemIds: [Int64]) -> QueryInterfaceRequest<ClipboardItemDataRow> {
+        filter(itemIds.contains(Columns.clipboardItemId))
     }
 
     /// The rows of every item that is not on a pinboard: what "Erase history" removes.

@@ -92,15 +92,30 @@ struct PanelView: View {
         }
         // ← and → move the selection even while typing in search, because what the user wants
         // is to pick a card, not to move the text cursor. These run before the text field sees
-        // the key, because the handler sits above it in the view tree.
-        .onKeyPress(.leftArrow) {
+        // the key, because the handler sits above it in the view tree. With ⇧ held they grow
+        // the selection one card at a time, like ⇧→ in Finder's icon view.
+        .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
             guard !model.isPrompting else { return .ignored }
-            model.selectPrevious()
+            let step = press.key == .leftArrow ? -1 : 1
+            if press.modifiers.contains(.shift) {
+                model.extendSelection(by: step)
+            } else if step < 0 {
+                model.selectPrevious()
+            } else {
+                model.selectNext()
+            }
             return .handled
         }
-        .onKeyPress(.rightArrow) {
-            guard !model.isPrompting else { return .ignored }
-            model.selectNext()
+        // ⌫ deletes the selected cards, after asking. Plain ⌫ only when the cards have focus
+        // or the search box is empty: otherwise it is erasing search text. ⌘⌫ always does.
+        // The Mac's ⌫ key types U+007F, not the U+0008 that SwiftUI's `.delete` stands for,
+        // so both are listed.
+        .onKeyPress(keys: [.delete, KeyEquivalent("\u{7F}")]) { press in
+            let erasingSearch = focus == .search && !model.searchText.isEmpty
+            if model.isPrompting || erasingSearch && !press.modifiers.contains(.command) {
+                return .ignored
+            }
+            model.confirmDelete(of: model.selectedItems)
             return .handled
         }
         // Return pastes the selected card; ⇧Return pastes it as plain text. The handler gets
@@ -161,6 +176,18 @@ struct PanelView: View {
         .onKeyPress(.init("p"), phases: .down) { press in
             guard press.modifiers == .command else { return .ignored }
             model.togglePin()
+            return .handled
+        }
+        // ⌘K opens the actions menu on the selected card; ⌘A selects every card in the row
+        // (the search box loses its usual ⌘A, which is the trade made here).
+        .onKeyPress(.init("k"), phases: .down) { press in
+            guard press.modifiers == .command else { return .ignored }
+            model.openActions()
+            return .handled
+        }
+        .onKeyPress(.init("a"), phases: .down) { press in
+            guard press.modifiers == .command else { return .ignored }
+            model.selectAll()
             return .handled
         }
     }

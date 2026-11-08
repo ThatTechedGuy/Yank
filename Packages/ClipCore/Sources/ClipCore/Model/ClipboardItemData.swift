@@ -38,6 +38,14 @@ public struct ClipboardItemData: Hashable, Sendable {
     // becomes an item. (`String(decoding:as:)` ≈ TextDecoder.)
     /// The data as UTF-8 text.
     public var text: String { String(decoding: data, as: UTF8.self) }
+
+    /// True for a file location whose file is no longer there: the user moved or deleted it
+    /// since the copy. Such an item cannot be pasted or dragged, since the other app would
+    /// only get a dead link; the card says so instead. False for every other type.
+    public var isMissingFile: Bool {
+        guard type == ClipboardType.fileURL, let url = URL(string: text) else { return false }
+        return !FileManager.default.fileExists(atPath: url.path)
+    }
 }
 
 // UTIs the rules care about. Defined here, as strings, because ClipCore may not import AppKit

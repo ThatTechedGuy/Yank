@@ -3,8 +3,9 @@
 // is, how long ago it was copied, and the app's icon. Middle: the content, as a preview: the
 // text (or the item's own name, if renamed), the picture for an image or a file, a swatch for
 // a colour. Bottom: the ⌘1–⌘9 hint for the first nine cards and one detail: how long the text
-// is, the image's size, the link's site, the file's size, the colour's hex value. The selected
-// card gets a coloured outline. ≈ a list-row component that gets its item as a prop.
+// is, the image's size, the link's site, the file's size, the colour's hex value. Selected
+// cards get a coloured outline, the lead one brightest; a file card whose file is gone says
+// so instead of a preview. ≈ a list-row component that gets its item as a prop.
 import AppKit
 import ClipCore
 import ClipSystem
@@ -15,6 +16,10 @@ struct ItemCard: View {
     /// 1 to 9 for the first nine cards (the ⌘1–⌘9 paste shortcut), nil for the rest.
     let shortcutNumber: Int?
     let isSelected: Bool
+    /// The one selected card the keys act from; the other selected cards get a fainter outline.
+    let isLead: Bool
+    /// True for a file card whose file has gone from the disk since it was copied.
+    let fileIsMissing: Bool
     /// The card's width, set by the row from the panel's height so cards scale with it.
     let width: CGFloat
 
@@ -35,16 +40,22 @@ struct ItemCard: View {
         .frame(maxHeight: .infinity)
         .background(.background.opacity(0.7))
         .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-        // The selection outline: the user's accent colour when selected, nothing otherwise.
-        // Drawing a clear stroke when not selected keeps the card the same size either way.
+        // The selection outline: the user's accent colour on the lead card, a fainter accent on
+        // the other selected cards, nothing otherwise. Drawing a clear stroke when not selected
+        // keeps the card the same size either way.
         .overlay(
             RoundedRectangle(cornerRadius: Self.cornerRadius)
-                .stroke(isSelected ? Color.accentColor : .clear, lineWidth: 3)
+                .stroke(outlineColor, lineWidth: 3)
         )
         // Names for the UI tests and for VoiceOver: "card-42", marked selected or not.
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("card-\(item.id)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private var outlineColor: Color {
+        if isLead { return .accentColor }
+        return isSelected ? Color.accentColor.opacity(0.45) : .clear
     }
 
     /// The tinted band: kind on the left, age and app icon on the right.
@@ -73,7 +84,12 @@ struct ItemCard: View {
 
     /// The preview: picture, swatch or text, by kind.
     @ViewBuilder private var content: some View {
-        if item.kind == .color, let color = Self.color(hex: item.cardDetail ?? "") {
+        if fileIsMissing {
+            Text("File no longer exists")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if item.kind == .color, let color = Self.color(hex: item.cardDetail ?? "") {
             color
         } else if let image = thumbnails.image(for: item) {
             // A photo fills the card, like a thumbnail in Photos; a file's preview (a page, an

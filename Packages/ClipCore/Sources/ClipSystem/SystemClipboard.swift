@@ -79,9 +79,19 @@ import ClipCore
     }
 
     public func write(_ data: [ClipboardItemData]) {
-        // Rebuild the pasteboard items the source app had: `data` is in save order, so a change
-        // of `pasteboardItemIndex` starts a new item. A Finder copy of three files becomes
-        // three items again, each with its own file URL, which is what Finder expects back.
+        let items = Self.pasteboardItems(for: data)
+        // `clearContents` takes ownership of the pasteboard (bumping `changeCount`) and must
+        // come before `writeObjects`; writing without it is refused.
+        pasteboard.clearContents()
+        pasteboard.writeObjects(items)
+        Log.paste.info("wrote \(data.count) types in \(items.count) pasteboard items")
+    }
+
+    /// Rebuilds the pasteboard items the source app had: `data` is in save order, so a change
+    /// of `pasteboardItemIndex` starts a new item. A Finder copy of three files becomes three
+    /// items again, each with its own file URL, which is what Finder expects back. A paste
+    /// writes these to the clipboard; a drag out of the panel hands them to the drag session.
+    public static func pasteboardItems(for data: [ClipboardItemData]) -> [NSPasteboardItem] {
         var items: [NSPasteboardItem] = []
         var lastIndex: Int?
         for entry in data {
@@ -91,11 +101,7 @@ import ClipCore
             }
             items[items.count - 1].setData(entry.data, forType: .init(entry.type))
         }
-        // `clearContents` takes ownership of the pasteboard (bumping `changeCount`) and must
-        // come before `writeObjects`; writing without it is refused.
-        pasteboard.clearContents()
-        pasteboard.writeObjects(items)
-        Log.paste.info("wrote \(data.count) types in \(items.count) pasteboard items")
+        return items
     }
 
     // Whether the user has let Yank read other apps' copies (the "Paste from Other Apps" setting

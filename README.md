@@ -580,6 +580,80 @@ button. To add a date range: a case in `DateRange` and its name in `FilterMenu`;
   the full list is back. Type in search with a filter on: results respect both.
 - Copy something already pinned: it moves to the top of its pinboard, not into History.
 
+## Actions, selecting several, dragging and the paste stack (stage 8)
+
+Right-click a card, or press ⌘K on the selected one, for its actions: Paste, Paste as Plain Text, Copy,
+Pin to… (or Unpin), Add to Stack, Edit (greyed out until there is an editor), Rename…, Duplicate, Share…,
+Open With, Show in Finder (file cards only) and Delete…. The right-click menu is a real macOS menu; ⌘K
+opens the same rows as a list above the card that ↑ ↓ walk and Return fires. Several cards can be
+selected: ⌘-click adds one, ⇧← and ⇧→ grow the selection one card at a time, ⌘A takes them all. The
+lead card (the one the keys move from) has the full accent outline, the others a fainter one. Return,
+⌘K's actions, ⌫ and a drag all act on the whole selection. Dragging a card into another app carries
+every type that was saved, so TextEdit gets the text and the Desktop gets the file; dragging a selected
+card takes the selection. Drags only ever copy. A file card whose file has since been deleted says
+"File no longer exists" and refuses to paste or drag. The paste stack lives in the menu bar: Turn Paste
+Stack On, then every copy joins a queue, the icon shows how many are waiting, and ⌃⌥⌘V pastes the oldest
+into the app in front and takes it off; Turn Paste Stack Off drops the queue (the items stay in History).
+
+**Selection.** `CardSelection` (`Packages/ClipCore/Sources/ClipCore/Rules/CardSelection.swift`) is a
+value: the `lead`, the `anchor` the ⇧ keys stretch from, and the set of `ids`. `select` picks one,
+`extend(by:in:)` moves the lead one step along the row's order and selects every card between the anchor
+and it, `toggle` is ⌘-click, `selectAll(in:)` and `keep(in:)` (drop ids that left the list) take the
+row's order. `PanelModel.selection` holds one; `selectedId` is still the lead, for the keys and the
+preview, and `selectedItems` is the selection in row order. The live list calls `keep` on every update,
+so a deleted card leaves the selection by itself.
+
+**Actions.** `ItemAction` (`App/Features/Panel/PanelModel+Actions.swift`) is the list of rows, in menu
+order, with `available(for:)` dropping Show in Finder for anything but a file. `PanelModel.perform(_:on:)`
+runs one; when the card is in the selection, the action takes the whole selection. The rows are drawn by
+`ItemActionRow` in `App/Features/Actions/ItemActionsMenu.swift`, once for the `.contextMenu` and once for
+the ⌘K `List`; Share… is a `ShareLink` of a `ShareableItem` (`Transferable`: text as UTF-8, an image or
+file as the Quick Look file), Open With asks `NSWorkspace` which apps open the card's type. `CardPrompt`
+is the one popover open on a card: the ⌘K list, the Rename box or the Delete question; `PanelModel.prompt`
+holds it and the card it is anchored to, and changing the selection closes it.
+
+**Multi-paste.** `PasteService.paste(_ items:...)` writes one pasteboard item per card, in row order,
+and presses ⌘V once; the app in front decides what to do with several (TextEdit joins the texts, Finder
+takes every file). The Store's `moveToTop(ids:)` bumps them all, so repeat-copy ordering still holds.
+Before writing, the service checks every file card's file is still there and throws
+`PasteError.fileNoLongerExists`; the model catches that and marks the card.
+
+**Dragging.** `CardDrag` (`App/Features/Panel/CardDrag.swift`) is an AppKit `NSDraggingSession` started
+from a `DragGesture`, not SwiftUI's `.draggable`: only an AppKit drag source can insist on copy, and
+without that Finder moved the file. The state is an enum: `idle`, `loading` (reading the cards' data off
+the main thread after the first pointer move), `ready` with the pasteboard items, `dragging`. The session
+starts from an invisible AppKit view behind the card, with a bitmap of the card as the drag image.
+
+**The stack.** `PasteStack` (`Rules/PasteStack.swift`) is an enum, `.off` or `.on(queue:)`, with
+`turnOn`, `turnOff`, `add` (ignored while off) and `popNext`. `AppModel` keeps one; `CaptureService`'s
+`onCapture` adds every new copy (the app's own pastes never reach it, so pasting from the stack cannot
+feed it), ⌃⌥⌘V (`ShortcutNames.pasteNext`) pops and pastes through the same `PasteService` with the
+user's paste settings, and `MenuBarContent` shows the state. Add to Stack in a card's menu turns the
+stack on if it was off.
+
+**Maintaining it.** To add an action: a case in `ItemAction` (position in the enum is position in the
+menu; `startsGroup` draws a separator above it), its title, and a branch in `PanelModel.perform` or, if
+it needs its own control, a case in `ItemActionRow`. To change a key: `PanelView`, next to the others.
+To change what a drag carries: `SystemClipboard.pasteboardItems(for:)` builds the items for both paste
+and drag. The stack's shortcut defaults live in `ShortcutNames`.
+
+**Hand checks still open:**
+
+- Right-click a text card: the menu lists the actions above; Show in Finder appears only on a file card.
+  ⌘K on the selected card: the same rows above it; ↓ ↓ Return runs the highlighted one; Esc closes it.
+- Rename a card: its card and the search find the new name. Duplicate: a copy appears at the top and
+  is selected. Delete with ⌘⌫: the app asks; Delete removes it.
+- ⌘-click two cards, then ⇧→ a third: three outlined, the lead brightest. Return pastes all three into
+  TextEdit, in row order. ⌫ asks "Delete 3 items?".
+- Drag a text card into TextEdit, an image into Preview or Keynote, a file onto the Desktop: each lands,
+  and the file is copied, not moved. Drag with two cards selected: both land.
+- Copy a file, delete it in Finder, open the panel: the card says "File no longer exists"; Return and a
+  drag do nothing to the other app.
+- Menu bar › Turn Paste Stack On, copy three things: the icon shows 3 and the menu lists them. In
+  TextEdit, ⌃⌥⌘V three times: they paste oldest first and the count falls to 0. Turn it off: the
+  count goes; the three are still in History.
+- Share… on a text card opens the share sheet with the text; on an image, with the picture.
+
 ## Sandbox and copied files (stage 0 spike)
 
 Question: when the user copies a file in Finder, can the sandboxed app, reading the clipboard on a timer

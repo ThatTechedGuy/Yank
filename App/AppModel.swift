@@ -40,8 +40,15 @@ import SwiftUI
     private var capture: CaptureService?
     private var store: Store?
     private var pasteService: PasteService?
+    /// The preview maker and the cards' picture cache, kept for the editor: a saved edit gets
+    /// its preview like a fresh copy, and a replaced card's old picture is dropped.
+    private var enricher: Enricher?
+    private var thumbnails: ThumbnailCache?
     /// The panel's window, created once and kept hidden until ⇧⌘V. Nil if the store failed.
     private var panel: PanelWindow?
+    /// Selects one card in the panel, by id: what the editor calls after a save, so the panel
+    /// comes back with the saved card outlined rather than the one that was selected before.
+    private var selectCard: (Int64) -> Void = { _ in }
 
     /// Whether the panel is on screen right now. Read by the Developer window, which pauses its
     /// own sampling while the panel is up so it never overlaps a panel-open or search timing.
@@ -82,14 +89,19 @@ import SwiftUI
             // The panel and its state. Built now, while nothing is urgent, so that the first
             // ⇧⌘V only has to put an existing window on screen.
             let panelModel = PanelModel(store: store, pasteService: pasteService)
+            let thumbnails = ThumbnailCache(store: store, enricher: enricher)
+            self.enricher = enricher
+            self.thumbnails = thumbnails
             let panel = PanelWindow(
-                model: panelModel,
-                thumbnails: ThumbnailCache(store: store, enricher: enricher), appIcons: SourceAppIcons(),
+                model: panelModel, thumbnails: thumbnails, appIcons: SourceAppIcons(),
                 openSettings: { [weak self] in self?.openSettings() })
             self.panel = panel
             // "Add to Stack" in a card's menu queues the card by hand, whether or not the
             // stack is on: the stack is this model's, so the panel is handed a way to reach it.
+            // "Edit" and ⌘N open the editor window, which is this model's too.
             panelModel.addToStack = { [weak self] item in self?.add(toStack: item) }
+            panelModel.openEditor = { [weak self] item in self?.edit(item) }
+            selectCard = { [weak panelModel] id in panelModel?.selectedId = id }
             // Before pressing ⌘V the service hides the panel and waits until it has let go of
             // the keyboard, or the ⌘V would land in our own search box. `[weak panel]`: the
             // service must not keep the window alive on its own.
@@ -245,6 +257,26 @@ import SwiftUI
     /// "Open Panel" in the menu: the same as the shortcut, so the timing log covers it too.
     func openPanel() {
         togglePanel()
+    }
+
+    /// Opens the editor on a card, or empty (nil) for a new text item. The panel goes away
+    /// first: the editor is a real window and makes Yank the active app, which the panel never
+    /// does. After a save the panel comes back with the result in it and selected, and the
+    /// menu's count is re-read, since a new item was made or an old one changed.
+    func edit(_ item: ClipboardItem?) {
+        guard let store, let enricher, let thumbnails else { return }
+        let editor = ItemEditor(original: item, store: store, enricher: enricher, thumbnails: thumbnails)
+        editor.didSave = { [weak self] saved in
+            self?.panel?.show()
+            self?.selectCard(saved.id)
+            Task { [weak self] in
+                self?.itemCount = (try? await store.count()) ?? 0
+            }
+        }
+        Task { [weak self] in
+            await self?.panel?.hide()
+            EditorWindow(editor: editor).open()
+        }
     }
 
     /// Stops saving for a while, from now. Takes effect on the next clipboard check, and shows

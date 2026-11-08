@@ -190,6 +190,18 @@ struct PanelView: View {
             model.selectAll()
             return .handled
         }
+        // ⌘E opens the selected card in the editor; ⌘N opens an empty editor for a new text
+        // item. Both close the panel, since the editor is a window of its own.
+        .onKeyPress(.init("e"), phases: .down) { press in
+            guard press.modifiers == .command, !model.isPrompting else { return .ignored }
+            model.editSelected()
+            return .handled
+        }
+        .onKeyPress(.init("n"), phases: .down) { press in
+            guard press.modifiers == .command, !model.isPrompting else { return .ignored }
+            model.openEditor(nil)
+            return .handled
+        }
     }
 
     /// The strip along the top edge the user drags to make the panel taller or shorter. It is

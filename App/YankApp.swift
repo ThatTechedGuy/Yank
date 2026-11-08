@@ -70,6 +70,11 @@ struct YankApp: App {
             SettingsView()
                 .environment(model)
         }
+        // The Format menu's Bold, Italic and Underline (⌘B ⌘I ⌘U), which the editor's rich
+        // text box answers to. Yank shows no menu bar of its own, but the keys still reach a
+        // hidden menu's commands while one of Yank's windows has the keyboard, so the editor
+        // gets them without a menu anyone sees.
+        .commands { TextFormattingCommands() }
         // The Developer window, a second scene that exists only in debug builds. Declaring it
         // here does not open it: the "Developer…" row in MenuBarContent does, by its id.
         #if DEBUG

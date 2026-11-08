@@ -58,7 +58,7 @@ struct ActionsPopover: View {
     }
 }
 
-/// One row, by action. Delete is red, Edit is greyed out until there is an editor.
+/// One row, by action. Delete is red.
 private struct ItemActionRow: View {
     let action: ItemAction
     let item: ClipboardItem
@@ -88,8 +88,6 @@ private struct ItemActionRow: View {
                 }
             }
             .disabled(apps.isEmpty)
-        case .edit:
-            Button(action.title) {}.disabled(true)
         case .delete:
             Button(action.title, role: .destructive) { model.perform(action, on: item) }
         default:

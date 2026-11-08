@@ -109,6 +109,9 @@ import SwiftUI
     /// "Add to Stack" in a card's menu. The paste stack belongs to the app model, which sets
     /// this; on its own the panel has no stack to add to, so the default does nothing.
     var addToStack: (ClipboardItem) -> Void = { _ in }
+    /// "Edit" in a card's menu, ⌘E, and ⌘N for a new text item (nil). The editor window is the
+    /// app model's to open, like the stack; on its own the panel has none.
+    var openEditor: (ClipboardItem?) -> Void = { _ in }
     /// The task running the live query. Cancelling it stops the query; a new one starts when
     /// the limit changes.
     private var liveList: Task<Void, Never>?

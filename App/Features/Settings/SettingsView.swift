@@ -66,6 +66,7 @@ private struct GeneralSettings: View {
                     Text("Onto the clipboard only").tag(PasteDestination.clipboardOnly.rawValue)
                 }
                 Toggle("Always paste as plain text", isOn: $alwaysPlainText)
+                    .accessibilityIdentifier("always-plain-text")
             }
             Section {
                 // The package's recorder box: click it, press a key combination, and the new

@@ -200,10 +200,12 @@ paste into TextEdit was checked on the runner with the posted ⌘V: both Return 
 
 **Pressing ⌘V** (`Packages/ClipCore/Sources/ClipSystem/KeyPresser.swift`). macOS key events carry a
 *key code* (the physical key), not a letter, and the key that types "v" moves with the keyboard layout.
-`KeyPresser` asks Text Input Services for the current layout and translates key codes 0–127 with
-`UCKeyTranslate`, ⌘ held, until one produces "v"; then it posts a key down and key up with the ⌘ flag
-through `CGEvent`. Holding ⌘ during the lookup is what makes "Dvorak – QWERTY ⌘" work: that layout types
-Dvorak letters but keeps QWERTY positions for ⌘ shortcuts. Posting events needs the Accessibility
+`KeyPresser` asks [Sauce](https://github.com/Clipy/Sauce) (the Clipy project's layout library, also used
+by Maccy; MIT; pinned to 2.5.2 in `Packages/ClipCore/Package.swift`) for the key that types "v" with ⌘
+held on the current layout, then posts a key down and key up with the ⌘ flag through `CGEvent`. Sauce
+reads each enabled layout's key table once, caches the answer and follows layout switches. Asking with ⌘
+held is what makes "Dvorak – QWERTY ⌘" work: that layout types Dvorak letters but keeps QWERTY positions
+for ⌘ shortcuts. Posting events needs the Accessibility
 permission; `SystemAccessibilityStatus` wraps `AXIsProcessTrusted` and the "ask the user" variant.
 
 **The hint.** When the panel opens, `PanelModel.didShow()` checks whether Return could press ⌘V
@@ -221,7 +223,8 @@ from the command line, because macOS lets any `-key value` launch argument overr
 **Tests.** `PasteServiceTests` (fakes for the clipboard, key presser and permission): plain text keeps one
 type and falls back to all; the marker is always written; ⌘V is pressed once when allowed, never in
 clipboard-only mode or without the permission; the item moves to the top. `KeyPresserTests` find the V key
-on the real US, Dvorak and Dvorak – QWERTY ⌘ layouts (key codes 9, 47 and 9). `SystemClipboardTests`
+on the real US, Dvorak and Dvorak – QWERTY ⌘ layouts (key codes 9, 47 and 9); Sauce only knows enabled
+layouts, so the test adds the missing ones to the input menu for its duration and removes them after. `SystemClipboardTests`
 write items and read them back. `PanelTests` presses Return and ⌘2 in clipboard-only mode and checks the
 clipboard's change count and types (not its contents: reading them from the test process would trigger
 the "Paste from Other Apps" prompt).
@@ -236,7 +239,9 @@ rest, 59 MB (peak 66 MB, `footprint`) after opening the panel. A copy made with 
 what "plain text" keeps, edit the filter in `PasteService.paste`. A new setting goes in `PasteSettings`
 with its key, and the service gets it as a parameter, so ClipCore never reads `UserDefaults`. If a layout
 ever has no key that types "v" with ⌘ held, `KeyPresser` throws `KeyPressError.noKeyTypesV` and the paste
-is logged; the fallback would be the Sauce package, which was not needed.
+is logged. Sauce is written in Swift 5 mode and compiles clean under our Swift 6 strict settings with a
+plain `import`; if a Sauce update ever brings concurrency warnings, `@preconcurrency import Sauce` in
+`KeyPresser.swift` is the narrow fix.
 
 **Hand checks still open** (needs someone at the Mac; quit Paste first, because it uses ⇧⌘V too):
 

@@ -1,10 +1,9 @@
-// Carbon is Apple's old C-level Mac toolbox. Most of it is gone, but Text Input Services (TIS),
-// the part that knows which keyboard layout is active and what each key types, still lives
-// there and has no newer replacement. CoreGraphics (part of AppKit's imports) is where
-// synthetic keyboard events live.
+// CoreGraphics (part of AppKit's imports) is where synthetic keyboard events live. Sauce is the
+// Clipy project's small library that knows, for each keyboard layout, which physical key types
+// which letter; Maccy and Clipy use it for exactly this job.
 import AppKit
-import Carbon.HIToolbox
 import ClipCore
+import Sauce
 
 // Presses ⌘V in the app in front, behind ClipCore's `KeyPressing` port. macOS has no "paste
 // into that app" call; what we can do, with the Accessibility permission, is post a keyboard
@@ -14,18 +13,17 @@ import ClipCore
 //
 // The catch: a keyboard event carries a *key code*, which names a physical key, not a letter.
 // Key code 9 is the key labelled V on a US keyboard, but on Dvorak that same key types ".", so
-// posting 9 there would send ⌘. instead of ⌘V. So before pressing, we ask the current keyboard
-// layout which key types "v" while ⌘ is held. "While ⌘ is held" matters for layouts such as
+// posting 9 there would send ⌘. instead of ⌘V. So before pressing, we ask Sauce which key types
+// "v" on the current layout while ⌘ is held. "While ⌘ is held" matters for layouts such as
 // "Dvorak – QWERTY ⌘", which type Dvorak but switch to QWERTY positions while ⌘ is down: there,
-// the key for ⌘V is the QWERTY one.
+// the key for ⌘V is the QWERTY one. Sauce reads the layout's key table once per layout and
+// caches it, and listens for the user switching layouts, so the lookup is a dictionary read.
 /// `CGEvent` as a `KeyPressing`: presses ⌘V on the user's own keyboard layout.
 @MainActor public final class KeyPresser: KeyPressing {
     public init() {}
 
     public func pressPaste() throws {
-        guard let layout = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
-            let keyCode = Self.keyCode(typing: "v", withCommandOn: layout)
-        else { throw KeyPressError.noKeyTypesV }
+        guard let keyCode = Self.pasteKeyCode() else { throw KeyPressError.noKeyTypesV }
         // One event source for both halves, so the system sees a press and a release that
         // belong together. `.combinedSessionState` means "a keyboard in the user's session".
         let source = CGEventSource(stateID: .combinedSessionState)
@@ -41,37 +39,15 @@ import ClipCore
         up.post(tap: .cghidEventTap)
     }
 
-    /// The key code that types `character` while ⌘ is held, on `layout`, or nil if no key does.
-    /// Tries every key code (there are at most 128) through the layout's own key table, the way
-    /// macOS itself turns a key press into a character. `internal` so the integration tests can
-    /// run it over layouts other than the current one.
-    static func keyCode(typing character: Character, withCommandOn layout: TISInputSource) -> CGKeyCode? {
-        // The layout's key table, as raw bytes in the format `UCKeyTranslate` reads. Some input
-        // sources (Japanese and Chinese input methods, for example) have none; then there is
-        // nothing to look up.
-        guard let dataPointer = TISGetInputSourceProperty(layout, kTISPropertyUnicodeKeyLayoutData)
-        else { return nil }
-        let data = Unmanaged<CFData>.fromOpaque(dataPointer).takeUnretainedValue() as Data
-        // `UCKeyTranslate` wants the modifier keys in the Carbon format: the ⌘ bit shifted down
-        // one byte. (`cmdKey` is Carbon's name for that bit.)
-        let commandDown = UInt32(cmdKey >> 8)
-        return data.withUnsafeBytes { bytes -> CGKeyCode? in
-            let table = bytes.bindMemory(to: UCKeyboardLayout.self).baseAddress!
-            for keyCode in 0..<128 as Range<UInt16> {
-                var deadKeyState: UInt32 = 0
-                var length = 0
-                var characters = [UniChar](repeating: 0, count: 4)
-                let status = UCKeyTranslate(
-                    table, keyCode, UInt16(kUCKeyActionDown), commandDown, UInt32(LMGetKbdType()),
-                    OptionBits(kUCKeyTranslateNoDeadKeysBit), &deadKeyState, characters.count, &length,
-                    &characters)
-                guard status == noErr, length == 1,
-                    String(utf16CodeUnits: characters, count: 1) == String(character)
-                else { continue }
-                return keyCode
-            }
-            return nil
+    /// The key code that types "v" while ⌘ is held on `layout`, or on the user's current layout
+    /// when nil; nil if no key does (some input methods, such as Japanese, have no key table).
+    /// `internal` so the tests can run it over layouts other than the current one.
+    static func pasteKeyCode(on layout: InputSource? = nil) -> CGKeyCode? {
+        let paste = (key: Key.v, modifiers: SauceModifiers.cocoa(.command))
+        guard let layout else {
+            return Sauce.shared.currentKeyCode(for: paste.key, modifiers: paste.modifiers)
         }
+        return Sauce.shared.keyCode(with: layout, key: paste.key, modifiers: paste.modifiers)
     }
 }
 

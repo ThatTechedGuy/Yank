@@ -457,6 +457,54 @@ struct StoreTests {
         }
     }
 
+    @Test func replacingDataKeepsTheItemAndItsPlaceButChangesTheBytes() async throws {
+        try await withStore { store in
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            let big = Data(repeating: 7, count: 1_500_000)
+            let original = try await store.save(
+                copy([ClipboardItemData(type: "public.png", data: big)], at: t0))
+            try await store.rename(id: original.id, to: "Logo")
+            try await store.save(copy([.text("newer")], at: t0 + 1))
+
+            // The image becomes a text: same row, new bytes, kind, card text and fingerprint.
+            let replaced = try #require(
+                try await store.replaceData(for: original.id, with: [.text("edited")]))
+            #expect(replaced.id == original.id)
+            #expect(replaced.kind == .text)
+            #expect(replaced.cardText == "edited")
+            #expect(replaced.title == "Logo")
+            #expect(replaced.contentFingerprint != original.contentFingerprint)
+            #expect(try await store.data(for: original.id).map(\.text) == ["edited"])
+            // It stays where it was in the list (second), and the old large file is gone.
+            #expect(try await store.items(limit: 3).map(\.cardText) == ["newer", "edited"])
+            #expect(try largeFiles().isEmpty)
+            // The new fingerprint is live: copying the edited text again moves this item, and
+            // copying the old bytes again makes a new item.
+            #expect(try await store.save(copy([.text("edited")])).id == original.id)
+            let repeatCopy = try await store.save(copy([ClipboardItemData(type: "public.png", data: big)]))
+            #expect(repeatCopy.id != original.id)
+
+            // A deleted item is left alone, and the file written for the attempt is removed.
+            try await store.delete(id: original.id)
+            let gone = try await store.replaceData(
+                for: original.id, with: [ClipboardItemData(type: "public.png", data: big)])
+            #expect(gone == nil)
+            #expect(try largeFiles().count == 1)
+        }
+    }
+
+    @Test func savingAnEditedCopyLeavesTheOriginalAlone() async throws {
+        try await withStore { store in
+            let original = try await store.save(copy([.text("draft"), .marker("public.rtf")]))
+            let edited = try await store.save(copy([.text("draft, final")]))
+            #expect(edited.id != original.id)
+            let originalTypes = try await store.data(for: original.id).map(\.type)
+            #expect(originalTypes == [ClipboardType.plainText, "public.rtf"])
+            #expect(try await store.data(for: original.id)[0].text == "draft")
+            #expect(try await store.items(limit: 2).map(\.id) == [edited.id, original.id])
+        }
+    }
+
     @Test func deletingSeveralRemovesThemAllAtOnce() async throws {
         try await withStore { store in
             let big = Data((0..<2_000_000).map { UInt8($0 % 251) })

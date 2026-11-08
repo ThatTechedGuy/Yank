@@ -89,10 +89,7 @@ public final class Store: Sendable {
         // Large data goes to disk *before* the transaction, so a row never points at a file that
         // isn't fully there yet. If the transaction then fails, these files are leftovers; they
         // are removed right away below, or by the sweep at the next launch after a crash.
-        // (`try ... ? :` picks the branch first, then runs the `try` in it.)
-        let fileNames: [String?] = try copy.data.map { item in
-            item.data.count <= LargeDataFiles.inlineLimit ? nil : try files.write(item.data)
-        }
+        let fileNames = try writeLargeData(of: copy.data)
         let (item, oldFileNames): (ClipboardItem, [String])
         do {
             (item, oldFileNames) = try await pool.write { db in
@@ -130,18 +127,7 @@ public final class Store: Sendable {
                         copiedAt: copy.copiedAt, contentFingerprint: fingerprint
                     ).insertAndFetch(db, as: ClipboardItem.self)
                 }
-                // One data row per clipboard type, in the source app's order (`position`). Small
-                // data goes in the row; large data is already in the file written above, and the
-                // row keeps its name. (`enumerated()` gives (index, element) pairs,
-                // ≈ `.forEach((d, i) => ...)`.)
-                for (position, data) in copy.data.enumerated() {
-                    let fileName = fileNames[position]
-                    try ClipboardItemDataRow(
-                        clipboardItemId: item.id, pasteboardItemIndex: data.pasteboardItemIndex,
-                        position: position, type: data.type, data: fileName == nil ? data.data : nil,
-                        largeDataFileName: fileName
-                    ).insert(db)
-                }
+                try Self.insertDataRows(db, of: item.id, data: copy.data, fileNames: fileNames)
                 let verb = existing == nil ? "saved" : "moved to top"
                 Log.store.info(
                     "\(verb, privacy: .public) item \(item.id, privacy: .public) kind \(kind.rawValue, privacy: .public)"
@@ -158,6 +144,85 @@ public final class Store: Sendable {
         // The rows that pointed at the old files are gone for good, so the files can go too.
         try files.delete(oldFileNames)
         return item
+    }
+
+    /// Gives an item new bytes in place: what the editor's "Replace Original" does. The item
+    /// keeps its id, its place in the list (`copiedAt`), its title, its source app and its
+    /// pinboard; its kind, card text, footer detail and fingerprint are worked out afresh from
+    /// the new bytes, the same way a save does. The thumbnail and the words read out of the
+    /// old image are dropped, because they described the old bytes; the caller runs the
+    /// Enricher again for the new ones. Returns the item as stored, or nil if it was deleted
+    /// in the meantime (nothing is written then). Files are handled like a save: new ones are
+    /// written before the transaction, old ones deleted after it.
+    public func replaceData(for id: Int64, with data: [ClipboardItemData]) async throws -> ClipboardItem? {
+        let kind = ItemKind.detect(data)
+        let fingerprint = DuplicateKey.make(kind: kind, data: data)
+        let cardText = CardText.make(kind: kind, data: data)
+        let cardDetail = CardDetail.make(kind: kind, data: data)
+        let fileNames = try writeLargeData(of: data)
+        let result: (item: ClipboardItem, oldFileNames: [String])?
+        do {
+            result = try await pool.write { db in
+                guard var item = try ClipboardItem.fetchOne(db, key: id) else { return nil }
+                item.kind = kind
+                item.cardText = cardText
+                item.cardDetail = cardDetail
+                item.contentFingerprint = fingerprint
+                item.imageText = nil
+                item.linkPageTitle = nil
+                try item.update(db)
+                let oldRows = ClipboardItemDataRow.ofItem(id)
+                let oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
+                try oldRows.deleteAll(db)
+                try Self.insertDataRows(db, of: id, data: data, fileNames: fileNames)
+                _ = try CardThumbnail.deleteOne(db, key: id)
+                Log.store.info(
+                    "replaced data of item \(id, privacy: .public) kind \(kind.rawValue, privacy: .public)")
+                return (item, oldFileNames)
+            }
+        } catch {
+            try? files.delete(fileNames.compactMap { $0 })
+            throw error
+        }
+        guard let result else {
+            // The item is gone, so the files written for it belong to nobody.
+            try files.delete(fileNames.compactMap { $0 })
+            return nil
+        }
+        try files.delete(result.oldFileNames)
+        return result.item
+    }
+
+    /// Writes each piece of data that is too big for its row to a file, and returns one file
+    /// name per piece (nil for the small ones that go in the row). Called before a
+    /// transaction, see `save`. (`try ... ? :` picks the branch first, then runs the `try`
+    /// in it.)
+    private func writeLargeData(of data: [ClipboardItemData]) throws -> [String?] {
+        try data.map { item in
+            item.data.count <= LargeDataFiles.inlineLimit ? nil : try files.write(item.data)
+        }
+    }
+
+    /// One data row per clipboard type, in the source app's order (`position`). Small data
+    /// goes in the row; large data is already in the file `writeLargeData` made, and the row
+    /// keeps its name. (`enumerated()` gives (index, element) pairs, ≈ `.forEach((d, i) =>
+    /// ...)`.)
+    private static func insertDataRows(
+        _ db: Database, of itemId: Int64, data: [ClipboardItemData], fileNames: [String?]
+    ) throws {
+        for (position, item) in data.enumerated() {
+            let fileName = fileNames[position]
+            try ClipboardItemDataRow(
+                clipboardItemId: itemId, pasteboardItemIndex: item.pasteboardItemIndex,
+                position: position, type: item.type, data: fileName == nil ? item.data : nil,
+                largeDataFileName: fileName
+            ).insert(db)
+        }
+    }
+
+    /// One item by id, or nil when it has been deleted. The editor opens with this.
+    public func item(id: Int64) async throws -> ClipboardItem? {
+        try await pool.read { db in try ClipboardItem.fetchOne(db, key: id) }
     }
 
     /// Moves an item to the top of the history by giving it a new "last copied" time: what a

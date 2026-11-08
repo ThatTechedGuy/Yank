@@ -48,6 +48,14 @@ import SwiftUI
         return nil
     }
 
+    /// Drops the item's picture, for when its bytes were replaced in the editor: the next draw
+    /// reads the new thumbnail, or makes one, instead of showing the old picture.
+    func forget(_ id: Int64) {
+        images.removeObject(forKey: id as NSNumber)
+        loading.remove(id)
+        version += 1
+    }
+
     /// Reads the thumbnail from the database, or makes one for an item that has none yet (a
     /// copy saved before previews existed), decodes it off the main thread and caches it.
     private func load(_ item: ClipboardItem) async {

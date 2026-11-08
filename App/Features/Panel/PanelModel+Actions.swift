@@ -53,10 +53,16 @@ enum ItemAction: String, CaseIterable, Identifiable {
     /// editing, then leaving the app, then Delete on its own.
     var startsGroup: Bool { [.pinTo, .edit, .share, .delete].contains(self) }
 
-    /// The rows this card gets: Show in Finder only for a file card. Edit is listed but turned
-    /// off until there is an editor.
+    /// The rows this card gets: Show in Finder only for a file card, and Edit for every card but
+    /// a file's (the file itself is not Yank's to change).
     static func available(for item: ClipboardItem) -> [ItemAction] {
-        allCases.filter { $0 != .showInFinder || item.kind == .file }
+        allCases.filter { action in
+            switch action {
+            case .showInFinder: item.kind == .file
+            case .edit: item.kind != .file
+            default: true
+            }
+        }
     }
 }
 
@@ -71,7 +77,7 @@ extension PanelModel {
     /// act on the whole selection when the card is part of it, the way Finder treats a
     /// right-click on a selected file. Pin to and Open With have their own submenus; from the
     /// keyboard they do the plain thing (⌘P's behaviour, the default app). Share needs its
-    /// own button, so Return on it does nothing; Edit does nothing yet.
+    /// own button, so Return on it does nothing. Edit opens the card in the editor window.
     func perform(_ action: ItemAction, on item: ClipboardItem) {
         prompt = nil
         let targets = selection.contains(item.id) ? selectedItems : [item]
@@ -88,8 +94,15 @@ extension PanelModel {
         case .openWith: open(item, with: nil)
         case .showInFinder: showInFinder(item)
         case .delete: confirmDelete(of: targets)
-        case .edit, .share: break
+        case .edit: openEditor(item)
+        case .share: break
         }
+    }
+
+    /// ⌘E: the selected card in the editor. A file card has no Edit, so the key does nothing on it.
+    func editSelected() {
+        guard let item = items.first(where: { $0.id == selectedId }), item.kind != .file else { return }
+        openEditor(item)
     }
 
     /// Delete (the key or the menu): asks first, naming the count, on the lead card.

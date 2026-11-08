@@ -43,6 +43,10 @@ struct MenuBarContent: View {
         // package; the key itself is handled globally, so this row only has to show it.
         Button("Open Panel") { model.openPanel() }
             .keyboardShortcut(KeyboardShortcuts.getShortcut(for: .togglePanel)?.toSwiftUI)
+        // An empty editor for something typed by hand rather than copied: a note, a snippet.
+        // Saving it makes an ordinary text item at the top of the history.
+        Button("New Text Item") { model.edit(nil) }
+            .keyboardShortcut("n")
         pauseRows
         Divider()
         stackRows

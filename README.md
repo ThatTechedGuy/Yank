@@ -732,6 +732,84 @@ a key in `SettingsKey`, a `@AppStorage` Toggle, and a closure passed in from `Ap
   the item and search the word in Spotlight: nothing from Yank.
 - Copy an image with no text (a photo): the card still gets its thumbnail; nothing else changes.
 
+## Editing (stage 10)
+
+Select a card and press ⌘E (or pick Edit in its ⌘K menu): the panel steps aside and an editor window
+opens. A text card opens as rich text, with Bold, Italic and Underline on ⌘B, ⌘I and ⌘U; an image card
+opens as a picture with Rotate Left, Rotate Right and Remove Background. "Save as New" (⌘S) puts the
+result at the top of the history as a new item; "Replace Original" asks first, then writes the new
+bytes over the card, which keeps its place, its name and its pinboard. Cancel (Esc) closes the window
+and changes nothing. ⌘N in the panel, or "New Text Item" in the menu bar menu, opens an empty editor
+for a note typed by hand; the card says it came from Yank. File cards have no Edit: there is nothing
+to edit but a path.
+
+**Text.** `RichText` (`Packages/ClipCore/Sources/ClipSystem/RichText.swift`) turns a copy's
+`[ClipboardItemData]` into an `AttributedString` and back. In: the copy's RTF when the source app
+offered one, else its plain text with no formatting, imported with Foundation's
+`AttributedTextFormatting.Transferable` (the same importer SwiftUI's text uses for a paste). Out: RTF
+first, then plain text, in the order a source app lists its types, so a paste into a rich-text field
+keeps the bold and a plain field gets the words. HTML is not read (the `shortcut:` comment in the
+file); a copy with HTML but no RTF opens as plain text.
+
+**Images.** `ImageEditor` (`ClipSystem/ImageEditor.swift`) is two static functions over PNG bytes.
+`rotated(_:clockwise:)` is `CIImage.oriented(.right)` or `.left` (Core Image's orientation tags: `.right`
+means "the left edge is now the top", a clockwise turn). `removingBackground(from:)` runs Vision's
+`GenerateForegroundInstanceMaskRequest` and asks for `generateMaskedImage(for: allInstances, ...)`, the
+subject on transparency at the picture's full size; nil when the bytes are not an image or Vision finds
+no subject. Both render through `Thumbnailer.pngData`, the encoder the thumbnails already use.
+
+**Saving.** `Store.replaceData(for:with:)` is the one new write: in one transaction it swaps the item's
+format rows and recomputes what a save computes from bytes (kind, card text, footer detail,
+fingerprint) while keeping the id, `copiedAt`, title, source app and pinboard; it clears `imageText`
+and `linkPageTitle` and drops the thumbnail, because they described the old bytes, and returns nil if
+the item was deleted in the meantime. "Save as New" is the ordinary `Store.save` with a `CapturedCopy`,
+so the fingerprint rule from stage 1 applies: saving text that was not changed moves the original to
+the top instead of making a twin. After either path `Enricher.enrichInBackground` makes the new
+thumbnail and reads the new image text, and `ThumbnailCache.forget(_:)` drops the card's cached
+picture so it redraws.
+
+**The window.** `ItemEditor` (`App/Features/Editor/`) is the editor's `@Observable` model, like a
+view model in RN: `original` (nil for a new text item), `text`, `image`, `isBusy`, `error`, `load()`,
+`rotate(clockwise:)`, `removeBackground()`, `save(replacing:)`. `EditorView` is the SwiftUI page: the
+macOS 26 rich `TextEditor(text:)` bound to the `AttributedString` (identifier `editor-text`), or the
+picture (`editor-image`) with `rotate-left`, `rotate-right` and `remove-background`; then `cancel`,
+`replace` (shown only when there is an original; confirmed by `confirm-replace`) and `save-new`.
+`EditorWindow` is an `NSWindow` subclass hosting the view, the way `PanelWindow` hosts the panel; it is
+opened from `AppModel.edit(_:)` rather than a SwiftUI `WindowGroup` because the open comes from the
+panel's model, not from a view, and `openWindow` is view-only. `AppModel.edit` hides the panel first
+(the editor makes Yank the active app, which the panel never does) and shows it again after a save,
+with the saved card selected.
+`PanelModel.openEditor` is the closure the panel calls for Edit, ⌘E and ⌘N; `ItemAction.available`
+offers `.edit` for every kind but `.file`. `TextFormattingCommands()` on the app's `commands` is what
+gives ⌘B, ⌘I and ⌘U to the text view.
+
+**Tests.** `StoreTests`: `replacingDataKeepsTheItemAndItsPlaceButChangesTheBytes` (same id and
+`copiedAt`, new bytes, nil for a deleted id) and `savingAnEditedCopyLeavesTheOriginalAlone`.
+`RichTextTests`: bold survives the trip to RTF and back (checked on the exported `NSFont`'s traits), and a
+plain copy opens plain. `ImageEditorTests`: a 2×1 red|blue picture rotated right has red on top and
+rotated left has blue on top; a disc on a flat background comes back with a transparent corner and an
+opaque centre at the same width; garbage bytes give nil. `AppUITests/EditorTests`: ⌘N, type, Save puts a
+new, selected card in front whose Space preview counts the typed words; ⌘E then Cancel leaves the front
+card and the card count as they were.
+
+**Maintaining it.** To add an image tool (crop, flip): a static function on `ImageEditor` returning
+PNG bytes, a method on `ItemEditor` that replaces `image`, and a button in `EditorView.picture`. To
+read HTML copies too: a second branch in `RichText.attributedString(from:)`. To edit another kind
+(links as text): widen the `.edit` case in `ItemAction.available` and give `ItemEditor.load` a branch
+for it. To add a Format menu item beyond bold, italic and underline: `TextFormattingCommands` is the
+standard set; a custom one is a `CommandMenu` next to it in `YankApp`.
+
+**Hand checks still open:**
+
+- Copy bold and plain text from TextEdit, ⌘E, make another word bold, Save as New: the new top card
+  pastes into TextEdit with both bold words, and the original still pastes as it was.
+- Copy a screenshot, ⌘E, Rotate Right, Replace Original: the same card (same place, name and pinboard)
+  shows the turned picture and pastes turned.
+- Copy a photo with a clear subject, ⌘E, Remove Background, Save as New: pasted into Preview, the
+  background is transparent.
+- ⌘N, type a note, ⌘S: a text card at the top, source "Yank". ⌘E on it, Cancel: nothing changes.
+- A file card's ⌘K menu has no Edit, and ⌘E on it does nothing.
+
 ## Sandbox and copied files (stage 0 spike)
 
 Question: when the user copies a file in Finder, can the sandboxed app, reading the clipboard on a timer

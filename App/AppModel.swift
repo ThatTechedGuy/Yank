@@ -50,6 +50,15 @@ import SwiftUI
     /// comes back with the saved card outlined rather than the one that was selected before.
     private var selectCard: (Int64) -> Void = { _ in }
 
+    /// Whether macOS lets Yank press ⌘V in other apps (System Settings › Privacy & Security ›
+    /// Accessibility). Asked fresh on every read, not stored: macOS sends no notice when the
+    /// user flips the switch, so the welcome window reads this once a second while it is open.
+    var isAccessibilityTrusted: Bool { pasteService?.isAccessibilityTrusted ?? false }
+
+    /// Shows macOS's own "Yank would like to control this computer" dialog, which puts Yank in
+    /// the Accessibility list for the user to switch on. The same dialog as the panel's hint.
+    func requestAccessibility() { pasteService?.requestAccessibility() }
+
     /// Whether the panel is on screen right now. Read by the Developer window, which pauses its
     /// own sampling while the panel is up so it never overlaps a panel-open or search timing.
     var isPanelVisible: Bool { panel?.isVisible ?? false }

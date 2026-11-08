@@ -30,10 +30,11 @@ struct YankApp: App {
         Log.ui.info("Yank launched")
     }
 
-    // `body` describes the whole UI: the menu bar item and the Settings window. SwiftUI reads it again
-    // whenever something it used in `model` changes, like a React component's render. (`var body:
-    // some Scene { ... }` is a computed property; `some Scene` means "one specific Scene type that
-    // the compiler works out", so we don't have to spell the long generic type.)
+    // `body` describes the whole UI: the menu bar item, the Settings window and the welcome
+    // window. SwiftUI reads it again whenever something it used in `model` changes, like a React
+    // component's render. (`var body: some Scene { ... }` is a computed property; `some Scene`
+    // means "one specific Scene type that the compiler works out", so we don't have to spell the
+    // long generic type.)
     //
     // A Scene is a top-level piece of UI: a window, the Settings window, or a menu bar item.
     // ≈ the screens registered at the root of a React Navigation tree.
@@ -75,6 +76,22 @@ struct YankApp: App {
         // hidden menu's commands while one of Yank's windows has the keyboard, so the editor
         // gets them without a menu anyone sees.
         .commands { TextFormattingCommands() }
+        // The welcome window: one window (a `Window` scene, unlike a `WindowGroup`, never has
+        // a second copy) that opens by itself on the first launch and never again.
+        // `defaultLaunchBehavior` is SwiftUI's switch for "open this scene at launch or not";
+        // it is read once, when the app starts, from the setting the window writes when it
+        // appears. `restorationBehavior(.disabled)` stops macOS from reopening it after a
+        // quit, which it would otherwise do for any window left open. `contentSize` makes the
+        // window exactly as big as its content, with no resizing.
+        Window("Welcome to Yank", id: "welcome") {
+            WelcomeView()
+                .environment(model)
+        }
+        .defaultLaunchBehavior(
+            UserDefaults.standard.bool(forKey: SettingsKey.hasShownWelcome) ? .suppressed : .presented
+        )
+        .restorationBehavior(.disabled)
+        .windowResizability(.contentSize)
         // The Developer window, a second scene that exists only in debug builds. Declaring it
         // here does not open it: the "Developer…" row in MenuBarContent does, by its id.
         #if DEBUG

@@ -24,6 +24,13 @@ struct CardRow: View {
                             item: item, shortcutNumber: index < 9 ? index + 1 : nil,
                             isSelected: item.id == model.selectedId
                         )
+                        // Double-click pastes the card (with ⇧ held: as plain text). It must
+                        // come before the single click, or the single click wins and the
+                        // double one never fires. SwiftUI's tap gives no modifier keys, so
+                        // they are read from AppKit's current keyboard state.
+                        .onTapGesture(count: 2) {
+                            model.paste(item, plainText: NSEvent.modifierFlags.contains(.shift))
+                        }
                         .onTapGesture { model.selectedId = item.id }
                         // Tells the model "card N is on screen"; near the end, that loads more.
                         .onAppear { model.cardDidAppear(at: index) }

@@ -6,7 +6,9 @@
 //
 // It is the only thing that talks to the Store for the panel, and it keeps the list alive
 // with a live query: the Store delivers the newest items now and again after every change,
-// so a copy made while the panel is open appears on its own.
+// so a copy made while the panel is open appears on its own. Pasting goes through it too: the
+// views say which card and whether ⇧ was held, and the model adds the user's settings and
+// hands the job to PasteService.
 import ClipCore
 import SwiftUI
 
@@ -25,16 +27,22 @@ import SwiftUI
     var searchText = ""
     /// Whether the panel is on screen. The view uses it to put the cursor in search on open.
     private(set) var isVisible = false
+    /// True when Return would paste into the active app but macOS does not let Yank press ⌘V:
+    /// the panel then shows a hint. Checked each time the panel opens, so granting the
+    /// permission in System Settings is noticed on the next ⇧⌘V without a restart.
+    private(set) var needsAccessibility = false
 
     private let store: Store
+    private let pasteService: PasteService
     /// The task running the live query. Cancelling it stops the query; a new one starts when
     /// the limit changes.
     private var liveList: Task<Void, Never>?
     /// How many items the live query asks for. Grows as the user scrolls towards the end.
     private var limit = pageSize
 
-    init(store: Store) {
+    init(store: Store, pasteService: PasteService) {
         self.store = store
+        self.pasteService = pasteService
         startLiveList()
     }
 
@@ -88,12 +96,44 @@ import SwiftUI
         selectedId = items[target].id
     }
 
+    /// Pastes the selected card (Return). `plainText` is whether ⇧ was held.
+    func pasteSelected(plainText: Bool) {
+        guard let item = items.first(where: { $0.id == selectedId }) else { return }
+        paste(item, plainText: plainText)
+    }
+
+    /// Pastes the Nth card, 1 to 9, for ⌘1–⌘9. The numbers match the badges on the cards.
+    func paste(shortcutNumber: Int, plainText: Bool) {
+        guard (1...9).contains(shortcutNumber), items.count >= shortcutNumber else { return }
+        paste(items[shortcutNumber - 1], plainText: plainText)
+    }
+
+    /// Pastes one card. `plainText` is whether the user asked for it this time (⇧); the
+    /// "always plain text" setting makes every paste plain. A failure is logged, not shown:
+    /// by then the item is on the clipboard either way, so the user can still press ⌘V.
+    func paste(_ item: ClipboardItem, plainText: Bool) {
+        let plain = plainText || PasteSettings.alwaysPlainText
+        let destination = PasteSettings.destination
+        Task {
+            do {
+                try await pasteService.paste(item, plainText: plain, destination: destination)
+            } catch {
+                Log.paste.error("paste failed: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    /// Shows macOS's own prompt for the Accessibility permission (the hint's button).
+    func requestAccessibility() { pasteService.requestAccessibility() }
+
     /// Called by the window when the panel comes on screen: the newest card is selected and
     /// search starts empty, the way Paste opens.
     func didShow() {
         selectedId = items.first?.id
         searchText = ""
         isVisible = true
+        needsAccessibility =
+            PasteSettings.destination == .activeApp && !pasteService.isAccessibilityTrusted
     }
 
     /// Called by the window when the panel leaves the screen. A list that grew while scrolling

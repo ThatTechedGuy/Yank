@@ -23,7 +23,7 @@ public enum ClipboardAccess: Equatable, Sendable {
     case denied
 }
 
-/// The clipboard, as much of it as the capture loop needs.
+/// The clipboard, as much of it as the capture loop and a paste need.
 @MainActor public protocol Clipboard: AnyObject {
     /// A counter macOS bumps on every copy. Cheap to read; the loop polls it.
     var changeCount: Int { get }
@@ -34,6 +34,10 @@ public enum ClipboardAccess: Equatable, Sendable {
     /// was read. One call, one snapshot: the names and the data come from the same moment, so a
     /// copy that lands in between cannot slip past the privacy check.
     func read(if decide: ([String]) -> Bool) -> [ClipboardItemData]?
+    /// Replaces the clipboard with these types, grouped back into pasteboard items by
+    /// `pasteboardItemIndex`, so a paste offers the other app exactly what the source app
+    /// offered. Writing counts as a copy: `changeCount` goes up.
+    func write(_ data: [ClipboardItemData])
     /// The current permission state.
     var access: ClipboardAccess { get }
 }

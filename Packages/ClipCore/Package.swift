@@ -35,8 +35,11 @@ let package = Package(
     // Third-party packages, fetched from Git and pinned to an exact tag.
     // GRDB is a typed SQLite toolkit with migrations, full-text search and live queries.
     // ≈ Drizzle (TS) or Room (Android). Package.resolved records the exact commit, like a lockfile.
+    // Sauce (from the Clipy clipboard manager, MIT) answers "which physical key types this letter
+    // on the user's keyboard layout?", which pressing ⌘V needs on Dvorak and similar layouts.
     dependencies: [
-        .package(url: "https://github.com/groue/GRDB.swift", exact: "7.12.0")
+        .package(url: "https://github.com/groue/GRDB.swift", exact: "7.12.0"),
+        .package(url: "https://github.com/Clipy/Sauce", exact: "2.5.2"),
     ],
     // Targets are the modules (folders of source) inside this package. By convention, target
     // "X" compiles every .swift file under Sources/X, and test target "XTests" under Tests/XTests.
@@ -52,7 +55,11 @@ let package = Package(
         // ClipSystem: adapters that talk to macOS (clipboard, keyboard, thumbnails). It depends
         // on ClipCore because it implements ClipCore's "ports" (interfaces), like an Android
         // module providing implementations of interfaces declared in a domain module.
-        .target(name: "ClipSystem", dependencies: ["ClipCore"], swiftSettings: strict),
+        .target(
+            name: "ClipSystem",
+            dependencies: ["ClipCore", .product(name: "Sauce", package: "Sauce")],
+            swiftSettings: strict
+        ),
         // Test targets: run with `swift test`. Each can only see the module it depends on.
         .testTarget(name: "ClipCoreTests", dependencies: ["ClipCore"], swiftSettings: strict),
         .testTarget(name: "ClipSystemTests", dependencies: ["ClipSystem"], swiftSettings: strict),

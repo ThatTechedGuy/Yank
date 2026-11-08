@@ -13,7 +13,7 @@ public enum CaptureDecision: Equatable, Sendable {
     /// Don't read it, don't save it.
     case skip
     /// We put this on the clipboard ourselves (a paste from the panel); the paste already moved
-    /// the item to the top. Nothing to save. Acted on once the app can paste.
+    /// the item to the top. Nothing to save.
     case moveOwnPasteToTop
 }
 

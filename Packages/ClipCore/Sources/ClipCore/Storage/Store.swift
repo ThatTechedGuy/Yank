@@ -135,6 +135,20 @@ public final class Store: Sendable {
         return item
     }
 
+    /// Moves an item to the top of the history by giving it a new "last copied" time: what a
+    /// paste from the panel does, so the item you just used is the first card next time. Only
+    /// the time changes; the data rows and files stay as they are. The live list (`observeItems`)
+    /// sees the write and delivers the new order on its own.
+    public func moveToTop(id: Int64) async throws {
+        // `updateAll` on a filtered request is GRDB's "UPDATE ... SET ... WHERE": one statement,
+        // no need to fetch the row first. It returns how many rows changed (0 if the item was
+        // deleted meanwhile), which nobody needs here, hence the `_ =`.
+        _ = try await pool.write { db in
+            try ClipboardItem.filter(key: id)
+                .updateAll(db, [ClipboardItemColumns.copiedAt.set(to: Date())])
+        }
+    }
+
     /// Items, newest copied first, one page at a time so a list never loads everything.
     /// ≈ `SELECT * ... ORDER BY copiedAt DESC, id DESC LIMIT ? OFFSET ?`.
     public func items(limit: Int, offset: Int = 0) async throws -> [ClipboardItem] {

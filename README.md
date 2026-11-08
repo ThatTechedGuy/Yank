@@ -517,6 +517,69 @@ of `UserDefaults` and AppKit: settings cross into it as plain values (`rules`, `
   stays, everything else goes, and the database file on disk is small.
 - Change the panel shortcut in General: the new key opens the panel at once and the menu row shows it.
 
+## Pinboards and filters (stage 7)
+
+Under the search box sits a tab row: History, then one tab per pinboard, then "+". A pinboard is a named
+list of items to keep ("Snippets", "Work"); an item sits on at most one, so pinning moves its card from
+History to that tab, and "Erase History" erases exactly the History tab. ⌘[ and ⌘] move one tab left or
+right, round and round; ⌘P pins the selected card (to the one pinboard if there is one, through a small
+chooser if there are several, after asking for a name if there is none) or unpins it when it is already
+pinned. Right-clicking a card offers the same. Right-clicking a pinboard's tab offers Rename… and Delete…;
+Delete asks first, and the items go back to History. The filter button at the right of the row narrows
+the cards by type (Text, Image, Link, File, Color) and date (Today, Last 7 Days, Last 30 Days, Any Time);
+its icon fills in while anything is narrowed, and Clear Filters resets both. Filters, the tab and the
+search all combine, and the tab and filter stay as they were when the panel reopens.
+
+**How the lists work.** `ItemFilter` (`Packages/ClipCore/Sources/ClipCore/Rules/ItemFilter.swift`) is
+one value with the list (`.history` or `.pinboard(id:)`), the kind and the `DateRange`. The Store's live
+list, `observeItems(matching:limit:)`, and `search(_:matching:limit:)` both take it and both build their
+query with `ClipboardItem.matching` in `Storage/Records.swift`: one `WHERE` clause per part of the filter
+(`pinboardId IS NULL` or `= ?`, `kind = ?`, `copiedAt >= ?`). The panel keeps the filter in
+`PanelModel.filter`; setting it restarts the live list and the search (`didSet`), so the tabs, the menu
+and the keys all just write that one property. The pinboards themselves come from a second live query,
+`observePinboards`, so a tab appears, renames or vanishes the moment the database changes; if the tab
+the panel is on is deleted, the model falls back to History.
+
+**Dates.** `DateRange.start(now:calendar:)` is a pure function: "today" is `calendar.startOfDay(for: now)`,
+local midnight; the longer ranges step back whole days with `date(byAdding: .day, value: -6)` (and
+`-29`), so today is one of the seven or thirty days and the day the clocks change is still one day, not
+24 hours. The Store passes `Date()` and `Calendar.current`; the tests pass a fixed clock and other time
+zones. The start is worked out once when the query starts, so a panel left open across midnight keeps
+yesterday's "today" until the filter or the panel changes.
+
+**Pinning.** `Store.pin(itemId:to:)` sets the item's `pinboardId` (a missing pinboard is a quiet no-op,
+in case it was deleted a moment earlier); `unpin` clears it. `deletePinboard` only deletes the row: the
+foreign key is `ON DELETE SET NULL`, so SQLite returns the items to History in the same statement. A
+repeat copy of a pinned item keeps its pinboard (the save reuses the existing row). Pinboards are
+ordered by `position`, which is creation order; there is no reordering.
+
+**The panel's side.** `PanelModel+Pinboards.swift` holds the actions (`selectNextTab`, `togglePin`,
+`pin`, `unpin`, `createPinboard`, `renamePinboard`, `deletePinboard`), each one Store call in a Task;
+the live queries deliver the result, the model never patches its own lists. `PanelTabs` is the tab row
+with its prompts, `FilterMenu` the button and menu (and the user-facing names of kinds and ranges),
+`PinChoices` the Pin to…/Unpin rows that serve both the card's right-click menu and the ⌘P chooser. The
+prompts are popovers, not alert sheets: the panel is a non-activating window, and popovers are the one
+dialog proven to take typing on it without activating Yank.
+
+**Maintaining it.** To add a filter: a property on `ItemFilter`, one `filter(...)` line in
+`ClipboardItem.matching`, a control in `FilterMenu`, and include it in `isNarrowed` if it should tint the
+button. To add a date range: a case in `DateRange` and its name in `FilterMenu`; the menu lists
+`allCases`. To add a pinboard action: a Store method, a model method next to the others, and a row in
+`PanelTabs`' context menu or `PinChoices`. Keys live in `PanelView` next to ⌘,: the same
+`onKeyPress(.init("x"), phases: .down)` with a `press.modifiers == .command` guard. The seed
+(`Store.seed`) clears pinboards too, so every UI test starts on a plain History tab.
+
+**Hand checks still open:**
+
+- Create "Snippets" with "+", pin a card with right-click or ⌘P: it is on the Snippets tab and gone from
+  History. ⌘[ and ⌘] move between the tabs and wrap around.
+- Rename it from the tab's menu, then Delete it: the app asks first, and after Delete the card is back in
+  History.
+- Pin a card, then Settings › Data › Erase History: the pinned card is still on its tab, History is empty.
+- Filter Image + Last 7 Days: only images from the past week; the button's icon is filled. Clear Filters:
+  the full list is back. Type in search with a filter on: results respect both.
+- Copy something already pinned: it moves to the top of its pinboard, not into History.
+
 ## Sandbox and copied files (stage 0 spike)
 
 Question: when the user copies a file in Finder, can the sandboxed app, reading the clipboard on a timer

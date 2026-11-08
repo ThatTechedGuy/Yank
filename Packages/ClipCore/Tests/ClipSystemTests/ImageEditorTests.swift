@@ -19,7 +19,8 @@ struct ImageEditorTests {
                 space: CGColorSpace(name: CGColorSpace.sRGB)!,
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         draw(context)
-        return try #require(Thumbnailer.pngData(try #require(context.makeImage())))
+        let image = try #require(context.makeImage())
+        return try #require(Thumbnailer.pngData(image))
     }
 
     /// The red, green, blue and alpha of one pixel of a PNG, 0 to 255, counting x from the

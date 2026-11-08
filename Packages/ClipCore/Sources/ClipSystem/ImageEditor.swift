@@ -24,9 +24,11 @@ public enum ImageEditor {
     /// The picture with everything but its subject made transparent, as a PNG. Nil when the
     /// bytes are not an image, or Vision finds no subject in it (a flat colour, a texture).
     public static func removingBackground(from image: Data) async throws -> Data? {
-        guard let observation = try await GenerateForegroundInstanceMaskRequest().perform(on: image) else {
-            return nil
-        }
+        // Vision reports bytes that are not an image as a cancelled request, which reads like
+        // a failure; checking first turns that into the plain "nil" the caller expects.
+        guard CIImage(data: image) != nil else { return nil }
+        let request = GenerateForegroundInstanceMaskRequest()
+        guard let observation = try await request.perform(on: image) else { return nil }
         // `allInstances`: every subject found, together. `croppedToInstancesExtent: false`
         // keeps the picture its original size, so the subject stays where it was.
         let masked = try observation.generateMaskedImage(

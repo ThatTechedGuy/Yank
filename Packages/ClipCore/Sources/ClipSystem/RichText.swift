@@ -17,9 +17,12 @@ public enum RichText {
 
     /// The text of a copy with its formatting, for the editor: from its RTF when the source app
     /// offered one, else its plain text with no formatting. Empty when the copy has neither.
+    // shortcut: a copy with HTML but no RTF (some browsers, Electron apps) opens as plain text;
+    // add an `.html` import branch here when such a copy loses formatting that matters.
     public static func attributedString(from data: [ClipboardItemData]) async throws -> AttributedString {
         if let rtf = data.first(where: { $0.type == rtfType }) {
-            let imported = try await AttributedTextFormatting.Transferable(importing: rtf.data, contentType: .rtf)
+            let imported = try await AttributedTextFormatting.Transferable(
+                importing: rtf.data, contentType: .rtf)
             return try AttributedString(transferable: imported, in: EnvironmentValues())
         }
         return AttributedString(data.first { $0.type == ClipboardType.plainText }?.text ?? "")
@@ -34,7 +37,7 @@ public enum RichText {
             .exported(as: .rtf)
         return [
             ClipboardItemData(type: rtfType, data: rtf),
-            ClipboardItemData(type: ClipboardType.plainText, data: Data(text.characters.map { $0 }.description.utf8)),
+            ClipboardItemData(type: ClipboardType.plainText, data: Data(String(text.characters).utf8)),
         ]
     }
 }

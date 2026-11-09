@@ -53,13 +53,13 @@ enum ItemAction: String, CaseIterable, Identifiable {
     /// editing, then leaving the app, then Delete on its own.
     var startsGroup: Bool { [.pinTo, .edit, .share, .delete].contains(self) }
 
-    /// The rows this card gets: Show in Finder only for a file card, and Edit for every card but
-    /// a file's (the file itself is not Yank's to change).
+    /// The rows this card gets: Show in Finder only for a file card, and Edit for text, links
+    /// and images. A file is not Yank's to change, and a colour has nothing the editor can show.
     static func available(for item: ClipboardItem) -> [ItemAction] {
         allCases.filter { action in
             switch action {
             case .showInFinder: item.kind == .file
-            case .edit: item.kind != .file
+            case .edit: item.kind != .file && item.kind != .color
             default: true
             }
         }
@@ -99,9 +99,9 @@ extension PanelModel {
         }
     }
 
-    /// ⌘E: the selected card in the editor. A file card has no Edit, so the key does nothing on it.
+    /// ⌘E: the selected card in the editor. A card with no Edit row is left alone.
     func editSelected() {
-        guard let item = items.first(where: { $0.id == selectedId }), item.kind != .file else { return }
+        guard let item = selectedItem, ItemAction.available(for: item).contains(.edit) else { return }
         openEditor(item)
     }
 
@@ -117,6 +117,7 @@ extension PanelModel {
         Task { [store] in
             do {
                 try await store.delete(ids: ids)
+                refreshSearch()
             } catch {
                 Log.ui.error(
                     "could not delete \(ids.count, privacy: .public) items: \(error.logDescription, privacy: .public)"
@@ -132,6 +133,7 @@ extension PanelModel {
         Task { [store] in
             do {
                 try await store.rename(id: item.id, to: title)
+                refreshSearch()
             } catch {
                 Log.ui.error(
                     "could not rename item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
@@ -189,7 +191,8 @@ extension PanelModel {
         Task { [store] in
             let url: URL?
             if item.kind == .link {
-                url = URL(string: item.cardText)
+                // The saved address, not the card's text, which stops at 200 characters.
+                url = (try? await store.data(for: item.id)).flatMap { URL(string: $0.linkAddress) }
             } else {
                 url = try? await store.quickLookFile(for: item)
             }

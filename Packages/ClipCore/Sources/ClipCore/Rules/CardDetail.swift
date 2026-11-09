@@ -29,12 +29,8 @@ public enum CardDetail {
             // "212 KB", in the user's locale, the way Finder shows sizes.
             return ByteCountFormatStyle(style: .file).format(Int64(size))
         case .link:
-            let text =
-                data.first { $0.type == ClipboardType.url }?.text
-                ?? data.first { $0.type == ClipboardType.plainText }?.text ?? ""
             // The site without "www.", which is how Safari's address bar shows it.
-            guard let host = URL(string: text.trimmingCharacters(in: .whitespacesAndNewlines))?.host()
-            else { return nil }
+            guard let host = URL(string: data.linkAddress)?.host() else { return nil }
             return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
         case .image, .color:
             return nil

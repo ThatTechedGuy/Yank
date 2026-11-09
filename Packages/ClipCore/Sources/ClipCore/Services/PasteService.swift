@@ -80,13 +80,22 @@ import Foundation
                 return entry
             }
         }
+        // Every card was deleted after it was listed (a paste stack entry whose item has since
+        // been erased, say). There is nothing to paste, so the clipboard keeps what it holds.
+        guard !data.isEmpty else {
+            Log.paste.notice("paste skipped: the items no longer exist")
+            return
+        }
         // The marker rides on the first pasteboard item as an empty extra type, the same way
         // password managers mark a copy as concealed. The capture loop sees it on the next poll
-        // and knows there is nothing to save: the item is already at the top (see below).
-        data.append(
-            ClipboardItemData(
-                pasteboardItemIndex: data.first?.pasteboardItemIndex ?? 0, type: ownMarker,
-                data: Data()))
+        // and knows there is nothing to save: the item is already at the top (see below). It
+        // goes right after that item's last type, because a change of `pasteboardItemIndex`
+        // starts a new pasteboard item: at the end of a multi-card paste it would become an
+        // extra, empty item of its own.
+        let firstItem = data[0].pasteboardItemIndex
+        data.insert(
+            ClipboardItemData(pasteboardItemIndex: firstItem, type: ownMarker, data: Data()),
+            at: data.firstIndex { $0.pasteboardItemIndex != firstItem } ?? data.count)
         clipboard.write(data)
         try await store.moveToTop(ids: items.map(\.id))
         await hidePanel()

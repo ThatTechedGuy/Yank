@@ -19,6 +19,9 @@ import UniformTypeIdentifiers
     /// The picture in the editor, as PNG bytes, when the original is an image. Each rotation
     /// or cut-out replaces it; nothing is written until a save.
     private(set) var image: Data?
+    /// The clipboard type of `image`: the type it was copied as (a screenshot may be TIFF), or
+    /// PNG once a tool has run, since the tools always give back a PNG.
+    private var imageType = UTType.png.identifier
     /// True while a save or an image tool runs, so the buttons can step back meanwhile.
     private(set) var isBusy = false
     /// What went wrong last, in the user's words, or nil. Shown under the buttons.
@@ -48,9 +51,11 @@ import UniformTypeIdentifiers
         do {
             let data = try await store.data(for: original.id)
             if editsImage {
-                image =
+                let copied =
                     ClipboardType.images.lazy
-                    .compactMap({ type in data.first { $0.type == type } }).first?.data
+                    .compactMap({ type in data.first { $0.type == type } }).first
+                image = copied?.data
+                imageType = copied?.type ?? imageType
             } else {
                 text = try await RichText.attributedString(from: data)
             }
@@ -60,9 +65,19 @@ import UniformTypeIdentifiers
     }
 
     /// Turns the picture a quarter turn, the way Preview's Rotate Left and Rotate Right do.
-    func rotate(clockwise: Bool) {
-        guard let image, let turned = ImageEditor.rotated(image, clockwise: clockwise) else { return }
+    func rotate(clockwise: Bool) async {
+        guard let image else { return }
+        isBusy = true
+        defer { isBusy = false }
+        guard let turned = await Self.turned(image, clockwise: clockwise) else { return }
         self.image = turned
+        imageType = UTType.png.identifier
+    }
+
+    /// Rotates off the main thread, because a big photo takes over a second to decode and
+    /// encode. `@concurrent` is what moves an async function off the caller's thread.
+    @concurrent private static func turned(_ image: Data, clockwise: Bool) async -> Data? {
+        ImageEditor.rotated(image, clockwise: clockwise)
     }
 
     /// Cuts the subject out of the picture, leaving the rest transparent. Says so when Vision
@@ -74,6 +89,7 @@ import UniformTypeIdentifiers
         do {
             if let cutOut = try await ImageEditor.removingBackground(from: image) {
                 self.image = cutOut
+                imageType = UTType.png.identifier
                 error = nil
             } else {
                 error = "No subject was found in this picture."
@@ -112,10 +128,10 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// The bytes to store, in the shape a copy from another app has: a PNG for a picture, RTF
-    /// plus plain text for a text.
+    /// The bytes to store, in the shape a copy from another app has: the picture under its real
+    /// type, RTF plus plain text for a text.
     private func clipboardData() async throws -> [ClipboardItemData] {
-        if let image { return [ClipboardItemData(type: UTType.png.identifier, data: image)] }
+        if let image { return [ClipboardItemData(type: imageType, data: image)] }
         return try await RichText.clipboardData(for: text)
     }
 

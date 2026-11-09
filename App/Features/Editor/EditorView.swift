@@ -29,9 +29,9 @@ struct EditorView: View {
             }
             HStack {
                 if editor.editsImage {
-                    Button("Rotate Left") { editor.rotate(clockwise: false) }
+                    Button("Rotate Left") { Task { await editor.rotate(clockwise: false) } }
                         .accessibilityIdentifier("rotate-left")
-                    Button("Rotate Right") { editor.rotate(clockwise: true) }
+                    Button("Rotate Right") { Task { await editor.rotate(clockwise: true) } }
                         .accessibilityIdentifier("rotate-right")
                     Button("Remove Background") { Task { await editor.removeBackground() } }
                         .accessibilityIdentifier("remove-background")

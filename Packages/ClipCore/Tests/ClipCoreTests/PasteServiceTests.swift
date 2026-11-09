@@ -104,11 +104,25 @@ import Testing
         #expect(clipboard.changeCount == before + 1)
         #expect(
             clipboard.contents.map { ($0.pasteboardItemIndex, $0.type) }.map { "\($0.0):\($0.1)" } == [
-                "0:public.rtf", "0:\(ClipboardType.plainText)", "1:\(ClipboardType.fileURL)",
-                "2:\(ClipboardType.fileURL)", "3:public.png", "0:\(PrivacyRules().ownMarker)",
+                "0:public.rtf", "0:\(ClipboardType.plainText)", "0:\(PrivacyRules().ownMarker)",
+                "1:\(ClipboardType.fileURL)", "2:\(ClipboardType.fileURL)", "3:public.png",
             ])
         #expect(keys.presses == 1)
         #expect(try await store.items(limit: 4).map(\.id) == [older.id, files.id, image.id, older.id + 1])
+    }
+
+    // A card deleted after it was listed (a paste stack entry, say) has no data. Pasting it must
+    // leave what the user has on the clipboard alone, and press nothing.
+    @Test func pastingADeletedCardLeavesTheClipboardAlone() async throws {
+        defer { folder.remove() }
+        let (service, store, older) = try await makeService()
+        clipboard.put([.text("what the user copied")])
+        let before = clipboard.changeCount
+        try await store.delete(id: older.id)
+        try await service.paste(older, plainText: false, destination: .activeApp)
+        #expect(clipboard.changeCount == before)
+        #expect(clipboard.contents.map(\.text) == ["what the user copied"])
+        #expect(keys.presses == 0)
     }
 
     @Test func aFileThatIsGoneRefusesThePasteBeforeAnythingIsWritten() async throws {

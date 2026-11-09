@@ -48,6 +48,20 @@ public struct ClipboardItemData: Hashable, Sendable {
     }
 }
 
+// `extension [ClipboardItemData]` adds a member to arrays of this one type.
+extension [ClipboardItemData] {
+    /// The web address of a link copy: its URL type, or its plain text when an app offered only
+    /// that, without the spaces and line breaks around it. The URL type comes first because the
+    /// plain text can be a label ("click here") rather than the address. The one rule for this,
+    /// so the card, the fingerprint and the fetch can never disagree about which link it is.
+    public var linkAddress: String {
+        let address =
+            first { $0.type == ClipboardType.url }?.text
+            ?? first { $0.type == ClipboardType.plainText }?.text ?? ""
+        return address.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
 // UTIs the rules care about. Defined here, as strings, because ClipCore may not import AppKit
 // (where `NSPasteboard.PasteboardType` lives) or UniformTypeIdentifiers; the import check enforces
 // that so the core stays testable without macOS UI frameworks. ClipSystem uses the same strings.

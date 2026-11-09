@@ -5,11 +5,14 @@ import Foundation
 // server, or a one-time link on the LAN, and would tell the local network that Yank exists.
 // Pure function over the URL's host, so the tests can list the edge cases without a network.
 //
-// Blocked by name: `localhost` (and anything under it) and `*.local` (Bonjour names, like
-// `printer.local`). Blocked by number: the loopback, private and link-local ranges of IPv4
-// (127.x, 10.x, 172.16–31.x, 192.168.x, 169.254.x) and IPv6 (::1, fc00::/7, fe80::/10), plus
-// an IPv4 address written inside an IPv6 one (::ffff:10.0.0.1). An address with no host at
-// all is local too, since there is nothing public to fetch.
+// Blocked by name: anything with no dot in it (`localhost`, `router`, `nas`: a public site always
+// has one) and names under the suffixes kept for private networks, such as `*.local` (Bonjour
+// names, like `printer.local`), `*.localhost`, `*.home.arpa`, `*.internal` and `*.lan`. A name may
+// end in one dot (`localhost.`), which means the same name. Blocked by number: the loopback,
+// private, shared (Tailscale and carrier networks) and link-local ranges of IPv4 (127.x, 10.x,
+// 172.16–31.x, 192.168.x, 100.64–127.x, 169.254.x) and IPv6 (::1, fc00::/7, fe80::/10), plus an
+// IPv4 address written inside an IPv6 one (::ffff:10.0.0.1). An address with no host at all is
+// local too, since there is nothing public to fetch.
 //
 // shortcut: a public name that secretly resolves to a local address, or a public page that
 // redirects to one, still gets fetched, because the check sees only the address as written;
@@ -19,19 +22,26 @@ public enum LocalAddress {
     /// True when the link must not be fetched: its host names this Mac or the local network,
     /// or it has no host.
     public static func isLocal(_ url: URL) -> Bool {
-        guard let host = url.host(percentEncoded: false)?.lowercased(), !host.isEmpty else { return true }
-        if host == "localhost" || host.hasSuffix(".localhost") || host.hasSuffix(".local") { return true }
+        guard var host = url.host(percentEncoded: false)?.lowercased() else { return true }
+        if host.hasSuffix(".") { host.removeLast() }
+        guard !host.isEmpty else { return true }
         if let bytes = ipv4Bytes(host) { return isLocalIPv4(bytes) }
         if let bytes = ipv6Bytes(host) { return isLocalIPv6(bytes) }
-        return false
+        if !host.contains(".") { return true }
+        // The dot in front makes `home.arpa` itself match as well as names under it.
+        return privateSuffixes.contains { ".\(host)".hasSuffix($0) }
     }
 
-    /// The four bytes of an IPv4 address written as digits and dots, or nil for anything
-    /// else. `inet_pton` is the C library's parser, strict about the four-part form, so
-    /// "172.16.0" or "10" are not addresses to it (and not to a browser either).
+    /// The name endings set aside for private networks.
+    private static let privateSuffixes = [".localhost", ".local", ".home.arpa", ".internal", ".lan"]
+
+    /// The four bytes of an IPv4 address, or nil for anything else. `inet_aton` is the C
+    /// library's forgiving parser, and it has to be: the system's URL loading also accepts the
+    /// short and odd spellings ("127.1", "2130706433", "0x7f.0.0.1"), so each must be judged by
+    /// the address it really means.
     private static func ipv4Bytes(_ host: String) -> [UInt8]? {
         var address = in_addr()
-        guard inet_pton(AF_INET, host, &address) == 1 else { return nil }
+        guard inet_aton(host, &address) != 0 else { return nil }
         return withUnsafeBytes(of: &address) { Array($0) }
     }
 
@@ -46,10 +56,11 @@ public enum LocalAddress {
     }
 
     /// 0.x (this network), 10.x, 127.x (loopback), 169.254.x (link-local), 172.16.x to
-    /// 172.31.x, 192.168.x.
+    /// 172.31.x, 192.168.x, and 100.64.x to 100.127.x (shared address space: Tailscale, carriers).
     private static func isLocalIPv4(_ b: [UInt8]) -> Bool {
         b[0] == 0 || b[0] == 10 || b[0] == 127 || (b[0] == 169 && b[1] == 254)
             || (b[0] == 172 && (16...31).contains(b[1])) || (b[0] == 192 && b[1] == 168)
+            || (b[0] == 100 && (64...127).contains(b[1]))
     }
 
     /// `::` and `::1` (unspecified and loopback), fc00::/7 (unique local, the IPv6 "private"

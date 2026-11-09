@@ -571,4 +571,85 @@ struct StoreTests {
             #expect(try await store.quickLookFile(for: text)?.pathExtension == "txt")
         }
     }
+
+    @Test func deletingAndErasingRemoveTheTemporaryCopies() async throws {
+        try await withStore { store in
+            let image = try await store.save(copy([.png([1, 2, 3])]))
+            let imageFile = try #require(try await store.quickLookFile(for: image))
+            try await store.delete(id: image.id)
+            #expect(!FileManager.default.fileExists(atPath: imageFile.path))
+            let text = try await store.save(copy([.text("private")]))
+            let textFile = try #require(try await store.quickLookFile(for: text))
+            try await store.eraseHistory()
+            #expect(!FileManager.default.fileExists(atPath: textFile.path))
+        }
+    }
+
+    // A word far beyond the 200 characters on the card is still found, and an edit that takes
+    // the word away takes it out of the index too.
+    @Test func searchSeesBeyondTheCardText() async throws {
+        try await withStore { store in
+            let text = "opening " + String(repeating: "word ", count: 100) + "deepword"
+            let item = try await store.save(copy([.text(text)]))
+            #expect(item.cardText.count <= CardText.maxLength)
+            #expect(try await store.search("deepword", limit: 10)?.map(\.id) == [item.id])
+            _ = try await store.replaceData(for: item.id, with: [.text("short now")])
+            #expect(try await store.search("deepword", limit: 10)?.isEmpty == true)
+        }
+    }
+
+    // A database made before v4 has only short card text in its index. After the migration a
+    // word deep in an existing text item can be found.
+    @Test func migrationFourIndexesTheFullTextOfExistingItems() async throws {
+        defer { folder.remove() }
+        try FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
+        let queue = try DatabaseQueue(path: folder.url.appending(path: "yank.sqlite").path)
+        try Migrations.migrator.migrate(queue, upTo: "v3")
+        let text = "opening " + String(repeating: "word ", count: 100) + "deepword"
+        try await queue.write { db in
+            try db.execute(
+                sql: """
+                    INSERT INTO clipboardItem (kind, cardText, createdAt, copiedAt, contentFingerprint)
+                    VALUES ('text', 'opening', '2026-01-01 00:00:00.000', '2026-01-01 00:00:00.000', 'old')
+                    """)
+            try db.execute(
+                sql: """
+                    INSERT INTO clipboardItemData (clipboardItemId, pasteboardItemIndex, position, type, data)
+                    VALUES (1, 0, 0, ?, ?)
+                    """, arguments: [ClipboardType.plainText, Data(text.utf8)])
+        }
+        try queue.close()
+        let store = try Store(folder: folder.url)
+        #expect(try await store.search("deepword", limit: 10)?.count == 1)
+    }
+
+    // Two different links that share a label ("click here") are two items, and each card shows
+    // its own address.
+    @Test func linksWithTheSameLabelStaySeparate() async throws {
+        try await withStore { store in
+            let first = try await store.save(copy([.url("https://a.example/one"), .text("click here")]))
+            let second = try await store.save(copy([.url("https://b.example/two"), .text("click here")]))
+            #expect(first.id != second.id)
+            #expect(first.cardText == "https://a.example/one")
+            #expect(try await store.count() == 2)
+        }
+    }
+
+    // "Keep history": old unpinned items go, with their large files; recent and pinned ones stay.
+    @Test func expiringRemovesOnlyOldUnpinnedItems() async throws {
+        try await withStore { store in
+            let now = Date()
+            let old = now - 100 * 86_400
+            let big = ClipboardItemData(type: "public.png", data: Data(repeating: 1, count: 1_000_001))
+            try await store.save(copy([big], at: old))
+            #expect(try largeFiles().count == 1)
+            let pinned = try await store.save(copy([.text("pinned and old")], at: old))
+            let recent = try await store.save(copy([.text("recent")], at: now))
+            let board = try await store.createPinboard(named: "Keep")
+            try await store.pin(itemId: pinned.id, to: board.id)
+            try await store.deleteUnpinned(copiedBefore: now - 90 * 86_400)
+            #expect(try await store.items(limit: 10).map(\.id) == [recent.id, pinned.id])
+            #expect(try largeFiles().isEmpty)
+        }
+    }
 }

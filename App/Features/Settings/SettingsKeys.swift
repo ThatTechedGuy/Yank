@@ -23,6 +23,9 @@ enum SettingsKey {
     /// unless the user turns that off. Read with `linkPreviewsEnabled`, not `bool(forKey:)`,
     /// which would read a missing key as off.
     nonisolated static let linkPreviews = "linkPreviews"
+    /// "Keep history": how many days unpinned items are kept, as an Int. 0 means forever, which
+    /// is also what a missing key reads as, so nothing is ever deleted until the user chooses.
+    static let keepHistoryDays = "keepHistoryDays"
     /// Whether the welcome window has been shown: a Bool, missing until the first launch opens
     /// the window, then true for good. `-hasShownWelcome NO` on the command line makes one
     /// launch behave like the first one again, which is how the UI test checks the window.

@@ -17,7 +17,7 @@ public struct ClipboardItem: Identifiable, Hashable, Sendable, Codable {
     public var kind: ItemKind
     /// Your own name for the item, set by Rename. Replaces the first line on the card.
     public var title: String?
-    /// The first 200 characters, tidied: what the card shows and what search matches.
+    /// The first 200 characters, tidied: what the card shows.
     public var cardText: String
     /// The one line in the card's footer: "52 characters", "212 KB", "apple.com", "1280 × 800",
     /// "#2B59D6". Set at save time (see `CardDetail`), or by the Enricher when it needs the

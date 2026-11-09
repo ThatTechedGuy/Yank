@@ -120,9 +120,23 @@ private struct DataSettings: View {
     // a React component reads a context.
     @Environment(AppModel.self) private var model
     @State private var confirmsErase = false
+    @AppStorage(SettingsKey.keepHistoryDays) private var keepHistoryDays = 0
 
     var body: some View {
         Form {
+            Section {
+                Picker("Keep history", selection: $keepHistoryDays) {
+                    Text("Forever").tag(0)
+                    Text("1 year").tag(365)
+                    Text("90 days").tag(90)
+                    Text("30 days").tag(30)
+                }
+                .accessibilityIdentifier("keep-history")
+            } footer: {
+                Text(
+                    "Items older than this are deleted for good, unless they are on a pinboard. "
+                        + "Yank checks when it starts and once an hour.")
+            }
             Section {
                 LabeledContent("History") {
                     Text("^[\(model.itemCount) items](inflect: true) saved")

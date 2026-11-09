@@ -68,6 +68,7 @@ extension PanelModel {
         Task { [store] in
             do {
                 try await store.pin(itemId: itemId, to: pinboardId)
+                refreshSearch()
             } catch {
                 Log.ui.error(
                     "could not pin item \(itemId, privacy: .public): \(error.logDescription, privacy: .public)"
@@ -81,6 +82,7 @@ extension PanelModel {
         Task { [store] in
             do {
                 try await store.unpin(itemId: itemId)
+                refreshSearch()
             } catch {
                 Log.ui.error(
                     "could not unpin item \(itemId, privacy: .public): \(error.logDescription, privacy: .public)"

@@ -125,6 +125,42 @@ enum Migrations {
                 t.add(column: "cardDetail", .text)
             }
         }
+
+        // Search used to read `cardText`, the 200 characters on the card, so a word further into
+        // a long text was never found. The new `searchText` column holds much more of it, and the
+        // index reads that instead. Rebuilt the same way as v2, because an FTS5 table cannot
+        // change its columns. Existing text items are filled from their saved plain text. This
+        // is hand-written SQL because the query builder cannot say "set a column from a
+        // subquery that casts a blob". An item whose text was over 1 MB has it in a file SQL
+        // cannot read, so it keeps its card text, as does every other kind. 20000 is
+        // `CardText.maxSearchLength` at the time of writing, spelled out because a migration
+        // must keep doing what it did even if that constant later changes.
+        migrator.registerMigration("v4") { db in
+            try db.drop(table: "clipboardItemSearchIndex")
+            try db.dropFTS5SynchronizationTriggers(forTable: "clipboardItemSearchIndex")
+            try db.alter(table: "clipboardItem") { t in
+                t.add(column: "searchText", .text).notNull().defaults(to: "")
+            }
+            try db.execute(
+                sql: """
+                    UPDATE clipboardItem SET searchText = CASE WHEN kind = 'text' THEN COALESCE(
+                        (SELECT substr(CAST(data AS TEXT), 1, 20000) FROM clipboardItemData
+                         WHERE clipboardItemId = clipboardItem.id
+                           AND type = 'public.utf8-plain-text' AND data IS NOT NULL
+                         ORDER BY position LIMIT 1),
+                        cardText) ELSE cardText END
+                    """)
+            try db.create(virtualTable: "clipboardItemSearchIndex", using: FTS5()) { t in
+                t.synchronize(withTable: "clipboardItem")
+                t.tokenizer = .unicode61()
+                t.prefixes = [2, 3]
+                t.column("searchText")
+                t.column("title")
+                t.column("imageText")
+                t.column("linkPageTitle")
+                t.column("sourceAppName")
+            }
+        }
         return migrator
     }
 }

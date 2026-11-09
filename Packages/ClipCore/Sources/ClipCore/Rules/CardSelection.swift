@@ -14,12 +14,10 @@ public struct CardSelection: Equatable, Sendable {
     public private(set) var lead: Int64?
     /// Where a ⇧-arrow run starts; the lead is its other end.
     public private(set) var anchor: Int64?
-    /// Every selected card, in no particular order. Use `ordered(in:)` for left-to-right.
+    /// Every selected card, in no particular order.
     public private(set) var ids: Set<Int64> = []
 
     public init() {}
-
-    public var count: Int { ids.count }
 
     public func contains(_ id: Int64) -> Bool { ids.contains(id) }
 
@@ -74,11 +72,5 @@ public struct CardSelection: Equatable, Sendable {
         ids.formIntersection(order)
         if let lead, ids.contains(lead) { return }
         select(order.first)
-    }
-
-    /// The selected cards in the list's order (left to right), the order a paste of several
-    /// cards uses.
-    public func ordered(in order: [Int64]) -> [Int64] {
-        order.filter(ids.contains)
     }
 }

@@ -61,7 +61,11 @@ import SwiftUI
     private func load(_ item: ClipboardItem) async {
         do {
             var thumbnail = try await store.thumbnail(for: item.id)
-            if thumbnail == nil { thumbnail = try await enricher.enrich(item)?.thumbnail }
+            // A link with no saved icon is left alone: the capture path already asked its page,
+            // and fetching on every launch could use up a one-time link.
+            if thumbnail == nil, item.kind != .link {
+                thumbnail = try await enricher.enrich(item)?.thumbnail
+            }
             guard let thumbnail, let image = await Self.decode(thumbnail.png) else { return }
             images.setObject(image, forKey: item.id as NSNumber, cost: thumbnail.png.count)
             loading.remove(item.id)

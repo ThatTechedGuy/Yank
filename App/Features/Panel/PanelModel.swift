@@ -188,9 +188,16 @@ import SwiftUI
         startLiveList()
     }
 
+    /// Reads the search results again after the user changed a card in them (deleted, renamed,
+    /// pinned), since the results are a snapshot. The selection stays where it is if it can.
+    func refreshSearch() {
+        if searchResults != nil { startSearch(keepingSelection: true) }
+    }
+
     /// Cancels the search for the previous text and starts one for the current text. An empty
-    /// box needs no database read: the live list comes back at once.
-    private func startSearch() {
+    /// box needs no database read: the live list comes back at once. New text selects the
+    /// first result; `keepingSelection` is for a refresh of the same text.
+    private func startSearch(keepingSelection: Bool = false) {
         search?.cancel()
         guard !searchText.isEmpty else {
             searchResults = nil
@@ -207,7 +214,11 @@ import SwiftUI
                 // results are stale, and the newer search will set its own.
                 guard !Task.isCancelled else { return }
                 searchResults = results
-                selectedId = items.first?.id
+                if keepingSelection {
+                    selection.keep(in: items.map(\.id))
+                } else {
+                    selectedId = items.first?.id
+                }
                 Log.timing.endInterval("Search", state)
                 Log.ui.info("search found \(results?.count ?? -1, privacy: .public) items")
             } catch is CancellationError {

@@ -288,6 +288,13 @@ struct LocalAddressTests {
         "http://192.168.1.1/admin", "http://169.254.1.1/", "http://0.0.0.0/", "http://[::1]/",
         "http://[::]/", "http://[fd00::1]/", "http://[fc00::1]/", "http://[fe80::1%25en0]/",
         "http://[::ffff:10.0.0.1]/", "http://[::ffff:127.0.0.1]/", "file:///Users/me/notes.txt",
+        // The other ways of writing an IPv4 address, which the system's URL loading accepts.
+        "http://127.1/", "http://2130706433/", "http://0x7f.0.0.1/", "http://0177.0.0.1/",
+        "http://192.168.1/",
+        // A trailing dot, names with no dot, private name endings, and the shared range's edges.
+        "http://localhost./", "http://printer.local./", "http://router/", "http://home.arpa/",
+        "http://nas.home.arpa/", "http://app.internal/", "http://box.lan/", "http://100.64.0.1/",
+        "http://100.127.255.255/",
     ])
     func localAddressesAreLocal(address: String) {
         #expect(isLocal(address))
@@ -297,7 +304,8 @@ struct LocalAddressTests {
         "https://apple.com/", "https://www.github.com/ThatTechedGuy/Yank", "http://172.15.0.1/",
         "http://172.32.0.1/", "http://11.0.0.1/", "http://192.169.0.1/", "http://8.8.8.8/",
         "http://[2606:4700::1111]/", "http://[::ffff:8.8.8.8]/", "https://notlocalhost.com/",
-        "https://example.localdomain/",
+        "https://example.localdomain/", "http://100.63.255.255/", "http://100.128.0.1/",
+        "https://example.com./",
     ])
     func publicAddressesAreNotLocal(address: String) {
         #expect(!isLocal(address))

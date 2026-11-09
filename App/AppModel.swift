@@ -155,6 +155,7 @@ import SwiftUI
                 self?.itemCount = (try? await store.count()) ?? 0
                 await self?.poll()
             }
+            Task { [weak self] in await self?.expireOldItems(in: store) }
         } catch {
             Log.store.error("could not open the store: \(error.logDescription, privacy: .public)")
             startupError = "Could not open the database: \(error.localizedDescription)"
@@ -260,6 +261,25 @@ import SwiftUI
             // user pastes it, rare enough to cost nothing. `tolerance` lets macOS wake us up to 25 ms
             // late so it can batch our timer with others and save power.
             try? await Task.sleep(for: .milliseconds(250), tolerance: .milliseconds(25))
+        }
+    }
+
+    /// Applies the "Keep history" setting at launch and then once an hour, for as long as Yank
+    /// runs: it may stay open for weeks as a login item. The setting is read on each pass, so a
+    /// change in Settings needs no wiring. "Forever" (0, and what a missing key reads as) deletes
+    /// nothing.
+    private func expireOldItems(in store: Store) async {
+        while !Task.isCancelled {
+            let days = UserDefaults.standard.integer(forKey: SettingsKey.keepHistoryDays)
+            if days > 0, let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) {
+                do {
+                    try await store.deleteUnpinned(copiedBefore: cutoff)
+                    itemCount = (try? await store.count()) ?? 0
+                } catch {
+                    Log.store.error("could not expire items: \(error.logDescription, privacy: .public)")
+                }
+            }
+            try? await Task.sleep(for: .seconds(3600), tolerance: .seconds(60))
         }
     }
 

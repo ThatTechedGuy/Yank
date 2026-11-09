@@ -406,13 +406,17 @@ a new `Task` (cancel-and-restart, no debounce: a search is a few ms, so waiting 
 would only add delay). The task calls `Store.search(_:limit:)` and, if it was not cancelled meanwhile,
 assigns `searchResults`; `items` (what the views read) is `searchResults ?? liveItems`, so clearing the
 field shows the live list again, which kept running underneath. Results are a snapshot: a copy made while
-they show does not appear until the next keystroke. They are capped at one page (`pageSize`, 200) with no
+they show does not appear until the next keystroke, but deleting, renaming, pinning or unpinning a card
+reads them again (`refreshSearch`). They are capped at one page (`pageSize`, 200) with no
 paging, and `cardDidAppear` does not page while results show.
 
 The search is SQLite's full-text index FTS5, through GRDB. The `clipboardItemSearchIndex` virtual table
 mirrors `clipboardItem` (GRDB's `synchronize(withTable:)` installs the triggers that keep it in step) and
-indexes `cardText`, `title`, `imageText`, `linkPageTitle` and `sourceAppName`, so "safari" finds what was
-copied from Safari. The tokenizer is `unicode61` (case- and accent-insensitive, splits on punctuation) with
+indexes `searchText`, `title`, `imageText`, `linkPageTitle` and `sourceAppName`, so "safari" finds what was
+copied from Safari. `searchText` (migration `v4`) is the first 20,000 characters of a text copy
+(`CardText.maxSearchLength`), and the card text for other kinds; it is not on `ClipboardItem`, so the
+cards never carry it. A text saved before `v4` whose bytes were over 1 MB stays searchable by its card
+text only, because its bytes are in a file SQL cannot read. The tokenizer is `unicode61` (case- and accent-insensitive, splits on punctuation) with
 prefix tables for 2- and 3-letter prefixes, which is why the two-letter minimum exists: below it the index
 has no prefix table and one letter matches most of the history. `Store.search` turns the typed text into
 an `FTS5Pattern(matchingAllPrefixesIn:)`, so every word is a prefix ("qua" finds "quarterly"), every word
@@ -475,7 +479,8 @@ at most 512 pixels on the long side, never scaled up, plus the real pixel size),
 `NSKeyedUnarchiver` + `NSColor` for a colour's hex value. The answer is saved in one transaction
 (`Store.setPreview`): the PNG in the `cardThumbnail` table (one row per item, deleted with it) and the
 detail on the item. Text and links never reach the Thumbnailer. ClipCore stays free of AppKit: the
-Enricher takes the function as a closure, so its tests pass a fake.
+Enricher takes the function as a closure, so its tests pass a fake. Links are the exception to the card
+asking again: a link is only ever fetched from the capture path, see stage 9.
 
 **On screen.** `ThumbnailCache` (an `NSCache` of decoded `NSImage`s, keyed by item id) hands a card its
 picture: a hit is synchronous, a miss starts one load (`Store.thumbnail`, decoded off the main thread)
@@ -625,7 +630,13 @@ pause is not saved to disk: quitting resumes.
 **Erase History** is `Store.eraseHistory`: one transaction deletes every item with no pinboard (data
 rows and thumbnails go by cascade), then the files, then `VACUUM` and a WAL checkpoint so the file on
 disk shrinks right away. Pinned items stay. The panel follows the database on its own; the menu's count
-is re-read when it is done.
+is re-read when it is done. Deleting or erasing also clears the temporary copies Quick Look, Share and
+Open With made (`Store.removeQuickLookCopies`).
+
+**Keep history** (Settings › Data) is Forever, 1 year, 90 days or 30 days, stored as a number of days
+under `keepHistoryDays`; 0 and a missing key mean forever, so nothing is deleted until the user chooses.
+`AppModel.expireOldItems` applies it at launch and once an hour through `Store.deleteUnpinned`. Pinned
+items stay. It does not rebuild the database file (SQLite reuses the freed space); Erase History does.
 
 **Maintaining it.** To add a setting: a key in `SettingsKey`, a control in the right tab bound with
 `@AppStorage(SettingsKey.x)`, and a read of the same key where it takes effect; nothing else, and no
@@ -816,13 +827,16 @@ refusing it took a minute in testing, which is the `shortcut:` comment in the fi
 link is fetched only if `linkPreviewsEnabled()` says yes (the app passes a closure that reads the
 UserDefaults key, so ClipCore never reads defaults itself) and `LocalAddress.isLocal(url)` says no; a
 skipped local address logs "skipped: local address". The icon is saved as the item's `cardThumbnail`
-row and the title in `linkPageTitle` (`Store.setPreview`, one transaction). The in-flight table from
-stage 5 means a link is fetched once however many cards ask.
+row and the title in `linkPageTitle` (`Store.setPreview`, one transaction). A link is fetched from the
+capture path only, and not at all once its title is saved, so showing its card or copying it again never
+opens a one-time link a second time. A fetch that failed is tried again only by a new copy of the link.
 
 **Local addresses.** `LocalAddress` (`ClipCore/Rules/LocalAddress.swift`) is a pure function over the
-URL's host: `localhost` and `*.localhost`, `*.local`, and by number (parsed with `inet_pton`) 0/8, 10/8,
-127/8, 169.254/16, 172.16/12, 192.168/16, IPv6 `::`/`::1`, fc00::/7, fe80::/10 and an IPv4 address
-carried as `::ffff:a.b.c.d`. A URL with no host counts as local. Known limit, as the `shortcut:` comment
+URL's host, after dropping one trailing dot: any name with no dot, `*.localhost`, `*.local`, `*.home.arpa`,
+`*.internal`, `*.lan`, and by number 0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.168/16, IPv6
+`::`/`::1`, fc00::/7, fe80::/10 and an IPv4 address carried as `::ffff:a.b.c.d`. IPv4 is parsed with
+`inet_aton`, which reads the short and odd spellings (`127.1`, `2130706433`, `0x7f.0.0.1`) the way the
+system's URL loading does. A URL with no host counts as local. Known limit, as the `shortcut:` comment
 says: a public name that resolves to a local address, or a public page that redirects to one, is still
 fetched; the check sees only the address as written.
 
@@ -836,7 +850,7 @@ linkPreviewsEnabled` (not `bool(forKey:)`, which reads a missing key as off) is 
 the Enricher. The Toggle is in `PrivacySettings`, identifier `link-previews`. Like every other setting,
 `-linkPreviews NO` on the command line turns it off for one run.
 
-**Tests.** `LocalAddressTests` (`RulesTests.swift`): nineteen local and eleven public addresses, both
+**Tests.** `LocalAddressTests` (`RulesTests.swift`): thirty-three local and fourteen public addresses, both
 sides of every boundary (172.15 vs 172.16, 172.31 vs 172.32, 192.168 vs 192.169, 127 vs 11, `[::1]`,
 `[fd00::1]`, `[fe80::1%en0]`, `::ffff:` forms, `.local` vs `.localdomain`). `EnricherTests` with
 `FakeLinkFetcher` (records every address it is asked for): a public link is fetched once and its title
@@ -915,7 +929,7 @@ panel's model, not from a view, and `openWindow` is view-only. `AppModel.edit` h
 (the editor makes Yank the active app, which the panel never does) and shows it again after a save,
 with the saved card selected.
 `PanelModel.openEditor` is the closure the panel calls for Edit, ⌘E and ⌘N; `ItemAction.available`
-offers `.edit` for every kind but `.file`. `TextFormattingCommands()` on the app's `commands` is what
+offers `.edit` for text, links and images. `TextFormattingCommands()` on the app's `commands` is what
 gives ⌘B, ⌘I and ⌘U to the text view.
 
 **Tests.** `StoreTests`: `replacingDataKeepsTheItemAndItsPlaceButChangesTheBytes` (same id and

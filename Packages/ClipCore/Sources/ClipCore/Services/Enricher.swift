@@ -55,14 +55,16 @@ public final class Enricher: Sendable {
     }
 
     /// Makes and saves the item's preview, and returns it. Text has none to make, and a link
-    /// has none without a fetcher, so those return nil without reading any bytes.
+    /// has none without a fetcher, so those return nil without reading any bytes. A link whose
+    /// page title is already saved is not fetched again: opening a page can use up a one-time
+    /// link, so a repeat copy must not open it a second time.
     /// (`@discardableResult`: the capture path ignores the return value; the panel uses it to
     /// show a thumbnail straight away.)
     @discardableResult
     public func enrich(_ item: ClipboardItem) async throws -> CardPreview? {
         switch item.kind {
         case .text: return nil
-        case .link where linkFetcher == nil: return nil
+        case .link where linkFetcher == nil || item.linkPageTitle != nil: return nil
         default: break
         }
         let task = inFlight.withLock { tasks in
@@ -90,18 +92,12 @@ public final class Enricher: Sendable {
     }
 
     /// The title and icon of the page a link points at, or nil when previews are off, the
-    /// address is local, or the copy holds no usable address. The address comes from the copy's
-    /// URL type, or its plain text when an app offered only that (the same places the save
-    /// read it from). The icon becomes the card's thumbnail, the title its text.
+    /// address is local, or the copy holds no usable address. The icon becomes the card's
+    /// thumbnail, the title its text.
     private func linkPreview(_ item: ClipboardItem, _ data: [ClipboardItemData]) async throws -> CardPreview?
     {
         guard let linkFetcher, linkPreviewsEnabled() else { return nil }
-        let address =
-            data.first { $0.type == ClipboardType.url }?.text
-            ?? data.first { $0.type == ClipboardType.plainText }?.text ?? ""
-        guard let url = URL(string: address.trimmingCharacters(in: .whitespacesAndNewlines)) else {
-            return nil
-        }
+        guard let url = URL(string: data.linkAddress) else { return nil }
         if LocalAddress.isLocal(url) {
             Log.store.info("skipped: local address, item \(item.id, privacy: .public)")
             return nil

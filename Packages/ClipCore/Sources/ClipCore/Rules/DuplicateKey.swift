@@ -23,11 +23,8 @@ public enum DuplicateKey {
         case .link:
             // The address, with the spaces and line breaks around it removed: the same link
             // copied from a browser's address bar ("https://a.com") and from a chat message
-            // ("https://a.com\n") is one item. A link with no plain text uses its URL type.
-            let address =
-                data.first { $0.type == ClipboardType.plainText }?.text
-                ?? data.first { $0.type == ClipboardType.url }?.text ?? ""
-            content = Data(address.trimmingCharacters(in: .whitespacesAndNewlines).utf8)
+            // ("https://a.com\n") is one item.
+            content = Data(data.linkAddress.utf8)
         case .image:
             // The bytes of the first image type we know, in our preference order: PNG when the
             // app put one there, else TIFF, and so on. This compares encoded bytes, not pixels.

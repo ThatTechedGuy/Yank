@@ -23,6 +23,9 @@ import GRDB
 public final class Store: Sendable {
     private let pool: DatabasePool
     private let files: LargeDataFiles
+    /// Where Quick Look, Share and Open With get their temporary copies of an item's bytes. One
+    /// folder per Store folder, so clearing it can never touch another Store's copies.
+    private let quickLookFolder: URL
 
     /// Opens (or creates) the database in `folder`, runs migrations and removes orphan files.
     /// Runs on the caller's thread; the app calls it on the main thread at launch.
@@ -50,6 +53,7 @@ public final class Store: Sendable {
         pool = try DatabasePool(
             path: folder.appending(path: "yank.sqlite").path, configuration: configuration)
         files = try LargeDataFiles(folder: folder.appending(path: "LargeData"))
+        quickLookFolder = URL.temporaryDirectory.appending(path: "QuickLook/\(folder.lastPathComponent)")
         try Migrations.migrator.migrate(pool)
         // A data file that no row points at can only come from a crash in the middle of a save or
         // a delete (see LargeDataFiles). Sweep now, before capture starts, so the folder never
@@ -87,6 +91,7 @@ public final class Store: Sendable {
         let fingerprint = DuplicateKey.make(kind: kind, data: copy.data)
         let cardText = CardText.make(kind: kind, data: copy.data)
         let cardDetail = CardDetail.make(kind: kind, data: copy.data)
+        let searchText = CardText.searchText(kind: kind, data: copy.data)
         // Large data goes to disk *before* the transaction, so a row never points at a file that
         // isn't fully there yet. If the transaction then fails, these files are leftovers; they
         // are removed right away below, or by the sweep at the next launch after a crash.
@@ -114,6 +119,8 @@ public final class Store: Sendable {
                     existing.sourceAppName = copy.sourceApp?.name
                     // `update` writes every column of the row back, matched by `id`.
                     try existing.update(db)
+                    _ = try ClipboardItem.filter(key: existing.id)
+                        .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
                     item = existing
                     let oldRows = ClipboardItemDataRow.ofItem(item.id)
                     oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
@@ -122,7 +129,7 @@ public final class Store: Sendable {
                     // `insertAndFetch` inserts and reads the new row straight back, so the
                     // caller gets the item exactly as stored, with the id the database chose.
                     item = try NewClipboardItem(
-                        kind: kind, cardText: cardText, cardDetail: cardDetail,
+                        kind: kind, cardText: cardText, searchText: searchText, cardDetail: cardDetail,
                         sourceAppBundleId: copy.sourceApp?.bundleId,
                         sourceAppName: copy.sourceApp?.name, createdAt: copy.copiedAt,
                         copiedAt: copy.copiedAt, contentFingerprint: fingerprint
@@ -160,6 +167,7 @@ public final class Store: Sendable {
         let fingerprint = DuplicateKey.make(kind: kind, data: data)
         let cardText = CardText.make(kind: kind, data: data)
         let cardDetail = CardDetail.make(kind: kind, data: data)
+        let searchText = CardText.searchText(kind: kind, data: data)
         let fileNames = try writeLargeData(of: data)
         let result: (item: ClipboardItem, oldFileNames: [String])?
         do {
@@ -172,6 +180,8 @@ public final class Store: Sendable {
                 item.imageText = nil
                 item.linkPageTitle = nil
                 try item.update(db)
+                _ = try ClipboardItem.filter(key: id)
+                    .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
                 let oldRows = ClipboardItemDataRow.ofItem(id)
                 let oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
                 try oldRows.deleteAll(db)
@@ -221,23 +231,12 @@ public final class Store: Sendable {
         }
     }
 
-    /// One item by id, or nil when it has been deleted. The editor opens with this.
-    public func item(id: Int64) async throws -> ClipboardItem? {
-        try await pool.read { db in try ClipboardItem.fetchOne(db, key: id) }
-    }
-
-    /// Moves an item to the top of the history by giving it a new "last copied" time: what a
-    /// paste from the panel does, so the item you just used is the first card next time. Only
-    /// the time changes; the data rows and files stay as they are. The live list (`observeItems`)
-    /// sees the write and delivers the new order on its own.
-    public func moveToTop(id: Int64) async throws {
-        try await moveToTop(ids: [id])
-    }
-
-    /// Moves several items to the top in one transaction, keeping their order: the first id
-    /// ends up newest. Each gets a time one millisecond older than the one before, because
-    /// the column keeps milliseconds and two items with the same time would fall back to id
-    /// order.
+    /// Moves items to the top of the history by giving them a new "last copied" time: what a
+    /// paste from the panel does, so what you just used comes first next time. One transaction,
+    /// keeping their order: the first id ends up newest. Each gets a time one millisecond older
+    /// than the one before, because the column keeps milliseconds and two items with the same
+    /// time would fall back to id order. Only the time changes; the data rows and files stay
+    /// as they are. The live list (`observeItems`) delivers the new order on its own.
     public func moveToTop(ids: [Int64]) async throws {
         let now = Date()
         // `updateAll` on a filtered request is GRDB's "UPDATE ... SET ... WHERE": one statement,
@@ -415,13 +414,20 @@ public final class Store: Sendable {
             data.lazy.compactMap { d in extensions[d.type].map { (d.type, $0) } }.first
             ?? (ClipboardType.plainText, "txt")
         guard let bytes = data.first(where: { $0.type == type })?.data else { return nil }
-        // One file per item in the app's temporary folder, overwritten on each preview. macOS
-        // empties that folder on its own, so nothing here has to clean up.
-        let folder = URL.temporaryDirectory.appending(path: "QuickLook")
-        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let url = folder.appending(path: "\(item.id).\(ext)")
+        // One file per item in the app's temporary folder, overwritten on each preview. Deleting
+        // items clears the folder (`removeQuickLookCopies`).
+        try FileManager.default.createDirectory(at: quickLookFolder, withIntermediateDirectories: true)
+        let url = quickLookFolder.appending(path: "\(item.id).\(ext)")
         try bytes.write(to: url, options: .atomic)
         return url
+    }
+
+    /// Removes every temporary copy, so deleted content does not linger in the temporary folder
+    /// until macOS gets round to it. All of them rather than only the deleted items': the rest
+    /// are simply written again the next time they are needed. (`try?`: a folder that was never
+    /// made is fine.)
+    private func removeQuickLookCopies() {
+        try? FileManager.default.removeItem(at: quickLookFolder)
     }
 
     /// Up to this many matches are sorted best match first; more than this and they come
@@ -493,6 +499,7 @@ public final class Store: Sendable {
             Log.store.info("deleted \(count) items")
             return names
         }
+        removeQuickLookCopies()
         try files.delete(fileNames)
     }
 
@@ -525,8 +532,12 @@ public final class Store: Sendable {
             return try await pool.write { db in
                 guard let original = try ClipboardItem.fetchOne(db, key: id) else { return nil }
                 let now = Date()
+                let searchText =
+                    try ClipboardItem.filter(key: id)
+                    .select(ClipboardItemColumns.searchText, as: String.self).fetchOne(db)
                 let copy = try NewClipboardItem(
                     kind: original.kind, title: original.title, cardText: original.cardText,
+                    searchText: searchText ?? original.cardText,
                     cardDetail: original.cardDetail, sourceAppBundleId: original.sourceAppBundleId,
                     sourceAppName: original.sourceAppName, createdAt: now, copiedAt: now,
                     contentFingerprint: original.contentFingerprint, imageText: original.imageText,
@@ -561,20 +572,37 @@ public final class Store: Sendable {
     /// into a fresh file, so it runs last and can take a moment on a big history; the caller
     /// awaits all of it off the main thread.
     public func eraseHistory() async throws {
-        let fileNames = try await pool.write { db in
-            let names = try ClipboardItemDataRow.fileNames(in: ClipboardItemDataRow.ofUnpinnedItems)
-                .fetchAll(db)
-            let count = try ClipboardItem.filter(ClipboardItemColumns.pinboardId == nil).deleteAll(db)
-            Log.store.info("erased \(count) items")
-            return names
-        }
-        try files.delete(fileNames)
+        try await deleteItems(in: ClipboardItem.filter(ClipboardItemColumns.pinboardId == nil))
         try await pool.vacuum()
         // The database runs in WAL mode (writes go to a side file first, see the top of this
         // file), so the rebuilt pages sit in that side file until a checkpoint copies them into
         // the main file. Doing it now, with `truncate`, is what makes the files on disk small
         // right away instead of at some later automatic checkpoint.
         _ = try await pool.writeWithoutTransaction { db in try db.checkpoint(.truncate) }
+    }
+
+    /// Deletes every item not on a pinboard that was last copied before `cutoff`: the "Keep
+    /// history" setting. No rebuild of the database file afterwards: that can take a while, and
+    /// SQLite reuses the freed space for new copies.
+    public func deleteUnpinned(copiedBefore cutoff: Date) async throws {
+        try await deleteItems(
+            in: ClipboardItem.filter(ClipboardItemColumns.pinboardId == nil)
+                .filter(ClipboardItemColumns.copiedAt < cutoff))
+    }
+
+    /// One transaction for the rows, then the files: a crash between the two leaves files for
+    /// the launch sweep, never a row pointing at a missing file. Takes a request, not a list of
+    /// ids, so it can remove any number of items in one statement.
+    private func deleteItems(in items: QueryInterfaceRequest<ClipboardItem>) async throws {
+        let fileNames = try await pool.write { db in
+            let names = try ClipboardItemDataRow.fileNames(in: ClipboardItemDataRow.ofItems(in: items))
+                .fetchAll(db)
+            let count = try items.deleteAll(db)
+            Log.store.info("erased \(count) items")
+            return names
+        }
+        removeQuickLookCopies()
+        try files.delete(fileNames)
     }
 }
 
@@ -638,7 +666,8 @@ public final class Store: Sendable {
                     // Items 97 seconds apart, so a 100,000-item history spans about four months.
                     let copiedAt = now.addingTimeInterval(-97 * Double(i))
                     let item = try NewClipboardItem(
-                        kind: kind, cardText: text, cardDetail: detail, sourceAppBundleId: bundleId,
+                        kind: kind, cardText: text, searchText: text, cardDetail: detail,
+                        sourceAppBundleId: bundleId,
                         sourceAppName: app, createdAt: copiedAt, copiedAt: copiedAt,
                         contentFingerprint: "seed-\(i)"
                     ).insertAndFetch(db, as: ClipboardItem.self)

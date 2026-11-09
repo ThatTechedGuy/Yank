@@ -8,6 +8,23 @@ import Testing
 // copy. The clipboard and the frontmost app are fakes the test controls; the Store is real, on a
 // SQLite file in a temporary folder, so saving is tested for real too. (`@MainActor` on the suite
 // runs every test on the main thread, which CaptureService and the fakes require.)
+/// Says the front app is TextEdit the first time it is asked and, at that very moment, has the
+/// user switch to Safari and copy again. The service asks just before its settle wait, so the
+/// second copy always lands during the wait, with no timers racing each other in the test.
+@MainActor private final class SwitchesAppAndCopies: FrontmostApp {
+    let clipboard: FakeClipboard
+    private var hasSwitched = false
+
+    init(clipboard: FakeClipboard) { self.clipboard = clipboard }
+
+    func current() -> SourceApp? {
+        if hasSwitched { return SourceApp(bundleId: "com.apple.Safari", name: "Safari") }
+        hasSwitched = true
+        clipboard.put([.text("second")])
+        return SourceApp(bundleId: "com.apple.TextEdit", name: "TextEdit")
+    }
+}
+
 @MainActor struct CaptureServiceTests {
     let folder = TemporaryFolder()
     let clipboard = FakeClipboard()
@@ -51,21 +68,11 @@ import Testing
     @Test func aCopyReplacedDuringTheSettleWaitIsSavedUnderTheNewerApp() async throws {
         defer { folder.remove() }
         let store = try Store(folder: folder.url)
-        // A longer settle wait than usual, so the test can put a second copy on the clipboard
-        // while the service is still waiting for the first one.
         let service = CaptureService(
-            clipboard: clipboard, frontmostApp: frontmost, store: store, settle: .milliseconds(100))
-        frontmost.app = SourceApp(bundleId: "com.apple.TextEdit", name: "TextEdit")
+            clipboard: clipboard, frontmostApp: SwitchesAppAndCopies(clipboard: clipboard), store: store,
+            settle: .milliseconds(1))
         clipboard.put([.text("first")])
-        // Mid-wait, the user switches to Safari and copies again. (`Task` starts this alongside
-        // the tick below, like a `setTimeout` that fires during an await.)
-        let secondCopy = Task { @MainActor in
-            try await Task.sleep(for: .milliseconds(20))
-            frontmost.app = SourceApp(bundleId: "com.apple.Safari", name: "Safari")
-            clipboard.put([.text("second")])
-        }
         try await service.tick()
-        try await secondCopy.value
         // The first copy is stale by the time the wait ends: saving now would file "second"
         // under TextEdit. So nothing is saved on this tick, and nothing was read.
         #expect(try await store.count() == 0)

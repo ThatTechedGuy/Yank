@@ -1,7 +1,7 @@
 import Foundation
 
-// The short text a card shows and search matches: `cardText`, 200 characters. Computed
-// once at save time so the list never touches the item's bytes.
+// The short text a card shows, `cardText`, 200 characters, and the longer text search reads.
+// Both are computed once at save time so the list never touches the item's bytes.
 /// Builds the card text for a copy.
 public enum CardText {
     public static let maxLength = 200
@@ -17,13 +17,7 @@ public enum CardText {
                 .compactMap { URL(string: $0.text)?.lastPathComponent }
             return String(names.joined(separator: "\n").prefix(maxLength))
         case .link:
-            // A link's plain text is usually the address itself. Some apps put only the URL type
-            // on the clipboard with no plain text, so fall back to that, or the card would be
-            // blank. (`??` picks the first value that isn't nil, like `??` in TS.)
-            let text =
-                data.first { $0.type == ClipboardType.plainText }?.text
-                ?? data.first { $0.type == ClipboardType.url }?.text ?? ""
-            return condense(text)
+            return condense(data.linkAddress)
         case .text, .image, .color:
             // Text: the plain text. Images and colours have none, so the card text is
             // empty; the card draws the picture or swatch instead. An image copied from
@@ -31,6 +25,19 @@ public enum CardText {
             let text = data.first { $0.type == ClipboardType.plainText }?.text ?? ""
             return condense(text)
         }
+    }
+
+    /// How many characters of a text copy search can see. Far more than a card shows, so a word
+    /// deep in a long email is found, but capped so one 50 MB log cannot bloat the search index.
+    public static let maxSearchLength = 20_000
+
+    /// What the search index reads for a copy: the start of a text copy's plain text, and for
+    /// every other kind the same text as its card. Whitespace needs no tidying here, because the
+    /// index splits the text into words itself.
+    public static func searchText(kind: ItemKind, data: [ClipboardItemData]) -> String {
+        guard kind == .text, let text = data.first(where: { $0.type == ClipboardType.plainText })?.text
+        else { return make(kind: kind, data: data) }
+        return String(text.prefix(maxSearchLength))
     }
 
     // Collapses runs of whitespace to one space and cuts at maxLength, so a card shows a line

@@ -97,6 +97,18 @@ struct EnricherTests {
         #expect(try await store.thumbnail(for: item.id)?.width == 32)
     }
 
+    // Opening a page can use up a one-time link, so copying the same link again must not open
+    // it a second time once its title is saved.
+    @MainActor @Test func aRepeatCopyOfAFetchedLinkIsNotFetchedAgain() async throws {
+        defer { folder.remove() }
+        let store = try Store(folder: folder.url)
+        let web = FakeLinkFetcher()
+        let enricher = enricher(store, web: web)
+        _ = try await enricher.enrich(try await store.save(linkCopy("https://example.com/once")))
+        _ = try await enricher.enrich(try await store.save(linkCopy("https://example.com/once")))
+        #expect(web.fetched.count == 1)
+    }
+
     @MainActor @Test func nothingIsFetchedWhileLinkPreviewsAreOff() async throws {
         defer { folder.remove() }
         let store = try Store(folder: folder.url)

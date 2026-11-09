@@ -65,6 +65,7 @@ enum ClipboardItemColumns {
     static let copiedAt = Column("copiedAt")
     static let contentFingerprint = Column("contentFingerprint")
     static let pinboardId = Column("pinboardId")
+    static let searchText = Column("searchText")
 }
 
 // `Pinboard` as a row of `pinboard`, fetched and updated the same way as items. Inserts go
@@ -103,12 +104,15 @@ extension CardThumbnail: FetchableRecord, PersistableRecord {}
 // full `ClipboardItem` as stored, id and all. `kind` and `cardText` and the rest mirror the
 // model on purpose: the column names must match. The optional columns a fresh copy never has
 // (title, recognised text, pinboard) default to nil; a duplicate fills them from the original.
+// `searchText` is here and not on `ClipboardItem` on purpose: it can be thousands of characters
+// and only the search index reads it, so the cards never carry it around.
 struct NewClipboardItem: Encodable, PersistableRecord {
     static let databaseTableName = ClipboardItem.databaseTableName
 
     var kind: ItemKind
     var title: String? = nil
     var cardText: String
+    var searchText: String
     var cardDetail: String?
     var sourceAppBundleId: String?
     var sourceAppName: String?
@@ -140,7 +144,6 @@ struct ClipboardItemDataRow: Codable, FetchableRecord, PersistableRecord {
     enum Columns {  // typed column names, built from the property names so they can't drift
         static let clipboardItemId = Column(CodingKeys.clipboardItemId)
         static let position = Column(CodingKeys.position)
-        static let data = Column(CodingKeys.data)
         static let largeDataFileName = Column(CodingKeys.largeDataFileName)
     }
 
@@ -154,14 +157,13 @@ struct ClipboardItemDataRow: Codable, FetchableRecord, PersistableRecord {
         filter(itemIds.contains(Columns.clipboardItemId))
     }
 
-    /// The rows of every item that is not on a pinboard: what "Erase history" removes.
-    /// `clipboardItemId IN (SELECT id FROM clipboardItem WHERE pinboardId IS NULL)`, written
-    /// with the builder: the inner request selects only the id column.
-    static var ofUnpinnedItems: QueryInterfaceRequest<ClipboardItemDataRow> {
-        let unpinnedIds =
-            ClipboardItem.filter(ClipboardItemColumns.pinboardId == nil)
-            .select(ClipboardItemColumns.id, as: Int64.self)
-        return filter(unpinnedIds.contains(Columns.clipboardItemId))
+    /// The rows of every item a request finds: what erasing or expiring items removes.
+    /// `clipboardItemId IN (SELECT id FROM clipboardItem WHERE ...)`, written with the builder:
+    /// the inner request selects only the id column.
+    static func ofItems(in items: QueryInterfaceRequest<ClipboardItem>)
+        -> QueryInterfaceRequest<ClipboardItemDataRow>
+    {
+        filter(items.select(ClipboardItemColumns.id, as: Int64.self).contains(Columns.clipboardItemId))
     }
 
     /// Just the file names, from any request for rows. Rows without a file are skipped.

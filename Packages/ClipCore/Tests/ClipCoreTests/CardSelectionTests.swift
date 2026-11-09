@@ -23,7 +23,6 @@ struct CardSelectionTests {
         #expect(selection.ids == [20, 30])
         #expect(selection.anchor == 30)
         #expect(selection.lead == 20)
-        #expect(selection.ordered(in: order) == [20, 30])
     }
 
     @Test func commandClickTogglesOneCardAnywhere() {
@@ -48,7 +47,6 @@ struct CardSelectionTests {
         selection.selectAll(in: order)
         #expect(selection.ids == Set(order))
         #expect(selection.lead == 30)
-        #expect(selection.count == 5)
     }
 
     @Test func aChangedListDropsWhatItNoLongerShows() {

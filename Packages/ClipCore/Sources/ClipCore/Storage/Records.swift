@@ -152,11 +152,6 @@ struct ClipboardItemDataRow: Codable, FetchableRecord, PersistableRecord {
         filter(Columns.clipboardItemId == itemId).order(Columns.position)
     }
 
-    /// The rows of several items, for deleting them together.
-    static func ofItems(_ itemIds: [Int64]) -> QueryInterfaceRequest<ClipboardItemDataRow> {
-        filter(itemIds.contains(Columns.clipboardItemId))
-    }
-
     /// The rows of every item a request finds: what erasing or expiring items removes.
     /// `clipboardItemId IN (SELECT id FROM clipboardItem WHERE ...)`, written with the builder:
     /// the inner request selects only the id column.

@@ -41,10 +41,12 @@ import SwiftUI
     /// that re-draws the caller when it lands. Images and files have thumbnails; a link's is
     /// its site's icon, when the page offered one.
     func image(for item: ClipboardItem) -> NSImage? {
-        _ = version
         if let image = images.object(forKey: item.id as NSNumber) { return image }
         guard item.kind == .image || item.kind == .file || item.kind == .link, !loading.contains(item.id)
         else { return nil }
+        // Read here, not at the top: only a card that is still waiting for its picture needs
+        // to draw again when one lands. A text card never does.
+        _ = version
         loading.insert(item.id)
         Task { await load(item) }
         return nil
@@ -85,10 +87,11 @@ import SwiftUI
         }
     }
 
-    /// Decodes a PNG into pixels on a background thread, so a card never waits for it.
+    /// Decodes a picture into pixels on a background thread, so a card never waits for it.
     /// (`NSImage(data:)` would decode lazily on first draw, on the main thread, during the
-    /// scroll.) `@concurrent` is what moves an async function off the caller's thread.
-    @concurrent private static func decode(_ png: Data) async -> NSImage? {
+    /// scroll.) `@concurrent` is what moves an async function off the caller's thread. The
+    /// editor uses it for its picture too.
+    @concurrent static func decode(_ png: Data) async -> NSImage? {
         guard let source = CGImageSourceCreateWithData(png as CFData, nil),
             let image = CGImageSourceCreateImageAtIndex(
                 source, 0, [kCGImageSourceShouldCache: true] as CFDictionary)

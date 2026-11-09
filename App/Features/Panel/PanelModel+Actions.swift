@@ -146,7 +146,10 @@ extension PanelModel {
     func duplicate(_ item: ClipboardItem) {
         Task { [store] in
             do {
-                if let copy = try await store.duplicate(id: item.id) { selectedId = copy.id }
+                if let copy = try await store.duplicate(id: item.id) {
+                    selectedId = copy.id
+                    refreshSearch()
+                }
             } catch {
                 Log.ui.error(
                     "could not duplicate item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
@@ -210,7 +213,7 @@ extension PanelModel {
     /// on screen, and a refused paste calls it for the cards it tried.
     func checkFile(of item: ClipboardItem) async {
         guard item.kind == .file, let data = try? await store.data(for: item.id) else { return }
-        if data.contains(where: \.isMissingFile) {
+        if await data.hasMissingFile() {
             missingFileIds.insert(item.id)
         } else {
             missingFileIds.remove(item.id)

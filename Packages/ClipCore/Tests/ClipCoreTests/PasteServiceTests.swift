@@ -140,6 +140,23 @@ import Testing
         #expect(keys.presses == 0)
     }
 
+    // Two pastes, the second started while the first is still waiting for the panel to hide
+    // (⌃⌥⌘V twice on the stack, say). Each ⌘V must land with its own item on the clipboard:
+    // the clipboard is written right before the press, not before the wait.
+    @Test func overlappingPastesEachPressWithTheirOwnItemOnTheClipboard() async throws {
+        defer { folder.remove() }
+        let (service, store, older) = try await makeService()
+        let newer = try #require(try await store.items(limit: 1).first)
+        service.hidePanel = { try? await Task.sleep(for: .milliseconds(50)) }
+        var pressedWith: [String] = []
+        keys.onPress = { pressedWith.append(clipboard.contents[0].text) }
+        let first = Task { try await service.paste(older, plainText: true, destination: .activeApp) }
+        let second = Task { try await service.paste(newer, plainText: true, destination: .activeApp) }
+        try await first.value
+        try await second.value
+        #expect(pressedWith.sorted() == ["hi", "newer"])
+    }
+
     @Test func pasteIsNeverPressedWithoutPermissionOrInClipboardOnlyMode() async throws {
         defer { folder.remove() }
         let (service, _, older) = try await makeService()

@@ -107,7 +107,7 @@ struct CardDrag: ViewModifier {
         var pasteboardItems: [NSPasteboardItem] = []
         for item in items {
             guard let data = try? await model.store.data(for: item.id) else { return nil }
-            if data.contains(where: \.isMissingFile) {
+            if await data.hasMissingFile() {
                 model.missingFileIds.insert(item.id)
                 return nil
             }

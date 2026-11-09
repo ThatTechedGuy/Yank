@@ -66,7 +66,7 @@ import Foundation
         var data: [ClipboardItemData] = []
         for item in items {
             var itemData = try await store.data(for: item.id)
-            if itemData.contains(where: \.isMissingFile) { throw PasteError.fileNoLongerExists }
+            if await itemData.hasMissingFile() { throw PasteError.fileNoLongerExists }
             if plainText {
                 let textOnly = itemData.filter { $0.type == ClipboardType.plainText }
                 if !textOnly.isEmpty { itemData = textOnly }
@@ -96,9 +96,12 @@ import Foundation
         data.insert(
             ClipboardItemData(pasteboardItemIndex: firstItem, type: ownMarker, data: Data()),
             at: data.firstIndex { $0.pasteboardItemIndex != firstItem } ?? data.count)
-        clipboard.write(data)
         try await store.moveToTop(ids: items.map(\.id))
         await hidePanel()
+        // The write comes after the last `await`, right before the press: a second paste
+        // started while this one waited (⌃⌥⌘V twice on the stack) must not have its item on the
+        // clipboard when this one's ⌘V lands.
+        clipboard.write(data)
         let ids = items.map(\.id)
         guard destination == .activeApp else {
             Log.paste.info("items \(ids, privacy: .public) put on the clipboard")

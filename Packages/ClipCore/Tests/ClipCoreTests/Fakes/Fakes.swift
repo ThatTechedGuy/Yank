@@ -43,7 +43,12 @@ import Testing
 /// Counts ⌘V presses instead of sending them, so a test never pastes into a real app.
 @MainActor final class FakeKeyPresser: KeyPressing {
     var presses = 0
-    func pressPaste() throws { presses += 1 }
+    /// Runs at each press, so a test can look at the clipboard the moment ⌘V lands.
+    var onPress: () -> Void = {}
+    func pressPaste() throws {
+        presses += 1
+        onPress()
+    }
 }
 
 /// The Accessibility permission as the test wants it. `requests` counts how often the macOS

@@ -15,7 +15,7 @@ public enum CardDetail {
             }
             // shortcut: counting characters walks the whole text, about 0.1 s for a 50 MB copy,
             // off the main thread; cap it if a huge copy is ever seen to delay the next one.
-            let count = TextCounts(text).characters
+            let count = text.count
             return "\(count) \(count == 1 ? "character" : "characters")"
         case .file:
             // One file: its size on disk. Several: how many. The URLs came from the clipboard,

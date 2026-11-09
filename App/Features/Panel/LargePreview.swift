@@ -15,6 +15,9 @@ struct LargePreview: View {
 
     /// The item's full text once read; nil while it loads.
     @State private var text: String?
+    /// The full text's counts, made once when it lands rather than on every draw (counting a
+    /// long text walks all of it). Nil while the text loads; the card's text stands in.
+    @State private var counts: TextCounts?
 
     /// How much of the text is drawn. Laying out one `Text` of a whole log file (tens of MB)
     /// would stall the panel for seconds; this much is more than anyone reads in a preview.
@@ -42,10 +45,13 @@ struct LargePreview: View {
                 }
                 Divider()
                 // "52 characters · 9 words" for text; the site for a link, as on its card.
-                Text(item.kind == .link ? item.cardDetail ?? "" : TextCounts(fullText).description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("preview-detail")
+                Text(
+                    item.kind == .link
+                        ? item.cardDetail ?? "" : (counts ?? TextCounts(item.cardText)).description
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .accessibilityIdentifier("preview-detail")
             }
         }
         .padding(12)
@@ -54,6 +60,7 @@ struct LargePreview: View {
         .accessibilityIdentifier("large-preview")
         .task(id: item.id) {
             text = await model.fullText(for: item)
+            counts = TextCounts(fullText)
         }
     }
 }

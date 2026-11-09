@@ -113,14 +113,16 @@ public final class Enricher: Sendable {
     /// Reads the words in an image and saves them, so search finds the screenshot by what it
     /// says. Kept apart from `enrich`, which the panel waits on for a card's thumbnail: reading
     /// text takes a good part of a second, and a thumbnail must not wait for it. Nothing happens
-    /// for other kinds, or without a recognizer, or when no words were found, or when the words
-    /// were read before (a repeat copy has the same bytes).
+    /// for other kinds, or without a recognizer, or when the image was read before (a repeat
+    /// copy has the same bytes). An image with no words in it is saved as having none ("").
     public func recognizeText(in item: ClipboardItem) async throws {
         guard item.kind == .image, item.imageText == nil, let recognizeText else { return }
         // Reads the bytes a second time after `enrich`, rather than keeping them around between
         // the two steps; an image is read from disk in milliseconds.
         let data = try await store.data(for: item.id)
-        guard let text = await recognizeText(data), !text.isEmpty else { return }
+        // "" rather than nothing for no words: nil means "not read yet", and a photo with no
+        // words would otherwise be read again on every repeat copy.
+        let text = await recognizeText(data) ?? ""
         try await store.setPreview(CardPreview(imageText: text), for: item.id)
         Log.store.info("read text in item \(item.id, privacy: .public)")
     }

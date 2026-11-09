@@ -15,7 +15,8 @@ import KeyboardShortcuts
 import SwiftUI
 
 @Observable final class AppModel {
-    /// Number of saved items, shown in the menu. Updated after every capture.
+    /// Number of saved items, shown in the menu. Follows the database (`observeCount`), so a
+    /// capture, an erase, the editor and the hourly expiry all keep it right without a word.
     private(set) var itemCount = 0
     /// The clipboard permission state, re-read on every poll so the menu follows System Settings.
     private(set) var clipboardAccess: ClipboardAccess = .allowed
@@ -116,12 +117,10 @@ import SwiftUI
             // service must not keep the window alive on its own.
             pasteService.hidePanel = { [weak panel] in await panel?.hide() }
             watchShortcut()
-            // After every save, start the item's preview in the background and re-read the number
-            // the menu shows. Asking the database instead of adding one keeps the menu right when a
-            // save was really a repeat (the item moved to the top, the count did not grow). `[weak
-            // self]` stops this callback from keeping the model alive forever: without it the model
-            // holds the service, the service holds this callback and the callback holds the model,
-            // so none of them could ever be freed. It is the same reason you unsubscribe in a React
+            // After every save, start the item's preview in the background. `[weak self]` stops
+            // this callback from keeping the model alive forever: without it the model holds the
+            // service, the service holds this callback and the callback holds the model, so none
+            // of them could ever be freed. It is the same reason you unsubscribe in a React
             // effect's cleanup.
             capture.onCapture = { [weak self] item in
                 enricher.enrichInBackground(item)
@@ -129,19 +128,26 @@ import SwiftUI
                 // copy and joins too. The app's own pastes never reach here (the capture loop
                 // skips its marker), so pasting from the stack cannot feed the stack.
                 self?.stack.add(item)
-                Task { [weak self] in
-                    self?.itemCount = (try? await store.count()) ?? 0
+            }
+            // The menu's count follows the database for as long as Yank runs: one live query
+            // instead of re-reading after each place that writes. A repeat copy (item moved up,
+            // count unchanged) delivers nothing.
+            Task { [weak self] in
+                do {
+                    for try await count in store.observeCount() { self?.itemCount = count }
+                } catch {
+                    Log.store.error("count stopped: \(error.logDescription, privacy: .public)")
                 }
             }
-            // Read the saved count from the database, then start watching the clipboard. Both need
-            // `await` and `init` cannot await, so they run in a `Task` (like calling an async function
-            // without awaiting it). The task stays on the main thread; it pauses, not blocks, at each
-            // `await`, so the menu stays responsive. `[weak self]` here is only a habit: the loop
-            // inside `poll()` holds the model for as long as the app runs anyway, which is fine for
-            // the one object that lives as long as the app does.
+            // Start watching the clipboard. `poll()` needs `await` and `init` cannot await, so it
+            // runs in a `Task` (like calling an async function without awaiting it). The task stays
+            // on the main thread; it pauses, not blocks, at each `await`, so the menu stays
+            // responsive. `[weak self]` here is only a habit: the loop inside `poll()` holds the
+            // model for as long as the app runs anyway, which is fine for the one object that
+            // lives as long as the app does.
             Task { [weak self] in
                 // Debug-only: fill the database with fake items, and show the panel at once if
-                // asked, before the first count so the menu shows the seeded number.
+                // asked.
                 #if DEBUG
                     if let count = options.seedCount {
                         do {
@@ -152,7 +158,6 @@ import SwiftUI
                     }
                     if options.showPanel { panel.show() }
                 #endif
-                self?.itemCount = (try? await store.count()) ?? 0
                 await self?.poll()
             }
             Task { [weak self] in await self?.expireOldItems(in: store) }
@@ -274,7 +279,6 @@ import SwiftUI
             if days > 0, let cutoff = Calendar.current.date(byAdding: .day, value: -days, to: Date()) {
                 do {
                     try await store.deleteUnpinned(copiedBefore: cutoff)
-                    itemCount = (try? await store.count()) ?? 0
                 } catch {
                     Log.store.error("could not expire items: \(error.logDescription, privacy: .public)")
                 }
@@ -290,17 +294,13 @@ import SwiftUI
 
     /// Opens the editor on a card, or empty (nil) for a new text item. The panel goes away
     /// first: the editor is a real window and makes Yank the active app, which the panel never
-    /// does. After a save the panel comes back with the result in it and selected, and the
-    /// menu's count is re-read, since a new item was made or an old one changed.
+    /// does. After a save the panel comes back with the result in it and selected.
     func edit(_ item: ClipboardItem?) {
         guard let store, let enricher, let thumbnails else { return }
         let editor = ItemEditor(original: item, store: store, enricher: enricher, thumbnails: thumbnails)
         editor.didSave = { [weak self] saved in
             self?.panel?.show()
             self?.selectCard(saved.id)
-            Task { [weak self] in
-                self?.itemCount = (try? await store.count()) ?? 0
-            }
         }
         Task { [weak self] in
             await self?.panel?.hide()
@@ -328,16 +328,15 @@ import SwiftUI
     }
 
     /// Deletes every item that is not on a pinboard, with its files, then shrinks the database
-    /// file. The panel's list follows the database on its own; the menu's count is re-read here.
+    /// file. The panel's list and the menu's count both follow the database on their own.
     func eraseHistory() {
         guard let store else { return }
-        Task { [weak self] in
+        Task {
             do {
                 try await store.eraseHistory()
             } catch {
                 Log.store.error("erase failed: \(error.logDescription, privacy: .public)")
             }
-            self?.itemCount = (try? await store.count()) ?? 0
         }
     }
 
@@ -358,14 +357,15 @@ import SwiftUI
     /// about UserDefaults, so the app copies it across: once now, and again whenever any
     /// default changes, which is how the Settings window's edits reach the capture loop.
     /// UserDefaults posts one notification for any change, so this runs a little more often
-    /// than needed; the copy is a few strings, so that is fine.
+    /// than needed; the copy is a few strings, so that is fine. The notifications come as an
+    /// async sequence, so the loop stays on the main thread like the rest of this class. Not
+    /// narrowed to `UserDefaults.standard` (the compiler will not pass it between threads);
+    /// Yank has no other defaults, so every such notification is from it anyway.
     private func watchIgnoredApps() {
         capture?.rules.ignoredApps = Set(IgnoredApps.current.bundleIds)
-        NotificationCenter.default.addObserver(
-            forName: UserDefaults.didChangeNotification, object: UserDefaults.standard, queue: .main
-        ) { [weak self] _ in
-            // Delivered on the main queue (`queue: .main`), which the compiler cannot see.
-            MainActor.assumeIsolated {
+        Task { [weak self] in
+            let changes = NotificationCenter.default.notifications(named: UserDefaults.didChangeNotification)
+            for await _ in changes {
                 self?.capture?.rules.ignoredApps = Set(IgnoredApps.current.bundleIds)
             }
         }

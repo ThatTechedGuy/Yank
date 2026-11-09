@@ -85,9 +85,11 @@ struct EnricherTests {
                     thumbnail: CardThumbnail(clipboardItemId: item.id, png: data[0].data, width: 1, height: 1)
                 )
             },
+            // No words in the picture: the hardest case, because "nothing found" must still
+            // count as read.
             recognizeText: { _ in
                 reads.withLock { $0 += 1 }
-                return "words"
+                return nil
             })
         let copy = CapturedCopy(data: [.png([4, 2])], sourceApp: nil, copiedAt: .now)
         await enricher.enrichInBackground(try await store.save(copy)).value

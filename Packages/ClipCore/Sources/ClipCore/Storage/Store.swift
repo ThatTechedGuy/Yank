@@ -84,74 +84,56 @@ public final class Store: Sendable {
     /// value without a compiler warning; the capture loop does use it.)
     @discardableResult
     public func save(_ copy: CapturedCopy) async throws -> ClipboardItem {
-        // Kind, fingerprint and card text need no database, so compute them before entering the
-        // write block. The one writer thread is then busy only for the actual SQL, and other
-        // saves queue behind it for less time.
-        let kind = ItemKind.detect(copy.data)
-        let fingerprint = DuplicateKey.make(kind: kind, data: copy.data)
-        let cardText = CardText.make(kind: kind, data: copy.data)
-        let cardDetail = CardDetail.make(kind: kind, data: copy.data)
-        let searchText = CardText.searchText(kind: kind, data: copy.data)
+        let (kind, fingerprint, cardText, cardDetail, searchText) = Self.describe(copy.data)
         // Large data goes to disk *before* the transaction, so a row never points at a file that
         // isn't fully there yet. If the transaction then fails, these files are leftovers; they
-        // are removed right away below, or by the sweep at the next launch after a crash.
+        // are removed right away (see `write(newFiles:)`), or by the sweep at the next launch
+        // after a crash.
         let fileNames = try writeLargeData(of: copy.data)
-        let (item, oldFileNames): (ClipboardItem, [String])
-        do {
-            (item, oldFileNames) = try await pool.write { db in
-                // Repeat copy? Reuse the newest item with the same content instead of adding a
-                // duplicate: it keeps its id, title and pinboard, and takes the new time, source
-                // app and data. Its old data rows are dropped here; their files are deleted
-                // only after this transaction has committed.
-                let existing =
-                    try ClipboardItem
-                    .filter(ClipboardItemColumns.contentFingerprint == fingerprint)
-                    .order(ClipboardItemColumns.copiedAt.desc).fetchOne(db)
-                let item: ClipboardItem
-                var oldFileNames: [String] = []
-                if var existing {
-                    existing.copiedAt = copy.copiedAt
-                    existing.cardText = cardText
-                    // A detail the save cannot compute (an image's size) is left as the
-                    // Enricher set it last time: the bytes are the same, so it still holds.
-                    existing.cardDetail = cardDetail ?? existing.cardDetail
-                    existing.sourceAppBundleId = copy.sourceApp?.bundleId
-                    existing.sourceAppName = copy.sourceApp?.name
-                    // `update` writes every column of the row back, matched by `id`.
-                    try existing.update(db)
-                    _ = try ClipboardItem.filter(key: existing.id)
-                        .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
-                    item = existing
-                    let oldRows = ClipboardItemDataRow.ofItem(item.id)
-                    oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
-                    try oldRows.deleteAll(db)
-                } else {
-                    // `insertAndFetch` inserts and reads the new row straight back, so the
-                    // caller gets the item exactly as stored, with the id the database chose.
-                    item = try NewClipboardItem(
-                        kind: kind, cardText: cardText, searchText: searchText, cardDetail: cardDetail,
-                        sourceAppBundleId: copy.sourceApp?.bundleId,
-                        sourceAppName: copy.sourceApp?.name, createdAt: copy.copiedAt,
-                        copiedAt: copy.copiedAt, contentFingerprint: fingerprint
-                    ).insertAndFetch(db, as: ClipboardItem.self)
-                }
-                try Self.insertDataRows(db, of: item.id, data: copy.data, fileNames: fileNames)
-                let verb = existing == nil ? "saved" : "moved to top"
-                Log.store.info(
-                    "\(verb, privacy: .public) item \(item.id, privacy: .public) kind \(kind.rawValue, privacy: .public)"
-                )
-                return (item, oldFileNames)
+        return try await write(newFiles: fileNames) { db in
+            // Repeat copy? Reuse the newest item with the same content instead of adding a
+            // duplicate: it keeps its id, title and pinboard, and takes the new time, source
+            // app and data. Its old data rows are dropped here; their files are deleted
+            // only after this transaction has committed.
+            let existing =
+                try ClipboardItem
+                .filter(ClipboardItemColumns.contentFingerprint == fingerprint)
+                .order(ClipboardItemColumns.copiedAt.desc).fetchOne(db)
+            let item: ClipboardItem
+            var oldFileNames: [String] = []
+            if var existing {
+                existing.copiedAt = copy.copiedAt
+                existing.cardText = cardText
+                // A detail the save cannot compute (an image's size) is left as the
+                // Enricher set it last time: the bytes are the same, so it still holds.
+                existing.cardDetail = cardDetail ?? existing.cardDetail
+                existing.sourceAppBundleId = copy.sourceApp?.bundleId
+                existing.sourceAppName = copy.sourceApp?.name
+                // `update` writes every column of the row back, matched by `id`.
+                try existing.update(db)
+                _ = try ClipboardItem.filter(key: existing.id)
+                    .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
+                item = existing
+                let oldRows = ClipboardItemDataRow.ofItem(item.id)
+                oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
+                try oldRows.deleteAll(db)
+            } else {
+                // `insertAndFetch` inserts and reads the new row straight back, so the
+                // caller gets the item exactly as stored, with the id the database chose.
+                item = try NewClipboardItem(
+                    kind: kind, cardText: cardText, searchText: searchText, cardDetail: cardDetail,
+                    sourceAppBundleId: copy.sourceApp?.bundleId,
+                    sourceAppName: copy.sourceApp?.name, createdAt: copy.copiedAt,
+                    copiedAt: copy.copiedAt, contentFingerprint: fingerprint
+                ).insertAndFetch(db, as: ClipboardItem.self)
             }
-        } catch {
-            // The transaction was rolled back, so the new files belong to nobody. Remove them now
-            // (best effort: `try?` ignores a failure, the sweep catches it later) and pass the
-            // error on.
-            try? files.delete(fileNames.compactMap { $0 })
-            throw error
+            try Self.insertDataRows(db, of: item.id, data: copy.data, fileNames: fileNames)
+            let verb = existing == nil ? "saved" : "moved to top"
+            Log.store.info(
+                "\(verb, privacy: .public) item \(item.id, privacy: .public) kind \(kind.rawValue, privacy: .public)"
+            )
+            return (item, oldFileNames)
         }
-        // The rows that pointed at the old files are gone for good, so the files can go too.
-        try files.delete(oldFileNames)
-        return item
     }
 
     /// Gives an item new bytes in place: what the editor's "Replace Original" does. The item
@@ -163,45 +145,45 @@ public final class Store: Sendable {
     /// in the meantime (nothing is written then). Files are handled like a save: new ones are
     /// written before the transaction, old ones deleted after it.
     public func replaceData(for id: Int64, with data: [ClipboardItemData]) async throws -> ClipboardItem? {
-        let kind = ItemKind.detect(data)
-        let fingerprint = DuplicateKey.make(kind: kind, data: data)
-        let cardText = CardText.make(kind: kind, data: data)
-        let cardDetail = CardDetail.make(kind: kind, data: data)
-        let searchText = CardText.searchText(kind: kind, data: data)
+        let (kind, fingerprint, cardText, cardDetail, searchText) = Self.describe(data)
         let fileNames = try writeLargeData(of: data)
-        let result: (item: ClipboardItem, oldFileNames: [String])?
-        do {
-            result = try await pool.write { db in
-                guard var item = try ClipboardItem.fetchOne(db, key: id) else { return nil }
-                item.kind = kind
-                item.cardText = cardText
-                item.cardDetail = cardDetail
-                item.contentFingerprint = fingerprint
-                item.imageText = nil
-                item.linkPageTitle = nil
-                try item.update(db)
-                _ = try ClipboardItem.filter(key: id)
-                    .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
-                let oldRows = ClipboardItemDataRow.ofItem(id)
-                let oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
-                try oldRows.deleteAll(db)
-                try Self.insertDataRows(db, of: id, data: data, fileNames: fileNames)
-                _ = try CardThumbnail.deleteOne(db, key: id)
-                Log.store.info(
-                    "replaced data of item \(id, privacy: .public) kind \(kind.rawValue, privacy: .public)")
-                return (item, oldFileNames)
+        return try await write(newFiles: fileNames) { db -> (ClipboardItem?, [String]) in
+            // The item is gone, so the files just written for it belong to nobody.
+            guard var item = try ClipboardItem.fetchOne(db, key: id) else {
+                return (nil, fileNames.compactMap { $0 })
             }
-        } catch {
-            try? files.delete(fileNames.compactMap { $0 })
-            throw error
+            item.kind = kind
+            item.cardText = cardText
+            item.cardDetail = cardDetail
+            item.contentFingerprint = fingerprint
+            item.imageText = nil
+            item.linkPageTitle = nil
+            try item.update(db)
+            _ = try ClipboardItem.filter(key: id)
+                .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
+            let oldRows = ClipboardItemDataRow.ofItem(id)
+            let oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
+            try oldRows.deleteAll(db)
+            try Self.insertDataRows(db, of: id, data: data, fileNames: fileNames)
+            _ = try CardThumbnail.deleteOne(db, key: id)
+            Log.store.info(
+                "replaced data of item \(id, privacy: .public) kind \(kind.rawValue, privacy: .public)")
+            return (item, oldFileNames)
         }
-        guard let result else {
-            // The item is gone, so the files written for it belong to nobody.
-            try files.delete(fileNames.compactMap { $0 })
-            return nil
-        }
-        try files.delete(result.oldFileNames)
-        return result.item
+    }
+
+    /// What a save works out from a copy's bytes: its kind, the fingerprint that spots a
+    /// repeat, and the card's texts. None of it needs the database, so it is computed before
+    /// the write block: the one writer thread is then busy only for the actual SQL, and other
+    /// saves queue behind it for less time.
+    private static func describe(_ data: [ClipboardItemData]) -> (
+        kind: ItemKind, fingerprint: String, cardText: String, cardDetail: String?, searchText: String
+    ) {
+        let kind = ItemKind.detect(data)
+        return (
+            kind, DuplicateKey.make(kind: kind, data: data), CardText.make(kind: kind, data: data),
+            CardDetail.make(kind: kind, data: data), CardText.searchText(kind: kind, data: data)
+        )
     }
 
     /// Writes each piece of data that is too big for its row to a file, and returns one file
@@ -212,6 +194,27 @@ public final class Store: Sendable {
         try data.map { item in
             item.data.count <= LargeDataFiles.inlineLimit ? nil : try files.write(item.data)
         }
+    }
+
+    /// One write transaction whose rows point at large files written just before it, and the
+    /// file work around it. The block returns its result and the files to delete once it has
+    /// committed: those whose rows it dropped, or the new ones when the item turned out to be
+    /// gone. If the block throws, the transaction was rolled back and the new files belong to
+    /// nobody, so they go instead. Deleting is best effort (`try?`): a file already removed by
+    /// the sweep or an earlier crash is no reason to fail a committed write, and the sweep at
+    /// the next launch catches anything left behind.
+    private func write<T: Sendable>(
+        newFiles: [String?], _ updates: @Sendable (Database) throws -> (T, [String])
+    ) async throws -> T {
+        let (result, unusedFiles): (T, [String])
+        do {
+            (result, unusedFiles) = try await pool.write(updates)
+        } catch {
+            try? files.delete(newFiles.compactMap { $0 })
+            throw error
+        }
+        try? files.delete(unusedFiles)
+        return result
     }
 
     /// One data row per clipboard type, in the source app's order (`position`). Small data
@@ -250,12 +253,10 @@ public final class Store: Sendable {
         }
     }
 
-    /// Items, newest copied first, one page at a time so a list never loads everything.
-    /// ≈ `SELECT * ... ORDER BY copiedAt DESC, id DESC LIMIT ? OFFSET ?`.
-    public func items(limit: Int, offset: Int = 0) async throws -> [ClipboardItem] {
-        try await pool.read { db in
-            try ClipboardItem.newestFirst.limit(limit, offset: offset).fetchAll(db)
-        }
+    /// The newest `limit` items, newest copied first, once. ≈ `SELECT * ... ORDER BY copiedAt
+    /// DESC, id DESC LIMIT ?`. The panel uses the live form, `observeItems`.
+    public func items(limit: Int) async throws -> [ClipboardItem] {
+        try await pool.read { db in try ClipboardItem.newestFirst.limit(limit).fetchAll(db) }
     }
 
     /// The newest `limit` items that match `filter` (History or a pinboard, a kind, a date
@@ -293,8 +294,8 @@ public final class Store: Sendable {
             .values(in: pool)
     }
 
-    /// Every pinboard in tab order, once.
-    public func pinboards() async throws -> [Pinboard] {
+    /// Every pinboard in tab order, once. Only the tests read it this way.
+    func pinboards() async throws -> [Pinboard] {
         try await pool.read { db in try Pinboard.inOrder.fetchAll(db) }
     }
 
@@ -348,9 +349,19 @@ public final class Store: Sendable {
         }
     }
 
-    /// How many items are saved. The menu shows this number.
+    /// How many items are saved, once. The tests check it; the menu watches `observeCount`.
     public func count() async throws -> Int {
         try await pool.read { db in try ClipboardItem.fetchCount(db) }
+    }
+
+    /// How many items are saved, delivered now and again whenever the number changes: the same
+    /// kind of live query as `observeItems`, for the menu. A write that leaves the count as it
+    /// was (a repeat copy moving an item up) delivers nothing, thanks to `removeDuplicates`.
+    public func observeCount() -> some AsyncSequence<Int, any Error> {
+        ValueObservation
+            .tracking { db in try ClipboardItem.fetchCount(db) }
+            .removeDuplicates()
+            .values(in: pool)
     }
 
     /// All clipboard data of one item, in the source app's order, with large data read from disk.
@@ -490,17 +501,7 @@ public final class Store: Sendable {
     /// live list drops them all in one delivery, so the panel never shows a half-deleted
     /// selection.
     public func delete(ids: [Int64]) async throws {
-        // Rows first, files second: a crash in between leaves an unreferenced file for the sweep,
-        // never a row pointing at a missing file.
-        let fileNames = try await pool.write { db in
-            let names = try ClipboardItemDataRow.fileNames(in: ClipboardItemDataRow.ofItems(ids))
-                .fetchAll(db)
-            let count = try ClipboardItem.deleteAll(db, keys: ids)
-            Log.store.info("deleted \(count) items")
-            return names
-        }
-        removeQuickLookCopies()
-        try files.delete(fileNames)
+        try await deleteItems(in: ClipboardItem.filter(keys: ids))
     }
 
     /// Gives an item your own name, shown on its card instead of the first line and found by
@@ -528,39 +529,37 @@ public final class Store: Sendable {
         let copiedFileNames: [String?] = try rows.map { row in
             try row.largeDataFileName.map { try files.write(try files.read($0)) }
         }
-        do {
-            return try await pool.write { db in
-                guard let original = try ClipboardItem.fetchOne(db, key: id) else { return nil }
-                let now = Date()
-                let searchText =
-                    try ClipboardItem.filter(key: id)
-                    .select(ClipboardItemColumns.searchText, as: String.self).fetchOne(db)
-                let copy = try NewClipboardItem(
-                    kind: original.kind, title: original.title, cardText: original.cardText,
-                    searchText: searchText ?? original.cardText,
-                    cardDetail: original.cardDetail, sourceAppBundleId: original.sourceAppBundleId,
-                    sourceAppName: original.sourceAppName, createdAt: now, copiedAt: now,
-                    contentFingerprint: original.contentFingerprint, imageText: original.imageText,
-                    linkPageTitle: original.linkPageTitle, pinboardId: original.pinboardId
-                ).insertAndFetch(db, as: ClipboardItem.self)
-                for (row, fileName) in zip(rows, copiedFileNames) {
-                    var row = row
-                    row.id = nil
-                    row.clipboardItemId = copy.id
-                    row.largeDataFileName = fileName
-                    try row.insert(db)
-                }
-                // The thumbnail is keyed by item id, so the copy gets its own row of it.
-                if var thumbnail = try CardThumbnail.fetchOne(db, key: id) {
-                    thumbnail.clipboardItemId = copy.id
-                    try thumbnail.insert(db)
-                }
-                Log.store.info("duplicated item \(id, privacy: .public) as \(copy.id, privacy: .public)")
-                return copy
+        return try await write(newFiles: copiedFileNames) { db -> (ClipboardItem?, [String]) in
+            // The original is gone, so the copies of its files belong to nobody.
+            guard let original = try ClipboardItem.fetchOne(db, key: id) else {
+                return (nil, copiedFileNames.compactMap { $0 })
             }
-        } catch {
-            try? files.delete(copiedFileNames.compactMap { $0 })
-            throw error
+            let now = Date()
+            let searchText =
+                try ClipboardItem.filter(key: id)
+                .select(ClipboardItemColumns.searchText, as: String.self).fetchOne(db)
+            let copy = try NewClipboardItem(
+                kind: original.kind, title: original.title, cardText: original.cardText,
+                searchText: searchText ?? original.cardText,
+                cardDetail: original.cardDetail, sourceAppBundleId: original.sourceAppBundleId,
+                sourceAppName: original.sourceAppName, createdAt: now, copiedAt: now,
+                contentFingerprint: original.contentFingerprint, imageText: original.imageText,
+                linkPageTitle: original.linkPageTitle, pinboardId: original.pinboardId
+            ).insertAndFetch(db, as: ClipboardItem.self)
+            for (row, fileName) in zip(rows, copiedFileNames) {
+                var row = row
+                row.id = nil
+                row.clipboardItemId = copy.id
+                row.largeDataFileName = fileName
+                try row.insert(db)
+            }
+            // The thumbnail is keyed by item id, so the copy gets its own row of it.
+            if var thumbnail = try CardThumbnail.fetchOne(db, key: id) {
+                thumbnail.clipboardItemId = copy.id
+                try thumbnail.insert(db)
+            }
+            Log.store.info("duplicated item \(id, privacy: .public) as \(copy.id, privacy: .public)")
+            return (copy, [])
         }
     }
 
@@ -592,17 +591,18 @@ public final class Store: Sendable {
 
     /// One transaction for the rows, then the files: a crash between the two leaves files for
     /// the launch sweep, never a row pointing at a missing file. Takes a request, not a list of
-    /// ids, so it can remove any number of items in one statement.
+    /// ids, so it can remove any number of items in one statement. A file that is already
+    /// gone does not fail the delete (`try?`): the rows are, which is what matters.
     private func deleteItems(in items: QueryInterfaceRequest<ClipboardItem>) async throws {
         let fileNames = try await pool.write { db in
             let names = try ClipboardItemDataRow.fileNames(in: ClipboardItemDataRow.ofItems(in: items))
                 .fetchAll(db)
             let count = try items.deleteAll(db)
-            Log.store.info("erased \(count) items")
+            Log.store.info("deleted \(count) items")
             return names
         }
         removeQuickLookCopies()
-        try files.delete(fileNames)
+        try? files.delete(fileNames)
     }
 }
 

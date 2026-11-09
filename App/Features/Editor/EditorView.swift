@@ -13,6 +13,8 @@ struct EditorView: View {
     let close: () -> Void
 
     @State private var confirmsReplace = false
+    /// `editor.image` as pixels, nil until decoded.
+    @State private var decodedPicture: NSImage?
     @FocusState private var textHasFocus: Bool
 
     var body: some View {
@@ -78,11 +80,12 @@ struct EditorView: View {
     }
 
     /// The picture, scaled to fit, over a faint checkerboard-like tint so a cut-out's
-    /// transparent parts can be told from white.
+    /// transparent parts can be told from white. Decoded off the main thread whenever the
+    /// bytes change (a crop, a rotation), so the window never freezes on a large photo.
     private var picture: some View {
         Group {
-            if let data = editor.image, let image = NSImage(data: data) {
-                Image(nsImage: image)
+            if let decodedPicture {
+                Image(nsImage: decodedPicture)
                     .resizable()
                     .scaledToFit()
             } else {
@@ -92,6 +95,10 @@ struct EditorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.quaternary)
         .accessibilityIdentifier("editor-image")
+        .task(id: editor.image) {
+            guard let data = editor.image else { return }
+            decodedPicture = await ThumbnailCache.decode(data)
+        }
     }
 
     private func save(replacing: Bool) {

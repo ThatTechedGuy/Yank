@@ -220,9 +220,7 @@ struct PanelView: View {
             .frame(maxWidth: .infinity)
             .frame(height: 14)
             .contentShape(Rectangle())
-            .onHover { inside in
-                if inside { NSCursor.resizeUpDown.push() } else { NSCursor.pop() }
-            }
+            .pointerStyle(.frameResize(position: .top))
             // The pointer is read in screen coordinates (`NSEvent.mouseLocation`, y upwards)
             // rather than from the gesture, because the gesture measures from the panel's
             // own top-left corner, which is the very edge being moved. The panel's bottom

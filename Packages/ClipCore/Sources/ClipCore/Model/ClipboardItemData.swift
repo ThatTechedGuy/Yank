@@ -50,6 +50,12 @@ public struct ClipboardItemData: Hashable, Sendable {
 
 // `extension [ClipboardItemData]` adds a member to arrays of this one type.
 extension [ClipboardItemData] {
+    /// Whether any file location in the copy points at a file that is gone (`isMissingFile`).
+    /// Asking the disk about each file runs off the caller's thread (`@concurrent`), so a
+    /// slow or sleeping volume never stalls the panel; the paste, drag and card checks all
+    /// call this from the main thread.
+    @concurrent public func hasMissingFile() async -> Bool { contains(where: \.isMissingFile) }
+
     /// The web address of a link copy: its URL type, or its plain text when an app offered only
     /// that, without the spaces and line breaks around it. The URL type comes first because the
     /// plain text can be a label ("click here") rather than the address. The one rule for this,

@@ -14,10 +14,10 @@ struct ThumbnailerTests {
             id: id, kind: kind, cardText: "", createdAt: .now, copiedAt: .now, contentFingerprint: "f")
     }
 
-    /// A flat `color` picture of the given size in pixels, encoded as PNG. Drawn with Core
-    /// Graphics directly so the size is in pixels, not points (NSImage would draw it at the
-    /// screen's Retina scale and double it).
-    func png(width: Int, height: Int, color: CGColor) throws -> Data {
+    /// A flat `color` picture of the given size in pixels. Drawn with Core Graphics directly so
+    /// the size is in pixels, not points (NSImage would draw it at the screen's Retina scale
+    /// and double it).
+    func image(width: Int, height: Int, color: CGColor) throws -> CGImage {
         let context = try #require(
             CGContext(
                 data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
@@ -25,8 +25,29 @@ struct ThumbnailerTests {
                 bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
         context.setFillColor(color)
         context.fill(CGRect(x: 0, y: 0, width: width, height: height))
-        let image = try #require(context.makeImage())
-        return try #require(Thumbnailer.pngData(image))
+        return try #require(context.makeImage())
+    }
+
+    /// The same picture, encoded as PNG.
+    func png(width: Int, height: Int, color: CGColor) throws -> Data {
+        try #require(Thumbnailer.pngData(try image(width: width, height: height, color: color)))
+    }
+
+    // A photo taken sideways is stored unrotated with an orientation tag (EXIF 6: turn a
+    // quarter right to view). The card must show it upright and report the size the user sees.
+    // JPEG, because PNG has no orientation tag.
+    @Test func aSidewaysPhotoIsTurnedUprightAndReportsTheSizeTheUserSees() throws {
+        let jpeg = NSMutableData()
+        let destination = try #require(
+            CGImageDestinationCreateWithData(jpeg, "public.jpeg" as CFString, 1, nil))
+        CGImageDestinationAddImage(
+            destination,
+            try image(width: 200, height: 300, color: CGColor(red: 0, green: 1, blue: 0, alpha: 1)),
+            [kCGImagePropertyOrientation: 6] as CFDictionary)
+        #expect(CGImageDestinationFinalize(destination))
+        let thumbnail = try #require(Thumbnailer.imageThumbnail(jpeg as Data))
+        #expect((thumbnail.originalWidth, thumbnail.originalHeight) == (300, 200))
+        #expect(thumbnail.width > thumbnail.height)
     }
 
     @Test func imagesAreShrunkToTheCardSizeAndReportTheirRealSize() throws {

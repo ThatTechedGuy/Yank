@@ -241,20 +241,17 @@ struct StoreTests {
         }
     }
 
-    @Test func pagesComeBackNewestFirstWithNoGaps() async throws {
+    @Test func itemsWithTheSameTimeComeNewestFirstById() async throws {
         try await withStore { store in
-            // Seven items with the same copy time: the hardest case for paging, because the time
-            // alone cannot order them. Two pages of three plus one of one must still cover each
-            // item exactly once, newest first (the last saved has the highest id, so it is first).
+            // Seven items with the same copy time: the hardest case for ordering, because the
+            // time alone cannot tell them apart. The last saved has the highest id, so it comes
+            // first, and a shorter page is the start of the longer one (the panel grows its
+            // page as the user scrolls).
             let t0 = Date(timeIntervalSince1970: 1_000_000)
             for i in 0..<7 { try await store.save(copy([.text("item \(i)")], at: t0)) }
-            let pages = try await [
-                store.items(limit: 3, offset: 0), store.items(limit: 3, offset: 3),
-                store.items(limit: 3, offset: 6),
-            ]
-            #expect(pages.map(\.count) == [3, 3, 1])
-            let texts = pages.flatMap { $0 }.map(\.cardText)
-            #expect(texts == (0..<7).reversed().map { "item \($0)" })
+            let all = try await store.items(limit: 7).map(\.cardText)
+            #expect(all == (0..<7).reversed().map { "item \($0)" })
+            #expect(try await store.items(limit: 3).map(\.cardText) == Array(all.prefix(3)))
         }
     }
 

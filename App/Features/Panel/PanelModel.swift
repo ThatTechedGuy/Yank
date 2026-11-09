@@ -320,8 +320,9 @@ import SwiftUI
         Task { [store] in
             do {
                 let url = try await store.quickLookFile(for: item)
-                // Still the same card? The user may have moved on while the file was written.
-                guard selectedId == item.id else { return }
+                // Still the same card, and the panel still up? The user may have moved on, or
+                // pasted, while the file was written; Quick Look must not pop up over their app.
+                guard isVisible, selectedId == item.id else { return }
                 quickLookURL = url
             } catch {
                 Log.ui.error("could not write the Quick Look file: \(error.logDescription, privacy: .public)")

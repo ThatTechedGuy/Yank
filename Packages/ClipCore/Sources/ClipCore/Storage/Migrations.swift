@@ -161,6 +161,15 @@ enum Migrations {
                 t.column("sourceAppName")
             }
         }
+
+        // The panel's list is "the newest items on this tab": `WHERE pinboardId IS NULL` (or
+        // `= ?`) `ORDER BY copiedAt DESC, id DESC`. The `id` tiebreak is not in v1's `copiedAt`
+        // index, so SQLite sorted every row of the tab for each page: 48 ms at 100,000 items,
+        // past the panel's speed limit. This index holds the filter and the whole order, so a
+        // page is a lookup (0.1 ms).
+        migrator.registerMigration("v5") { db in
+            try db.create(indexOn: "clipboardItem", columns: ["pinboardId", "copiedAt", "id"])
+        }
         return migrator
     }
 }

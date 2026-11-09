@@ -82,9 +82,9 @@ import GRDB
         }
 
         /// Blobs longer than this are not sniffed for a preview at all.
-        public static let previewLimit = 512 * 1024
+        private static let previewLimit = 512 * 1024
         /// How many characters of a text blob the preview keeps.
-        public static let previewTextLength = 200
+        private static let previewTextLength = 200
 
         private let queue: DatabaseQueue
         private let folder: URL

@@ -51,9 +51,7 @@ import UniformTypeIdentifiers
         do {
             let data = try await store.data(for: original.id)
             if editsImage {
-                let copied =
-                    ClipboardType.images.lazy
-                    .compactMap({ type in data.first { $0.type == type } }).first
+                let copied = data.firstImage
                 image = copied?.data
                 imageType = copied?.type ?? imageType
             } else {

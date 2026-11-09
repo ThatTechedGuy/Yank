@@ -26,12 +26,11 @@ public enum DuplicateKey {
             // ("https://a.com\n") is one item.
             content = Data(data.linkAddress.utf8)
         case .image:
-            // The bytes of the first image type we know, in our preference order: PNG when the
-            // app put one there, else TIFF, and so on. This compares encoded bytes, not pixels.
+            // This compares encoded bytes, not pixels.
             // shortcut: the same picture in two encodings (PNG+TIFF from Preview, TIFF only from
             // a screenshot) is always two items; upgrade to a hash of the decoded pixels if repeat
             // image copies pile up in the list.
-            content = ClipboardType.images.lazy.compactMap { first($0, in: data) }.first ?? Data()
+            content = data.firstImage?.data ?? Data()
         case .file:
             // All file URLs in order: three files copied together are one item.
             content = Data(

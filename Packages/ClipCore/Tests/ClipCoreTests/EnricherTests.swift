@@ -70,6 +70,32 @@ struct EnricherTests {
         #expect(found?.first?.imageText == "Quarterly revenue")
     }
 
+    // Copying the same picture again moves the item up; its thumbnail and its words are still
+    // right, so the capture path must not decode or read it a second time.
+    @Test func aRepeatCopyIsNotDecodedOrReadAgain() async throws {
+        defer { folder.remove() }
+        let store = try Store(folder: folder.url)
+        let decodes = Mutex(0)
+        let reads = Mutex(0)
+        let enricher = Enricher(
+            store: store,
+            makePreview: { item, data in
+                decodes.withLock { $0 += 1 }
+                return CardPreview(
+                    thumbnail: CardThumbnail(clipboardItemId: item.id, png: data[0].data, width: 1, height: 1)
+                )
+            },
+            recognizeText: { _ in
+                reads.withLock { $0 += 1 }
+                return "words"
+            })
+        let copy = CapturedCopy(data: [.png([4, 2])], sourceApp: nil, copiedAt: .now)
+        await enricher.enrichInBackground(try await store.save(copy)).value
+        await enricher.enrichInBackground(try await store.save(copy)).value
+        #expect(decodes.withLock { $0 } == 1)
+        #expect(reads.withLock { $0 } == 1)
+    }
+
     func linkCopy(_ address: String) -> CapturedCopy {
         CapturedCopy(
             data: [.text(address), .url(address)],

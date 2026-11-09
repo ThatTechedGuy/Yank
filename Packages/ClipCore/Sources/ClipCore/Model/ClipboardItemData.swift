@@ -60,6 +60,13 @@ extension [ClipboardItemData] {
             ?? first { $0.type == ClipboardType.plainText }?.text ?? ""
         return address.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// The first image type the copy offers, in `ClipboardType.images` order (PNG when the app
+    /// put one there, else TIFF, and so on). The one rule for which image is "the" image, so the
+    /// thumbnail, the recognizer, the fingerprint and the editor can never pick different ones.
+    public var firstImage: ClipboardItemData? {
+        ClipboardType.images.lazy.compactMap { type in first { $0.type == type } }.first
+    }
 }
 
 // UTIs the rules care about. Defined here, as strings, because ClipCore may not import AppKit

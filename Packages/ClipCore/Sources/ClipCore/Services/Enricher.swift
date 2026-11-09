@@ -113,9 +113,10 @@ public final class Enricher: Sendable {
     /// Reads the words in an image and saves them, so search finds the screenshot by what it
     /// says. Kept apart from `enrich`, which the panel waits on for a card's thumbnail: reading
     /// text takes a good part of a second, and a thumbnail must not wait for it. Nothing happens
-    /// for other kinds, or without a recognizer, or when no words were found.
+    /// for other kinds, or without a recognizer, or when no words were found, or when the words
+    /// were read before (a repeat copy has the same bytes).
     public func recognizeText(in item: ClipboardItem) async throws {
-        guard item.kind == .image, let recognizeText else { return }
+        guard item.kind == .image, item.imageText == nil, let recognizeText else { return }
         // Reads the bytes a second time after `enrich`, rather than keeping them around between
         // the two steps; an image is read from disk in milliseconds.
         let data = try await store.data(for: item.id)
@@ -124,14 +125,20 @@ public final class Enricher: Sendable {
         Log.store.info("read text in item \(item.id, privacy: .public)")
     }
 
-    /// `enrich` and then `recognizeText`, started in the background at low priority and never
-    /// awaited: what the capture path calls after each save. `.utility` tells the system this
-    /// can wait behind anything the user is looking at. A failure is logged, not shown: the item
-    /// is saved either way.
-    public func enrichInBackground(_ item: ClipboardItem) {
+    /// `enrich` and then `recognizeText`, started in the background at low priority: what the
+    /// capture path calls after each save, without waiting on the task it gets back (tests
+    /// do). `.utility` tells the system this can wait behind anything the user is looking at.
+    /// A failure is logged, not shown: the item is saved either way. A repeat copy (same
+    /// bytes, so the Store moved the item up instead of adding one) already has its preview,
+    /// so nothing is decoded, read or fetched again for it.
+    // shortcut: "has a preview" means "has a thumbnail", so a link whose page gave neither a
+    // title nor an icon is fetched again on a repeat copy; remember a failed fetch on the item
+    // if a one-time link ever gets used up that way.
+    @discardableResult
+    public func enrichInBackground(_ item: ClipboardItem) -> Task<Void, Never> {
         Task(priority: .utility) {
             do {
-                try await enrich(item)
+                if try await store.thumbnail(for: item.id) == nil { try await enrich(item) }
                 try await recognizeText(in: item)
             } catch {
                 Log.store.error(

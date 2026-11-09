@@ -19,14 +19,16 @@ import SwiftUI
 
     private let store: Store
     private let enricher: Enricher
-    /// Decoded thumbnails, keyed by item id. At most 300 pictures or about 64 MB of PNG bytes,
-    /// whichever comes first: a dozen cards are on screen at a time, so 300 covers a lot of
-    /// scrolling back and forth without touching the database.
+    /// Decoded thumbnails, keyed by item id. At most 300 pictures or about 64 MB of decoded
+    /// pixels (some 60 full-size thumbnails), whichever comes first: a dozen cards are on
+    /// screen at a time, so that covers a lot of scrolling back and forth without touching
+    /// the database.
     private let images = NSCache<NSNumber, NSImage>()
     /// Items whose thumbnail is being read right now, so a card redrawn while the read runs
     /// does not start a second one. Also holds items that turned out to have none, so they
-    /// are not asked for again on every scroll.
-    private var loading: Set<Int64> = []
+    /// are not asked for again on every scroll. Not observed: `image(for:)` changes it while a
+    /// card is being drawn, and `version` is what tells the card to draw again.
+    @ObservationIgnored private var loading: Set<Int64> = []
 
     init(store: Store, enricher: Enricher) {
         self.store = store
@@ -67,10 +69,16 @@ import SwiftUI
                 thumbnail = try await enricher.enrich(item)?.thumbnail
             }
             guard let thumbnail, let image = await Self.decode(thumbnail.png) else { return }
-            images.setObject(image, forKey: item.id as NSNumber, cost: thumbnail.png.count)
+            // The cost is what the cache really holds: the decoded pixels, four bytes each,
+            // not the PNG they came from.
+            images.setObject(
+                image, forKey: item.id as NSNumber, cost: thumbnail.width * thumbnail.height * 4)
             loading.remove(item.id)
             version += 1
         } catch {
+            // A passing error (a busy database, say) must not blank the card for good: the
+            // next draw asks again.
+            loading.remove(item.id)
             Log.ui.error(
                 "could not load thumbnail \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
             )

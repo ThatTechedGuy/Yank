@@ -11,11 +11,7 @@ public enum TextRecognizer {
     /// when the copy holds no image Vision can read, or no words. (≈ `Tesseract.recognize`,
     /// but built in and offline.)
     public static func text(in data: [ClipboardItemData]) async -> String? {
-        // The first image type the source app offered, in the same order the thumbnail uses.
-        guard
-            let image = ClipboardType.images.lazy
-                .compactMap({ type in data.first { $0.type == type } }).first
-        else { return nil }
+        guard let image = data.firstImage else { return nil }
         return await text(in: image.data)
     }
 

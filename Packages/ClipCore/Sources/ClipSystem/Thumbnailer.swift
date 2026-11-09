@@ -20,12 +20,7 @@ public enum Thumbnailer {
     public static func preview(for item: ClipboardItem, data: [ClipboardItemData]) async -> CardPreview? {
         switch item.kind {
         case .image:
-            // The first image type the source app offered, in our order of preference.
-            guard
-                let image = ClipboardType.images.lazy
-                    .compactMap({ type in data.first { $0.type == type } }).first,
-                let thumbnail = imageThumbnail(image.data)
-            else { return nil }
+            guard let image = data.firstImage, let thumbnail = imageThumbnail(image.data) else { return nil }
             return CardPreview(
                 thumbnail: CardThumbnail(
                     clipboardItemId: item.id, png: thumbnail.png, width: thumbnail.width,

@@ -12,6 +12,9 @@ extension XCUIApplication {
         // background as captured, and fails plain black text in Apple's standard controls,
         // which the app draws with the system's own colours. Contrast is checked by hand
         // instead, with Increase Contrast switched on.
+        // GitHub's virtual Mac reports a Touch Bar (with macOS's own "emoji & symbols" button)
+        // that a Mac without one does not; its parts have no description, and they are not Yank's.
+        let touchBar = touchBars.firstMatch.exists ? touchBars.firstMatch.frame : .null
         try performAccessibilityAudit(for: .all.subtracting(.contrast)) { issue in
             guard let element = issue.element else {
                 // "Parent/Child mismatch" with no element named: nothing to fix. It appears with
@@ -19,6 +22,8 @@ extension XCUIApplication {
                 return issue.auditType == .parentChild
             }
             switch (issue.auditType, element.elementType) {
+            case (.sufficientElementDescription, _) where touchBar.intersects(element.frame):
+                return true
             case (.sufficientElementDescription, .group)
             where element.identifier.isEmpty && element.label.isEmpty:
                 // The unnamed container SwiftUI puts around every window's content, Apple's

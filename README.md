@@ -148,7 +148,9 @@ scripts/test.sh          # everything: slow package tests too, then the UI tests
 ```
 
 The full run launches the Debug app and **writes to your clipboard**. It quits a running Release copy of
-Yank first and reopens it afterwards, so test copies do not land in your real history.
+Yank first and reopens it afterwards, so test copies do not land in your real history. To keep your own
+screen free, let GitHub run it instead: [tests.yml](.github/workflows/tests.yml) runs the full suite on a
+GitHub Mac for every push to `main` and every pull request.
 
 Package tests use Swift Testing. A test that seeds 100,000 items or loads a Vision model has a name
 starting with `slow`, which is how `--fast` skips it. UI tests use XCTest, because only XCTest can drive
@@ -195,7 +197,16 @@ Logs: open Console.app and filter on subsystem `com.thattechedguy.Yank`, or run
 `log stream --predicate 'subsystem == "com.thattechedguy.Yank"' --info`.
 
 **Cutting a release.** Raise `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`
-(Sparkle offers an update only when `CURRENT_PROJECT_VERSION` is higher than the installed one's), then:
+(Sparkle offers an update only when `CURRENT_PROJECT_VERSION` is higher than the installed one's), commit,
+then push a tag for the version:
+
+```sh
+git tag v<version> && git push origin v<version>
+```
+
+[release.yml](.github/workflows/release.yml) builds and signs it with `scripts/release.sh --zip` on a
+GitHub Mac and attaches `Yank-<version>.zip` and `appcast.xml` to a **draft** release. Installed copies
+see nothing until you publish the draft. To release from your own Mac instead:
 
 ```sh
 scripts/release.sh --zip     # signed, checked, written to build/Yank-<version>.zip and build/appcast.xml
@@ -214,6 +225,14 @@ safe, such as a password manager:
   `build/release/SourcePackages/artifacts/sparkle/Sparkle/bin/` (after one `release.sh` run). Its public
   half is `SUPublicEDKey` in [App/Resources/Info.plist](App/Resources/Info.plist). Losing it means users
   can only update by downloading by hand. Back it up with `generate_keys -x <file>`.
+
+The release workflow reads both from repository secrets, set once from the backups:
+
+```sh
+gh secret set YANK_CERT_P12_BASE64 < <(base64 -i Yank-Self-Signed.p12)
+gh secret set YANK_CERT_P12_PASSWORD        # the .p12's password; gh asks for it
+gh secret set SPARKLE_PRIVATE_KEY < sparkle-key.txt
+```
 
 ## 🚧 Known limits
 

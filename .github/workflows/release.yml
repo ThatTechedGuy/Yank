@@ -1,0 +1,62 @@
+# Pushing a version tag (git tag v0.2.0 && git push origin v0.2.0) builds the release zip and its
+# appcast with scripts/release.sh --zip and attaches both to a draft GitHub release. Installed
+# copies only see a release once you publish the draft: Sparkle reads the latest published one.
+#
+# Needs three repository secrets (Settings › Secrets and variables › Actions), from the keys the
+# README's "Cutting a release" describes:
+#   YANK_CERT_P12_BASE64     the exported "Yank Self-Signed" .p12, as base64
+#   YANK_CERT_P12_PASSWORD   the password chosen when exporting it
+#   SPARKLE_PRIVATE_KEY      the line `generate_keys -x` wrote
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # Creating the release.
+
+jobs:
+  release:
+    runs-on: xcode-27
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - run: brew install xcodegen
+
+      # A throwaway keychain for this run, added to the search list so xcodebuild and codesign
+      # find the certificate. The partition list lets codesign use the key without a dialog.
+      - name: Install the signing certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.YANK_CERT_P12_BASE64 }}
+          CERT_P12_PASSWORD: ${{ secrets.YANK_CERT_P12_PASSWORD }}
+        run: |
+          keychain=$RUNNER_TEMP/release.keychain-db
+          password=$(openssl rand -hex 24)
+          printf '%s' "$CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$CERT_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Build, sign and check
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle-key"
+          SPARKLE_KEY_FILE=$RUNNER_TEMP/sparkle-key scripts/release.sh --zip
+          rm "$RUNNER_TEMP/sparkle-key"
+
+      - name: Draft the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          # The appcast's download link is built from the app's version, so the tag must match it.
+          [[ -f "build/Yank-$version.zip" ]] ||
+              { echo "Tag $GITHUB_REF_NAME does not match MARKETING_VERSION in project.yml."; exit 1; }
+          gh release create "$GITHUB_REF_NAME" "build/Yank-$version.zip" build/appcast.xml \
+              --draft --generate-notes

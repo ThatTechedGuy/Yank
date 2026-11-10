@@ -6,6 +6,8 @@
 #        scripts/release.sh --zip         Build a copy signed with the "Yank Self-Signed"
 #                                         certificate, check it and write build/Yank-<version>.zip
 #                                         and build/appcast.xml, the two files a GitHub release ships.
+#                                         Sparkle's key comes from the login keychain, or from the
+#                                         file $SPARKLE_KEY_FILE names (the release workflow).
 #
 # build/Yank.xcarchive holds the latest build and its dSYM. An install also copies it to
 # build/Installed.xcarchive, the only symbols that can read crash reports from the installed app.
@@ -86,11 +88,14 @@ if [[ "$mode" == "--zip" ]]; then
 
     # The feed Sparkle reads (SUFeedURL in App/Resources/Info.plist is the latest release's copy).
     # Sparkle offers an update only when its CFBundleVersion is higher than the installed one's.
-    # sign_update signs the zip with the EdDSA key in the login keychain and prints the
-    # enclosure's signature and length attributes.
+    # sign_update signs the zip with the EdDSA key and prints the enclosure's signature and
+    # length attributes.
     build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")
     min_os=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")
-    signed=$(build/release/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update "$zip")
+    key_file=()
+    [[ -n "${SPARKLE_KEY_FILE:-}" ]] && key_file=(--ed-key-file "$SPARKLE_KEY_FILE")
+    signed=$(build/release/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update \
+        ${key_file[@]+"${key_file[@]}"} "$zip")
     cat > build/appcast.xml <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">

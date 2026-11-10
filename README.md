@@ -30,21 +30,22 @@ in never loses focus.
   Copies that a password manager marks as private are never read.
 - 📌 **Organised when you want it.** Pinboards for the things you paste every week, filters by type and
   date, and a paste stack for moving several things at once.
-- 🪶 **Small and native.** A 4 MB menu-bar app written in Swift and SwiftUI. No Electron, no background
-  helpers.
-- 🧑‍💻 **Open.** MIT licensed, about 7,000 lines of Swift plus tests, three small dependencies. Read it,
+- 🪶 **Small and native.** A 7 MB menu-bar app written in Swift and SwiftUI. No Electron; the only helper
+  is Sparkle's installer, which runs during an update.
+- 🧑‍💻 **Open.** MIT licensed, about 7,000 lines of Swift plus tests, four small dependencies. Read it,
   build it, change it.
 
 ## 🛠 Under the hood
 
-- **Sandboxed and hardened.** Yank runs in the App Sandbox with the hardened runtime and four
+- **Sandboxed and hardened.** Yank runs in the App Sandbox with the hardened runtime and five
   entitlements. Release builds cannot be attached to by a debugger, because Yank's memory holds what
-  you copied.
+  you copied. One gap: library validation is off, because without an Apple team ID macOS would refuse
+  to load Sparkle (see [Yank.entitlements](App/Resources/Yank.entitlements)).
 - **Fast at scale.** History lives in SQLite with FTS5 full-text search. A test holds search to 33 ms
   (95th percentile) over 100,000 items, and the panel is built once and kept hidden so it opens instantly.
 - **On-device intelligence.** Text in images is read with Apple's Vision framework. Nothing is uploaded.
-- **One network call, and you can turn it off.** A copied web address is loaded once for its title and
-  icon. Local addresses are never loaded.
+- **Two network uses, both with a switch.** A copied web address is loaded once for its title and
+  icon (local addresses never are), and Yank checks GitHub once a day for a new version.
 - **Swift 6, strict concurrency.** The compiler checks for data races, warnings are errors, and a script
   keeps UI frameworks out of the core and the database behind one module.
 
@@ -64,9 +65,10 @@ You need a Mac with Apple silicon and macOS 26.4 or later.
 
 3. Allow the two [permissions](#-permissions) when Yank asks.
 
-To update, quit Yank and replace it with the new version. Each release has a new signature, so macOS may
-ask for the permissions again; if pasting stops working after an update, remove Yank from **Privacy &
-Security › Accessibility** and allow it again. Building from source with your own certificate avoids this.
+Yank updates itself. On its second launch it asks whether to check for updates automatically (Settings ›
+Privacy changes your answer), and the menu bar has **Check for Updates…**. Updates install without the
+Open Anyway step, and keep the permissions you gave, because every release is signed with the same
+certificate.
 
 ## 🎛 What it does
 
@@ -82,7 +84,7 @@ Security › Accessibility** and allow it again. Building from source with your 
 - **Paste stack.** Turn it on in the menu bar, copy several things, then press ⌃⌥⌘V to paste them one by
   one, oldest first.
 - **Settings.** Open at login, where pastes go, the panel shortcut, ignored apps, how long history is
-  kept, and Erase History.
+  kept, update checks, and Erase History.
 
 ## 🔐 Privacy
 
@@ -90,8 +92,9 @@ Security › Accessibility** and allow it again. Building from source with your 
   Bitwarden desktop app and KeePassXC set) is never read. A password manager that does not set the marker
   is saved like any other app: add it to Settings › Privacy › Ignored apps.
 - Pause Saving in the menu bar stops saving for a while. Copies made during a pause are never saved.
-- The only network use is link previews: Yank loads a copied web address once to get its title and icon.
-  Settings › Privacy turns this off. Addresses written as local (`localhost`, `192.168.…`, `.local` and
+- Yank goes on the network for two things. Link previews: it loads a copied web address once to get its
+  title and icon. Updates: once a day it fetches the list of releases from GitHub, sending its version
+  number. Settings › Privacy turns off either. Addresses written as local (`localhost`, `192.168.…`, `.local` and
   so on) are never loaded.
 - Text in images is read on your Mac with Apple's Vision framework. Nothing is uploaded.
 - By default the panel is hidden from screen recordings and shared screens.
@@ -162,8 +165,10 @@ an app.
 | `scripts/` | `test.sh`, `check-imports.sh` (keeps the module rules above true), `release.sh`. |
 
 Dependencies, all MIT: [GRDB](https://github.com/groue/GRDB.swift) (SQLite),
-[KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) (the global shortcuts) and
-[Sauce](https://github.com/Clipy/Sauce) (finding the V key on any keyboard layout).
+[KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) (the global shortcuts),
+[Sauce](https://github.com/Clipy/Sauce) (finding the V key on any keyboard layout) and
+[Sparkle](https://github.com/sparkle-project/Sparkle) (updates; it bundles a few parts under BSD-style
+licences). Sparkle runs in Release builds only, so a debug run never offers to replace "Yank Debug".
 
 ## 🤝 Contributing
 
@@ -179,7 +184,7 @@ Issues and pull requests are welcome.
 - Never edit a database migration that has shipped; add a new one.
 - Log errors with `\(error.logDescription, privacy: .public)`, never the error itself: its text can hold
   what the user copied.
-- **The lockfile** is `Packages/ClipCore/Package.resolved`. It pins all three dependencies, the app's
+- **The lockfile** is `Packages/ClipCore/Package.resolved`. It pins all four dependencies, the app's
   too, because Xcode writes the app's pins there. Any edit to `Package.swift`, even a comment, changes
   its `originHash`: run `scripts/test.sh --fast` and commit the new hash. Avoid `swift package resolve`
   and `swift package update`; they drop the app's pin.
@@ -189,17 +194,31 @@ Issues and pull requests are welcome.
 Logs: open Console.app and filter on subsystem `com.thattechedguy.Yank`, or run
 `log stream --predicate 'subsystem == "com.thattechedguy.Yank"' --info`.
 
-**Cutting a release.** Set `MARKETING_VERSION` in `project.yml`, then:
+**Cutting a release.** Raise `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` in `project.yml`
+(Sparkle offers an update only when `CURRENT_PROJECT_VERSION` is higher than the installed one's), then:
 
 ```sh
-scripts/release.sh --zip     # ad hoc signed, checked, written to build/Yank-<version>.zip
-gh release create v<version> build/Yank-<version>.zip --generate-notes
+scripts/release.sh --zip     # signed, checked, written to build/Yank-<version>.zip and build/appcast.xml
+gh release create v<version> build/Yank-<version>.zip build/appcast.xml --generate-notes
 ```
+
+Every installed copy reads the newest release's `appcast.xml`, so both files go on every release.
+
+Releases need two keys in the maintainer's login keychain, made once and then backed up somewhere
+safe, such as a password manager:
+
+- **The "Yank Self-Signed" certificate**, which signs the app. Keychain Access › Certificate Assistant ›
+  Create a Certificate, type Code Signing, with a long validity. A new one changes the signature, so
+  every user gives the permissions again once. Back it up with Keychain Access › File › Export (.p12).
+- **Sparkle's EdDSA key**, which signs each update: `generate_keys` from
+  `build/release/SourcePackages/artifacts/sparkle/Sparkle/bin/` (after one `release.sh` run). Its public
+  half is `SUPublicEDKey` in [App/Resources/Info.plist](App/Resources/Info.plist). Losing it means users
+  can only update by downloading by hand. Back it up with `generate_keys -x <file>`.
 
 ## 🚧 Known limits
 
 - Apple silicon only. macOS 26 is the last release that runs on Intel Macs.
-- Not notarised, so the first launch needs the extra step under [Install](#-install).
+- Not notarised, so the first launch needs the extra step under [Install](#-install). Updates do not.
 - No sync and no iOS app.
 - A file card stores the file's path, not the file. If the file is deleted, the card says so.
 - A link preview checks the address as written. A public name that points to a local address is still

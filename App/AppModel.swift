@@ -4,9 +4,22 @@
 import ClipCore
 import ClipSystem
 import KeyboardShortcuts
+import Sparkle
 import SwiftUI
 
 @Observable final class AppModel {
+    /// Sparkle: checks the appcast in Info.plist on the schedule the user picked, and runs "Check
+    /// for Updates…". Debug builds never start it, so a debug run or a UI test never offers to
+    /// replace "Yank Debug" with a release.
+    // shortcut: a scheduled check that finds an update brings Yank to the front; add Sparkle's
+    // gentle reminders if users find that rude.
+    #if DEBUG
+        let updater = SPUStandardUpdaterController(
+            startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)
+    #else
+        let updater = SPUStandardUpdaterController(
+            startingUpdater: true, updaterDelegate: nil, userDriverDelegate: nil)
+    #endif
     /// Number of saved items, shown in the menu. Follows the database (`observeCount`), so a
     /// capture, an erase, the editor and the hourly expiry all keep it right without a word.
     private(set) var itemCount = 0

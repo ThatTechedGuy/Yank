@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Sparkle's settings. Everything else in Info.plist comes from project.yml. -->
+	<!-- The appcast that scripts/release.sh writes and each GitHub release ships. -->
+	<key>SUFeedURL</key>
+	<string>https://github.com/ThatTechedGuy/Yank/releases/latest/download/appcast.xml</string>
+	<!--
+	  Checks each update's EdDSA signature. Its private key is in the maintainer's login keychain
+	  (Sparkle's generate_keys); losing it means users can only update by downloading by hand.
+	-->
+	<key>SUPublicEDKey</key>
+	<string>24WabilmBG4PhZVclCLyzFsI/XVRImTO5OnxkCVFQTM=</string>
+	<!-- A sandboxed app cannot replace itself; Sparkle's installer service does it. -->
+	<key>SUEnableInstallerLauncherService</key>
+	<true/>
+</dict>
+</plist>

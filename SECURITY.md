@@ -19,6 +19,7 @@ Only the latest release gets fixes.
 - A copy marked private by its app being saved.
 - Another process reading Yank's history without the user's permission.
 - A link preview loading an address it should not.
+- An update that Yank installs without it being signed by the release keys.
 
 The history is not encrypted by Yank: someone with access to your user account or an unencrypted disk can
 read it. That is a known limit, not a vulnerability.

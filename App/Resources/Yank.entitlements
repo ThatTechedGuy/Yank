@@ -15,14 +15,25 @@
 	<key>com.apple.security.files.user-selected.read-only</key>
 	<true/>
 	<!--
+	  Lets the app load Sparkle.framework. Library validation accepts only libraries from the app's
+	  own Apple team, and a release signed with the self-signed certificate has no team, so without
+	  this the release crashes at launch ("different Team IDs"). The hardened runtime still blocks
+	  DYLD_ environment variables and debuggers. Remove it if releases ever get a Developer ID.
+	-->
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+	<!--
 	  The service behind the "Yank would like to control this computer" dialog. Without it the
 	  sandbox refuses the connection: no dialog, and Yank never appears in the Accessibility list.
 	  Granting the permission still takes the user's own switch in System Settings. Apple calls
 	  this a temporary exception and the Mac App Store does not accept it.
+	  The two -spk names are Sparkle's installer service, which replaces the app on an update.
 	-->
 	<key>com.apple.security.temporary-exception.mach-lookup.global-name</key>
 	<array>
 		<string>com.apple.universalaccessAuthWarn</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spks</string>
+		<string>$(PRODUCT_BUNDLE_IDENTIFIER)-spki</string>
 	</array>
 </dict>
 </plist>

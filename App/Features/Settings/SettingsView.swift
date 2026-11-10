@@ -56,11 +56,14 @@ private struct GeneralSettings: View {
     }
 }
 
-/// Which apps are never saved from, whether the panel shows up in screen recordings, and
-/// whether copied links are fetched for their title and icon.
+/// Which apps are never saved from, whether the panel shows up in screen recordings, and Yank's
+/// two uses of the network: link previews and update checks.
 private struct PrivacySettings: View {
+    @Environment(AppModel.self) private var model
     @AppStorage(SettingsKey.showPanelInScreenSharing) private var showPanelInScreenSharing = false
     @AppStorage(SettingsKey.linkPreviews) private var linkPreviews = true
+    /// A copy of Sparkle's setting, which SwiftUI cannot observe. Sparkle keeps the truth.
+    @State private var checksForUpdates = false
 
     var body: some View {
         Form {
@@ -82,13 +85,27 @@ private struct PrivacySettings: View {
                 Toggle("Link previews", isOn: $linkPreviews)
                     .accessibilityIdentifier("link-previews")
             } footer: {
-                // Fetching a page is the one time Yank goes on the network, and fetching a one-time
-                // link (a sign-in link, an unsubscribe link) uses it up, so the user is told what
-                // the switch does.
+                // Fetching a one-time link (a sign-in link, an unsubscribe link) uses it up, so the
+                // user is told what the switch does.
                 Text(
                     "On, a copied link's page is fetched for its title and icon. Turn off if you copy "
                         + "sign-in or one-time links, which fetching can use up. Links to this Mac and "
                         + "your local network are never fetched.")
+            }
+            Section {
+                Toggle("Check for updates automatically", isOn: $checksForUpdates)
+                    .accessibilityIdentifier("check-for-updates")
+                    .onAppear { checksForUpdates = model.updater.updater.automaticallyChecksForUpdates }
+                    .onChange(of: checksForUpdates) { _, on in
+                        // Skips the write from `onAppear`: an explicit "off" before the user ever
+                        // chose would stop Sparkle from asking on the second launch.
+                        guard on != model.updater.updater.automaticallyChecksForUpdates else { return }
+                        model.updater.updater.automaticallyChecksForUpdates = on
+                    }
+            } footer: {
+                Text(
+                    "On, Yank asks GitHub once a day whether there is a new version, and offers to "
+                        + "install it. It sends Yank's version number, never anything you copied.")
             }
         }
         .formStyle(.grouped)

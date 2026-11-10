@@ -43,6 +43,9 @@ struct MenuBarContent: View {
         // behind the current app and draws inactive (grey switches and tabs instead of blue).
         Button("Settings…") { model.openSettings() }
             .keyboardShortcut(",")
+        #if !DEBUG
+            Button("Check for Updates…") { model.updater.checkForUpdates(nil) }
+        #endif
         // The only Quit: Yank has no Dock icon and no app menu.
         Button("Quit Yank") { NSApplication.shared.terminate(nil) }
             .keyboardShortcut("q")

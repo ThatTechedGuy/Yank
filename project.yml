@@ -38,6 +38,9 @@ packages:
   KeyboardShortcuts:
     url: https://github.com/sindresorhus/KeyboardShortcuts
     exactVersion: 3.1.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 
 targets:
   Yank:
@@ -50,6 +53,7 @@ targets:
       - package: ClipCore
         product: ClipSystem # Adapters that talk to macOS.
       - package: KeyboardShortcuts
+      - package: Sparkle # Updates; started in Release builds only (AppModel.updater).
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.thattechedguy.Yank
@@ -57,6 +61,9 @@ targets:
         # APIs need the main thread. The package modules keep Swift's default (no actor).
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         GENERATE_INFOPLIST_FILE: YES
+        # Sparkle's keys, which have no INFOPLIST_KEY_ setting; Xcode merges them into the
+        # generated Info.plist.
+        INFOPLIST_FILE: App/Resources/Info.plist
         INFOPLIST_KEY_CFBundleDisplayName: Yank
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.productivity
         # Menu bar only: no Dock icon, and Yank never takes focus from the app being copied from.

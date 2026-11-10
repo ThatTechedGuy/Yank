@@ -39,7 +39,9 @@ struct MenuBarContent: View {
             DeveloperMenuItems(model: model)
             Divider()
         #endif
-        SettingsLink { Text("Settings…") }
+        // Not `SettingsLink`: it opens the window without activating Yank, so the window sits
+        // behind the current app and draws inactive (grey switches and tabs instead of blue).
+        Button("Settings…") { model.openSettings() }
             .keyboardShortcut(",")
         // The only Quit: Yank has no Dock icon and no app menu.
         Button("Quit Yank") { NSApplication.shared.terminate(nil) }

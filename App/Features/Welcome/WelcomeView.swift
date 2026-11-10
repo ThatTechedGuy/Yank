@@ -55,7 +55,9 @@ struct WelcomeView: View {
             // having seen the window.
             UserDefaults.standard.set(true, forKey: SettingsKey.hasShownWelcome)
             // A menu bar app is not always active when its window opens, which would leave the
-            // window behind whatever the user was doing.
+            // window behind whatever the user was doing, drawn inactive (grey switches). Making it
+            // key as well as activating the app is what the editor window does too.
+            NSApplication.shared.windows.first { $0.title == "Welcome to Yank" }?.makeKeyAndOrderFront(nil)
             NSApplication.shared.activate()
         }
         // Polled once a second while the window is open, because macOS sends no notice when the

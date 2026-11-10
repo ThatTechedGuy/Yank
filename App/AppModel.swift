@@ -290,8 +290,9 @@ import SwiftUI
         }
     }
 
-    /// Opens the Settings window from the panel (⌘,). The panel never makes Yank the active app, so
-    /// the window would open behind whatever the user was working in; `activate()` first brings
+    /// Opens the Settings window from the panel (⌘,) or the menu bar menu. Neither makes Yank the
+    /// active app, so the window would open behind whatever the user was working in, drawn
+    /// inactive; `activate()` first brings
     /// Yank forward. `openSettings` comes from a fresh environment because this is not a view.
     func openSettings() {
         Task { [weak self] in

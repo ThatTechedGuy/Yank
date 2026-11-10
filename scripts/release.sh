@@ -3,8 +3,8 @@
 #
 # Usage: scripts/release.sh               Build, check, then install to /Applications/Yank.app.
 #        scripts/release.sh --no-install  Build and check only; the app stays in build/.
-#        scripts/release.sh --zip         Build a copy signed with the "Yank Self-Signed"
-#                                         certificate, check it and write build/Yank-<version>.zip
+#        scripts/release.sh --dmg         Build a copy signed with the "Yank Self-Signed"
+#                                         certificate, check it and write build/Yank-<version>.dmg
 #                                         and build/appcast.xml, the two files a GitHub release ships.
 #                                         Sparkle's key comes from the login keychain, or from the
 #                                         file $SPARKLE_KEY_FILE names (the release workflow).
@@ -20,14 +20,14 @@ archive=build/Yank.xcarchive
 app=$archive/Products/Applications/Yank.app
 binary=$app/Contents/MacOS/Yank
 
-# A zip for other people is always signed with the maintainer's self-signed certificate, whatever
+# A release for other people is always signed with the maintainer's self-signed certificate, whatever
 # Signing.local.xcconfig says. Its signature stays the same from release to release, so macOS keeps
 # the Accessibility permission across updates and Sparkle accepts the next version. An ad hoc
 # signature changes on every build; a personal Apple Development certificate carries its owner's
 # Apple ID and expires within a year. Creating the certificate: README, "Cutting a release".
 identity="Yank Self-Signed"
 signing=()
-[[ "$mode" == "--zip" ]] && signing=("CODE_SIGN_IDENTITY=$identity" "DEVELOPMENT_TEAM=" "CODE_SIGN_STYLE=Manual")
+[[ "$mode" == "--dmg" ]] && signing=("CODE_SIGN_IDENTITY=$identity" "DEVELOPMENT_TEAM=" "CODE_SIGN_STYLE=Manual")
 
 xcodegen --quiet
 rm -rf "$archive"
@@ -37,7 +37,7 @@ xcodebuild archive -scheme Yank -destination 'generic/platform=macOS' \
 # Xcode re-signs Sparkle.framework but not the helpers inside it, which ship ad hoc signed. Sparkle
 # wants them signed like the app (its "Code Signing" docs); innermost first, then the framework
 # and the app, whose signatures cover them.
-if [[ "$mode" == "--zip" ]]; then
+if [[ "$mode" == "--dmg" ]]; then
     sparkle=$app/Contents/Frameworks/Sparkle.framework/Versions/B
     for helper in XPCServices/Installer.xpc XPCServices/Downloader.xpc Autoupdate Updater.app; do
         codesign -f -s "$identity" -o runtime --preserve-metadata=entitlements "$sparkle/$helper"
@@ -77,25 +77,37 @@ echo "Checks passed: $(du -sh "$app" | cut -f1) app, arm64, signed, hardened run
 
 [[ "$mode" == "--no-install" ]] && exit 0
 
-if [[ "$mode" == "--zip" ]]; then
+if [[ "$mode" == "--dmg" ]]; then
     version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")
-    zip=build/Yank-$version.zip
-    rm -f "$zip"
-    # ditto keeps the signature, symlinks and extended attributes that `zip` can lose.
-    ditto -c -k --keepParent "$app" "$zip"
-    echo "Wrote $zip"
-    shasum -a 256 "$zip"
+    dmg=build/Yank-$version.dmg
+    # The disk image opens to Yank and a link to Applications, so it gets dragged there rather
+    # than run from Downloads, where macOS runs it from a read-only copy Sparkle cannot replace.
+    staging=build/dmg
+    rm -rf "$staging" "$dmg"
+    mkdir -p "$staging"
+    ditto "$app" "$staging/Yank.app"
+    ln -s /Applications "$staging/Applications"
+    hdiutil create -volname Yank -srcfolder "$staging" -format UDZO -quiet "$dmg"
+    rm -rf "$staging"
+    # The copy inside the image is what users get: check its signature survived.
+    mount=$(mktemp -d)
+    hdiutil attach -nobrowse -readonly -quiet -mountpoint "$mount" "$dmg"
+    codesign --verify --deep --strict "$mount/Yank.app" ||
+        { hdiutil detach -quiet "$mount"; echo "The app in $dmg fails its signature check."; exit 1; }
+    hdiutil detach -quiet "$mount"
+    echo "Wrote $dmg"
+    shasum -a 256 "$dmg"
 
     # The feed Sparkle reads (SUFeedURL in App/Resources/Info.plist is the latest release's copy).
     # Sparkle offers an update only when its CFBundleVersion is higher than the installed one's.
-    # sign_update signs the zip with the EdDSA key and prints the enclosure's signature and
+    # sign_update signs the image with the EdDSA key and prints the enclosure's signature and
     # length attributes.
     build_number=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")
     min_os=$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app/Contents/Info.plist")
     key_file=()
     [[ -n "${SPARKLE_KEY_FILE:-}" ]] && key_file=(--ed-key-file "$SPARKLE_KEY_FILE")
     signed=$(build/release/SourcePackages/artifacts/sparkle/Sparkle/bin/sign_update \
-        ${key_file[@]+"${key_file[@]}"} "$zip")
+        ${key_file[@]+"${key_file[@]}"} "$dmg")
     cat > build/appcast.xml <<EOF
 <?xml version="1.0" encoding="utf-8"?>
 <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
@@ -107,7 +119,7 @@ if [[ "$mode" == "--zip" ]]; then
       <sparkle:version>$build_number</sparkle:version>
       <sparkle:shortVersionString>$version</sparkle:shortVersionString>
       <sparkle:minimumSystemVersion>$min_os</sparkle:minimumSystemVersion>
-      <enclosure url="https://github.com/ThatTechedGuy/Yank/releases/download/v$version/Yank-$version.zip"
+      <enclosure url="https://github.com/ThatTechedGuy/Yank/releases/download/v$version/Yank-$version.dmg"
         $signed type="application/octet-stream"/>
     </item>
   </channel>

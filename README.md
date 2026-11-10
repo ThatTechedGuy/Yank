@@ -53,8 +53,8 @@ in never loses focus.
 
 You need a Mac with Apple silicon and macOS 26.4 or later.
 
-1. Download `Yank-<version>.zip` from the [latest release](https://github.com/ThatTechedGuy/Yank/releases/latest),
-   unzip it and move **Yank** to your Applications folder.
+1. Download `Yank-<version>.dmg` from the [latest release](https://github.com/ThatTechedGuy/Yank/releases/latest),
+   open it and drag **Yank** onto the Applications folder next to it.
 2. Open Yank. macOS blocks the first launch because Yank is not notarised by Apple (that needs a paid
    developer account). Open **System Settings › Privacy & Security**, scroll to the message about Yank
    and click **Open Anyway**. Or, in Terminal:
@@ -204,13 +204,13 @@ then push a tag for the version:
 git tag v<version> && git push origin v<version>
 ```
 
-[release.yml](.github/workflows/release.yml) builds and signs it with `scripts/release.sh --zip` on a
-GitHub Mac and attaches `Yank-<version>.zip` and `appcast.xml` to a **draft** release. Installed copies
+[release.yml](.github/workflows/release.yml) builds and signs it with `scripts/release.sh --dmg` on a
+GitHub Mac and attaches `Yank-<version>.dmg` and `appcast.xml` to a **draft** release. Installed copies
 see nothing until you publish the draft. To release from your own Mac instead:
 
 ```sh
-scripts/release.sh --zip     # signed, checked, written to build/Yank-<version>.zip and build/appcast.xml
-gh release create v<version> build/Yank-<version>.zip build/appcast.xml --generate-notes
+scripts/release.sh --dmg     # signed, checked, written to build/Yank-<version>.dmg and build/appcast.xml
+gh release create v<version> build/Yank-<version>.dmg build/appcast.xml --generate-notes
 ```
 
 Every installed copy reads the newest release's `appcast.xml`, so both files go on every release.

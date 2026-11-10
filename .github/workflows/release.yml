@@ -1,5 +1,5 @@
-# Pushing a version tag (git tag v0.2.0 && git push origin v0.2.0) builds the release zip and its
-# appcast with scripts/release.sh --zip and attaches both to a draft GitHub release. Installed
+# Pushing a version tag (git tag v0.2.0 && git push origin v0.2.0) builds the release disk image and
+# its appcast with scripts/release.sh --dmg and attaches both to a draft GitHub release. Installed
 # copies only see a release once you publish the draft: Sparkle reads the latest published one.
 #
 # Needs three repository secrets (Settings › Secrets and variables › Actions), from the keys the
@@ -47,7 +47,7 @@ jobs:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           printf '%s' "$SPARKLE_PRIVATE_KEY" > "$RUNNER_TEMP/sparkle-key"
-          SPARKLE_KEY_FILE=$RUNNER_TEMP/sparkle-key scripts/release.sh --zip
+          SPARKLE_KEY_FILE=$RUNNER_TEMP/sparkle-key scripts/release.sh --dmg
           rm "$RUNNER_TEMP/sparkle-key"
 
       - name: Draft the release
@@ -56,7 +56,7 @@ jobs:
         run: |
           version=${GITHUB_REF_NAME#v}
           # The appcast's download link is built from the app's version, so the tag must match it.
-          [[ -f "build/Yank-$version.zip" ]] ||
+          [[ -f "build/Yank-$version.dmg" ]] ||
               { echo "Tag $GITHUB_REF_NAME does not match MARKETING_VERSION in project.yml."; exit 1; }
-          gh release create "$GITHUB_REF_NAME" "build/Yank-$version.zip" build/appcast.xml \
+          gh release create "$GITHUB_REF_NAME" "build/Yank-$version.dmg" build/appcast.xml \
               --draft --generate-notes

@@ -14,7 +14,12 @@ extension XCUIApplication {
         // instead, with Increase Contrast switched on.
         // GitHub's virtual Mac reports a Touch Bar (with macOS's own "emoji & symbols" button)
         // that a Mac without one does not; its parts have no description, and they are not Yank's.
-        let touchBar = touchBars.firstMatch.exists ? touchBars.firstMatch.frame : .null
+        // Looked up per issue, not before the audit: it appears a moment after a window opens.
+        func isInTouchBar(_ element: XCUIElement) -> Bool {
+            let touchBar = touchBars.firstMatch
+            return element.elementType == .touchBar
+                || (touchBar.exists && touchBar.frame.intersects(element.frame))
+        }
         try performAccessibilityAudit(for: .all.subtracting(.contrast)) { issue in
             guard let element = issue.element else {
                 // "Parent/Child mismatch" with no element named: nothing to fix. It appears with
@@ -22,7 +27,7 @@ extension XCUIApplication {
                 return issue.auditType == .parentChild
             }
             switch (issue.auditType, element.elementType) {
-            case (.sufficientElementDescription, _) where touchBar.intersects(element.frame):
+            case (.sufficientElementDescription, _) where isInTouchBar(element):
                 return true
             case (.sufficientElementDescription, .group)
             where element.identifier.isEmpty && element.label.isEmpty:

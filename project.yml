@@ -20,8 +20,8 @@ settings:
     SWIFT_VERSION: "6.0"
     # Warnings fail the build here and in Package.swift, so they never pile up.
     SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
-    MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "0.1.1"
+    CURRENT_PROJECT_VERSION: "2"
     # Apple silicon only: macOS 26 is the last release that runs on Intel, and a universal
     # binary would double the app's size for those few Macs.
     ARCHS: arm64

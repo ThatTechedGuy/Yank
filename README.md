@@ -55,15 +55,17 @@ You need a Mac with Apple silicon and macOS 26.4 or later.
 
 1. Download `Yank-<version>.dmg` from the [latest release](https://github.com/ThatTechedGuy/Yank/releases/latest),
    open it and drag **Yank** onto the Applications folder next to it.
-2. Open Yank. macOS blocks the first launch because Yank is not notarised by Apple (that needs a paid
-   developer account). Open **System Settings › Privacy & Security**, scroll to the message about Yank
-   and click **Open Anyway**. Or, in Terminal:
+2. Open Yank from Applications. macOS says it could not verify Yank and will not open it, because Yank is
+   not notarised by Apple (that needs a paid developer account). Click **Done**.
+3. Open **System Settings › Privacy & Security** and scroll down to the message that Yank was blocked.
+   Click **Open Anyway**, confirm with your password or Touch ID, then click **Open Anyway** once more.
+   You do this once: updates open without it. Or skip steps 2 and 3 with Terminal:
 
    ```sh
    xattr -dr com.apple.quarantine /Applications/Yank.app
    ```
 
-3. Allow the two [permissions](#-permissions) when Yank asks.
+4. Allow the two [permissions](#-permissions) when Yank asks.
 
 Yank updates itself. On its second launch it asks whether to check for updates automatically (Settings ›
 Privacy changes your answer), and the menu bar has **Check for Updates…**. Updates install without the

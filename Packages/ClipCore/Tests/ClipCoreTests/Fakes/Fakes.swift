@@ -1,23 +1,18 @@
-// Hand-written stand-ins for the clipboard and the frontmost app, so ClipCore's tests never
-// touch the user's real clipboard and can decide exactly what "the clipboard" holds. They are
-// plain classes that adopt the same protocols the real adapters do (≈ a `jest.fn()` mock or a
-// fake repository in Android tests). Swift ships no mocking library, and a protocol this small
-// does not need one.
+// Hand-written stand-ins for the clipboard, the frontmost app and the other ports, so ClipCore's
+// tests never touch the user's real clipboard.
 import Foundation
 import Testing
 
 @testable import ClipCore
 
-/// A clipboard the test fills by hand. `put` replaces the contents and bumps `changeCount`,
-/// which is exactly what a real copy does on NSPasteboard, so CaptureService cannot tell the
-/// difference.
+/// A clipboard the test fills by hand. `put` replaces the contents and bumps `changeCount`, as
+/// a real copy does on NSPasteboard.
 @MainActor final class FakeClipboard: Clipboard {
     var changeCount = 0
     var contents: [ClipboardItemData] = []
     var access: ClipboardAccess = .allowed
     /// How many times the data was actually read (`decide` said yes). The privacy rules must
-    /// decide from the type names alone, before any content is read, so a password never passes
-    /// through the app. Tests check this stays 0 for a skipped copy.
+    /// decide from the type names alone, so tests check this stays 0 for a skipped copy.
     var reads = 0
 
     func put(_ data: [ClipboardItemData]) {
@@ -31,7 +26,6 @@ import Testing
         return contents
     }
 
-    /// A paste writes the clipboard the same way a copy does, so it just reuses `put`.
     func write(_ data: [ClipboardItemData]) { put(data) }
 }
 
@@ -51,17 +45,13 @@ import Testing
     }
 }
 
-/// The Accessibility permission as the test wants it. `requests` counts how often the macOS
-/// prompt would have been shown.
+/// `requests` counts how often the macOS Accessibility prompt would have been shown.
 @MainActor final class FakeAccessibility: AccessibilityStatus {
     var isTrusted = true
     var requests = 0
     func requestAccess() { requests += 1 }
 }
 
-// Small builders so a test reads as "a text copy of X" instead of repeating type strings and
-// byte conversions on every line. Each one makes the same `ClipboardItemData` the real adapter
-// would produce for that kind of copy.
 extension ClipboardItemData {
     static func text(_ string: String) -> ClipboardItemData {
         ClipboardItemData(type: ClipboardType.plainText, data: Data(string.utf8))
@@ -83,23 +73,21 @@ extension ClipboardItemData {
 }
 
 /// A fresh folder per test for the Store's SQLite file and large-data files. The random name
-/// means tests running at the same time never share a database; `remove()` deletes it at the
-/// end so test runs don't fill the temp folder.
+/// means tests running at the same time never share a database.
 struct TemporaryFolder {
     let url = URL.temporaryDirectory.appending(path: "YankTests-\(UUID().uuidString)")
     func remove() { try? FileManager.default.removeItem(at: url) }
 }
 
-// Tags label tests so a run can pick or skip them. `.slow` marks tests that take seconds
-// (seeding 100,000 items) instead of milliseconds; `scripts/test.sh --fast` skips them, the full
-// run includes them. (`@Tag` ≈ a Jest `describe` name you can filter on, or a JUnit category.)
+// `.slow` marks tests that take seconds (seeding 100,000 items) instead of milliseconds.
+// `scripts/test.sh --fast` skips them by the "slow" prefix of their names, not by this tag.
 extension Tag {
     @Tag static var slow: Self
 }
 
 /// A web that answers every address with the same title and icon, and remembers which addresses
-/// were asked for, so a test can prove an address was fetched once, or never. `@MainActor`
-/// makes the class `Sendable`, which the port requires, without a lock of its own.
+/// were asked for. `@MainActor` makes the class `Sendable`, which `LinkFetching` requires,
+/// without a lock of its own.
 @MainActor final class FakeLinkFetcher: LinkFetching {
     var fetched: [URL] = []
     var preview = LinkPreview(

@@ -1,18 +1,10 @@
 import Foundation
 
-// One saved copy: a row of the `clipboardItem` table and, later, one card in the panel.
 // The bytes live separately in `ClipboardItemData` rows, so listing items never loads images.
-//
-// The protocols after the colon each do a job here. `Identifiable` ("has an `id`") lets SwiftUI
-// lists tell cards apart, like React's `key`. `Codable` means Swift writes the encode/decode code
-// from the properties, like a JSON.parse that checks types; the Store uses it to turn a database
-// row into an item, matching column names to these property names. `Hashable` lets items go in
-// sets and be compared. `Sendable` means the compiler has checked it is safe to pass between
-// threads, which the Store does on every save and fetch.
-/// One saved copy. ≈ a row of `clipboardItem`.
+// `Codable` maps a database row onto this by name: a property's name is its column's name.
+/// One saved copy: a row of `clipboardItem`.
 public struct ClipboardItem: Identifiable, Hashable, Sendable, Codable {
-    /// SQLite's row id, assigned by the database on insert. `Int64` because SQLite row ids are
-    /// 64-bit integers.
+    /// SQLite's row id, assigned by the database on insert.
     public var id: Int64
     public var kind: ItemKind
     /// Your own name for the item, set by Rename. Replaces the first line on the card.

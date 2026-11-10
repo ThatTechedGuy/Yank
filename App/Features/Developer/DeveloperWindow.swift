@@ -1,16 +1,6 @@
-// The Developer window: a second window, in debug builds only, for watching the app from the
-// inside while building it. Four tabs: Overview (counts, sizes, memory, CPU), Database (every
-// table, paged), Timings (how long the panel takes to open, as a chart against its limit) and
-// Logs (the app's own log lines). ≈ Android Studio's App Inspection tab, or the React Native dev
-// menu: `#if DEBUG` is Swift's `__DEV__`, except the compiler drops the code from a release build
-// entirely, so the shipped app has none of it.
-//
-// Every file in this folder is wrapped in `#if DEBUG`, and nothing outside this folder depends on
-// it: YankApp.swift adds the window and the menu items under the same `#if DEBUG`.
-//
-// Everything each tab does starts in that tab's `.task` and stops when the tab or the window
-// goes away (SwiftUI cancels the task), so with the window closed the app does no extra work at
-// all. ≈ a `useEffect` whose cleanup runs on unmount.
+// The Developer window, in debug builds only: Overview, Database, Timings and Logs tabs. Each tab's
+// work starts in its `.task` and is cancelled when the tab or the window goes away, so with the
+// window closed the app does no extra work at all.
 #if DEBUG
     import AppKit
     import ClipCore
@@ -25,9 +15,6 @@
         let model: AppModel
 
         var body: some Scene {
-            // A `Window` is a single window that can be opened and closed, as opposed to
-            // `WindowGroup`, which would open a new copy on every request. The standard window
-            // chrome, sidebar and toolbar come from macOS; nothing here is styled by hand.
             Window(Self.title, id: Self.id) {
                 DeveloperView(model: model)
             }
@@ -38,22 +25,17 @@
     /// The two rows the menu bar menu gains in a debug build.
     struct DeveloperMenuItems: View {
         let model: AppModel
-        // `openWindow` is SwiftUI's way to open a `Window` scene by id, read from the environment
-        // (≈ a navigation prop injected by the router).
         @Environment(\.openWindow) private var openWindow
 
         var body: some View {
             Button("Developer…") {
                 openWindow(id: DeveloperWindow.id)
-                // Yank is a menu bar app with no Dock icon, so it is never the active app. Opening
-                // a window does not change that by itself; without this the window would appear
-                // behind whatever app is in front.
+                // Yank is seldom the active app, and opening a window does not make it so; without
+                // this the window would appear behind whatever app is in front.
                 NSApplication.shared.activate()
             }
             Button("Open Data Folder") {
-                // Shows the folder in a Finder window with the database file selected. Finder hides
-                // ~/Library, so this is the easiest way to reach it. It is this launch's folder:
-                // the fake-history one when started with `--seed`.
+                // This launch's folder: the fake-history one when started with `--seed`.
                 NSWorkspace.shared.activateFileViewerSelecting([
                     model.dataFolder.appending(path: "yank.sqlite")
                 ])
@@ -76,7 +58,6 @@
             }
         }
 
-        /// The SF Symbol shown next to the title in the sidebar.
         var systemImage: String {
             switch self {
             case .overview: "gauge.with.dots.needle.33percent"
@@ -97,8 +78,6 @@
         @State private var openError: String?
 
         var body: some View {
-            // Sidebar on the left, the selected tab on the right. `List(selection:)` turns the
-            // sidebar into a radio list bound to `tab`.
             NavigationSplitView {
                 List(DeveloperTab.allCases, selection: $tab) { tab in
                     Label(tab.title, systemImage: tab.systemImage)

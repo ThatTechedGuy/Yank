@@ -2,9 +2,6 @@ import Testing
 
 @testable import ClipCore
 
-// The selection as the keys and clicks drive it, over a fixed list of five card ids. The
-// expected sets are written out by hand from the rules, so a wrong range or a lost anchor
-// shows up as a different set.
 struct CardSelectionTests {
     let order: [Int64] = [10, 20, 30, 40, 50]
 
@@ -53,7 +50,7 @@ struct CardSelectionTests {
         var selection = CardSelection()
         selection.select(20)
         selection.extend(by: 1, in: order)
-        // A search narrows the list to two cards, one of them selected: it stays, alone.
+        // A search narrows the list to two cards, one of them selected.
         selection.keep(in: [30, 50])
         #expect(selection.ids == [30])
         #expect(selection.lead == 30)
@@ -61,7 +58,6 @@ struct CardSelectionTests {
         selection.keep(in: [50, 60])
         #expect(selection.ids == [50])
         #expect(selection.lead == 50)
-        // An empty list: nothing selected, and nothing crashes.
         selection.keep(in: [])
         #expect(selection.ids.isEmpty)
         #expect(selection.lead == nil)

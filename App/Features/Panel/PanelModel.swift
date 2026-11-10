@@ -1,30 +1,15 @@
-// The panel's state: the cards it shows, which one is selected, what is typed in search, and
-// whether it is on screen. The views read it and re-render when it changes; the window shell
-// and the keyboard handlers change it. ≈ a Zustand store for one screen, or an Android
-// ViewModel. `@Observable` makes SwiftUI track every stored property, so a view that reads
-// `model.items` re-renders when the list changes and nothing else does.
-//
-// It is the only thing that talks to the Store for the panel, and it keeps the list alive
-// with a live query: the Store delivers the newest items now and again after every change,
-// so a copy made while the panel is open appears on its own. Pasting goes through it too: the
-// views say which card and whether ⇧ was held, and the model adds the user's settings and
-// hands the job to PasteService.
-//
-// Typing in the search box swaps the live list for search results: each keystroke cancels the
-// search still running for the previous text and starts a new one, so the cards always show
-// the latest text and a slow search can never overwrite a newer one. Clearing the box shows
-// the live list again, which kept running underneath.
+// The panel's state, and the only thing that talks to the Store for the panel. A live query
+// keeps the list fresh, so a copy made while the panel is open appears on its own; typing in
+// search swaps it for search results, and the live list keeps running underneath.
 import ClipCore
 import SwiftUI
 
 @Observable final class PanelModel {
     /// How many items the live list asks for at first, and how many more each time the user
-    /// nears the end. 200 cards is far more than fit on any screen, so the first page always
-    /// covers what is visible and a few screens of scrolling.
+    /// nears the end. Far more than fit on any screen.
     static let pageSize = 200
 
-    /// The cards on screen: the search results while something is typed, otherwise the live
-    /// list. Computed, so a view reading it re-renders when either source changes.
+    /// The cards on screen: the search results while something is typed, otherwise the live list.
     var items: [ClipboardItem] { searchResults ?? liveItems }
     /// How many cards the row holds, as VoiceOver says it in "Card 1 of 20": the number, or
     /// "200 or more" when the row holds a full page, so more history (or more matches) may be
@@ -40,10 +25,9 @@ import SwiftUI
     // shortcut: results are a snapshot, a copy made while they show does not appear in them,
     // and they are capped at one page with no paging; revisit if either is ever noticed.
     private var searchResults: [ClipboardItem]?
-    /// Which cards are selected: a lead card the keys move and the outline follows, and
-    /// possibly more (⇧← ⇧→, ⌘-click, ⌘A). Ids, not indexes, so the selection survives a new
-    /// copy arriving at the front of the list. A preview belongs to the lead card, so it
-    /// closes when the lead moves; any prompt open on a card closes with any change.
+    /// The selected cards: a lead card the keys move, and possibly more (⇧← ⇧→, ⌘-click, ⌘A).
+    /// Ids, not indexes, so the selection survives a new copy arriving at the front of the
+    /// list. A preview closes when the lead moves; a prompt closes with any change.
     var selection = CardSelection() {
         didSet {
             guard selection != oldValue else { return }
@@ -51,15 +35,13 @@ import SwiftUI
             prompt = nil
         }
     }
-    /// The lead card's id, or nil. Setting it selects that one card alone (a plain click, an
-    /// arrow key). Most of the panel only cares about this one.
+    /// The lead card's id, or nil. Setting it selects that one card alone.
     var selectedId: Int64? {
         get { selection.lead }
         set { selection.select(newValue) }
     }
-    /// A small dialog open on a card, if any: the actions menu (⌘K), the Rename box or the
-    /// "Delete N items?" question. One value, so only one can be up at a time, and the row
-    /// knows which card to anchor it to. Any change of selection closes it.
+    /// The small dialog open on a card, if any. One value, so only one can be up at a time,
+    /// and the row knows which card to anchor it to.
     var prompt: CardPrompt?
     /// File cards whose file has gone since the copy. Filled in as cards come on screen (each
     /// card checks its own file); such a card says so and cannot be pasted or dragged.
@@ -67,17 +49,15 @@ import SwiftUI
     /// Whether the large preview (text, link, colour) is open above the selected card.
     var showsLargePreview = false
     /// The file Quick Look is showing for the selected image or file, or nil when it is closed.
-    /// SwiftUI's `.quickLookPreview` opens and closes the Quick Look panel as this changes.
     var quickLookURL: URL?
-    /// What is typed in the search box. Every change starts a search for the new text.
-    /// (`didSet` runs after the value is stored, ≈ a setter hook; `oldValue` is the previous
-    /// text. SwiftUI's binding sets it again on focus changes, so same-text sets are ignored.)
+    /// What is typed in the search box. Every change starts a search for the new text;
+    /// SwiftUI's binding sets it again on focus changes, so same-text sets are ignored.
     var searchText = "" {
         didSet { if searchText != oldValue { startSearch() } }
     }
     /// Which tab the panel is on (History or a pinboard) and the kind and date it is narrowed
-    /// to. Both the live list and the search read it, so a change restarts both. It is kept
-    /// while the panel is hidden: the panel reopens where it was left, like a browser tab.
+    /// to. A change restarts the live list and the search. It is kept while the panel is
+    /// hidden, so the panel reopens where it was left.
     var filter = ItemFilter() {
         didSet {
             guard filter != oldValue else { return }
@@ -88,11 +68,11 @@ import SwiftUI
     }
     /// The pinboards, in tab order, kept fresh by a live query like the items.
     private(set) var pinboards: [Pinboard] = []
-    /// The card ⌘P or "Pin to" is choosing a pinboard for: a small chooser opens on it. Nil
-    /// when none is open. (Only used when there is more than one pinboard to choose from.)
+    /// The card the pinboard chooser (⌘P or "Pin to") is open on, or nil. Only used when
+    /// there is more than one pinboard to choose from.
     var pinChooserItemId: Int64?
-    /// Whether the "New Pinboard" name prompt is up, and which card to pin to the new board
-    /// once it exists (nil: just create it). The view shows the prompt while this is non-nil.
+    /// Non-nil while the "New Pinboard" name prompt is up; it holds the card to pin to the new
+    /// board, if any.
     var newPinboardPrompt: NewPinboardPrompt?
     /// The pinboard whose Rename prompt, or Delete confirmation, is up; nil when none is.
     var renamingPinboard: Pinboard?
@@ -108,19 +88,17 @@ import SwiftUI
     private(set) var isVisible = false
     /// True when Return would paste into the active app but macOS does not let Yank press ⌘V:
     /// the panel then shows a hint. Checked each time the panel opens, so granting the
-    /// permission in System Settings is noticed on the next ⇧⌘V without a restart.
+    /// permission is noticed without a restart.
     private(set) var needsAccessibility = false
 
     let store: Store
     private let pasteService: PasteService
-    /// "Add to Stack" in a card's menu. The paste stack belongs to the app model, which sets
-    /// this; on its own the panel has no stack to add to, so the default does nothing.
+    /// "Add to Stack" in a card's menu. Set by the app model, which owns the paste stack.
     var addToStack: (ClipboardItem) -> Void = { _ in }
-    /// "Edit" in a card's menu, ⌘E, and ⌘N for a new text item (nil). The editor window is the
-    /// app model's to open, like the stack; on its own the panel has none.
+    /// "Edit" in a card's menu, ⌘E, and ⌘N for a new text item (nil). Set by the app model,
+    /// which owns the editor window.
     var openEditor: (ClipboardItem?) -> Void = { _ in }
-    /// The task running the live query. Cancelling it stops the query; a new one starts when
-    /// the limit changes.
+    /// The task running the live query; restarted when the limit or the filter changes.
     private var liveList: Task<Void, Never>?
     /// The task keeping `pinboards` fresh. Runs for as long as the model lives.
     private var pinboardList: Task<Void, Never>?
@@ -137,12 +115,10 @@ import SwiftUI
     }
 
     /// Starts (or restarts, with the current limit and filter) the live query that keeps
-    /// `items` fresh. It runs all the time, not only while the panel is open, so the cards are
-    /// already loaded when the panel appears and opening it costs no database read.
+    /// `items` fresh. It runs all the time, not only while the panel is open, so opening the
+    /// panel costs no database read.
     private func startLiveList() {
         liveList?.cancel()
-        // `for try await` loops over each delivery as it arrives, like `for await` over an
-        // async iterator in JS. The body runs on the main thread, because this class does.
         liveList = Task { [store, limit, filter] in
             do {
                 for try await items in store.observeItems(matching: filter, limit: limit) {
@@ -194,9 +170,9 @@ import SwiftUI
         if searchResults != nil { startSearch(keepingSelection: true) }
     }
 
-    /// Cancels the search for the previous text and starts one for the current text. An empty
-    /// box needs no database read: the live list comes back at once. New text selects the
-    /// first result; `keepingSelection` is for a refresh of the same text.
+    /// Cancels the search for the previous text and starts one for the current text, so a slow
+    /// search can never overwrite a newer one. An empty box needs no database read. New text
+    /// selects the first result; `keepingSelection` is for a refresh of the same text.
     private func startSearch(keepingSelection: Bool = false) {
         search?.cancel()
         guard !searchText.isEmpty else {
@@ -205,13 +181,13 @@ import SwiftUI
             return
         }
         search = Task { [store, searchText, filter] in
-            // A timing marker around the whole search, from keystroke to results assigned, so
-            // `log show --signpost` and Instruments can measure it against the speed limit.
+            // Signposted from keystroke to results assigned, so `log show --signpost` and
+            // Instruments can measure the search against the speed limit.
             let state = Log.timing.beginInterval("Search")
+            defer { Log.timing.endInterval("Search", state) }
             do {
                 let results = try await store.search(searchText, matching: filter, limit: Self.pageSize)
-                // A newer keystroke cancelled this search while the database was busy: its
-                // results are stale, and the newer search will set its own.
+                // A newer keystroke cancelled this search while the database was busy.
                 guard !Task.isCancelled else { return }
                 searchResults = results
                 if keepingSelection {
@@ -219,7 +195,6 @@ import SwiftUI
                 } else {
                     selectedId = items.first?.id
                 }
-                Log.timing.endInterval("Search", state)
                 Log.ui.info("search found \(results?.count ?? -1, privacy: .public) items")
             } catch is CancellationError {
                 // Cancelled mid-read; nothing to show and nothing wrong.
@@ -257,8 +232,7 @@ import SwiftUI
     /// The selected cards, left to right: the order a paste or a drag of several uses.
     var selectedItems: [ClipboardItem] { items.filter { selection.contains($0.id) } }
 
-    /// Pastes the selected cards (Return): one, or all of them in order when several are
-    /// selected. `plainText` is whether ⇧ was held.
+    /// Return: pastes the selected cards, in order. `plainText` is whether ⇧ was held.
     func pasteSelected(plainText: Bool) {
         paste(selectedItems, plainText: plainText)
     }
@@ -275,11 +249,10 @@ import SwiftUI
         paste([item], plainText: plainText)
     }
 
-    /// Pastes several cards in one go, left to right, to where the user's "Paste items"
-    /// setting says, unless `destination` says otherwise ("Copy" in the menu: clipboard only).
-    /// A file card whose file is gone stops the whole paste before anything is written. A
-    /// failure is logged, not shown: by then the item is on the clipboard either way, so the
-    /// user can still press ⌘V.
+    /// Pastes the cards left to right, to where the "Paste items" setting says unless
+    /// `destination` says otherwise ("Copy" in the menu: clipboard only). A file card whose
+    /// file is gone stops the whole paste before anything is written. A failure is logged, not
+    /// shown: by then the item is on the clipboard either way, so the user can still press ⌘V.
     func paste(_ items: [ClipboardItem], plainText: Bool, destination: PasteDestination? = nil) {
         guard !items.isEmpty else { return }
         let plain = plainText || PasteSettings.alwaysPlainText
@@ -288,8 +261,7 @@ import SwiftUI
             do {
                 try await pasteService.paste(items, plainText: plain, destination: destination)
             } catch PasteError.fileNoLongerExists {
-                // The cards show it; the live check may not have run yet for a card that was
-                // never on screen, so note it now.
+                // A card that was never on screen has not had its file checked, so mark it now.
                 for item in items where item.kind == .file { await checkFile(of: item) }
                 Log.paste.notice("paste refused: a file no longer exists")
             } catch {
@@ -305,8 +277,8 @@ import SwiftUI
     var showsPreview: Bool { showsLargePreview || quickLookURL != nil }
 
     /// Space: opens the selected card's preview, or closes the one that is open. Images and
-    /// files go to Quick Look, which needs a file on disk (the Store writes one, off the main
-    /// thread); everything else opens the large preview.
+    /// files go to Quick Look, which needs a file on disk (the Store writes one); everything
+    /// else opens the large preview.
     func togglePreview() {
         guard !showsPreview else {
             closePreview()
@@ -320,8 +292,8 @@ import SwiftUI
         Task { [store] in
             do {
                 let url = try await store.quickLookFile(for: item)
-                // Still the same card, and the panel still up? The user may have moved on, or
-                // pasted, while the file was written; Quick Look must not pop up over their app.
+                // The user may have moved on, or pasted, while the file was written; Quick Look
+                // must not pop up over their app.
                 guard isVisible, selectedId == item.id else { return }
                 quickLookURL = url
             } catch {
@@ -336,15 +308,15 @@ import SwiftUI
         quickLookURL = nil
     }
 
-    /// The item's whole text, for the large preview. The card only carries the first 200
-    /// characters; this reads the saved bytes. Nil when they cannot be read.
+    /// The item's whole text, for the large preview: the card only carries the first 200
+    /// characters. Nil when the saved bytes cannot be read.
     func fullText(for item: ClipboardItem) async -> String? {
         let data = try? await store.data(for: item.id)
         return data?.first { $0.type == ClipboardType.plainText }?.text
     }
 
     /// Called by the window when the panel comes on screen: the newest card is selected and
-    /// search starts empty, the way Paste opens.
+    /// search starts empty.
     func didShow() {
         selectedId = items.first?.id
         searchText = ""
@@ -353,8 +325,6 @@ import SwiftUI
             PasteSettings.destination == .activeApp && !pasteService.isAccessibilityTrusted
     }
 
-    /// Called by the window when the panel leaves the screen. A list that grew while scrolling
-    /// shrinks back to one page, so the live query does little work while the panel is hidden.
     /// Closes whichever popover is open (Esc, or the panel hiding).
     func closePrompts() {
         pinChooserItemId = nil
@@ -364,6 +334,8 @@ import SwiftUI
         prompt = nil
     }
 
+    /// Called by the window when the panel leaves the screen. A list that grew while scrolling
+    /// shrinks back to one page, so the live query does little work while the panel is hidden.
     func didHide() {
         isVisible = false
         closePreview()

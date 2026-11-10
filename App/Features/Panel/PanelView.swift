@@ -1,10 +1,5 @@
-// What the panel shows: a thin drag handle along the top edge, a search box (with a hint next
-// to it when Yank may not press ⌘V) and the row of cards under it. It also owns the keyboard:
-// where the cursor goes when the panel opens, what Tab, ← →, Return, ⌘1–⌘9, Space and Esc do.
-// The window shell (PanelWindow) decides where on screen the panel is and how tall; this view
-// decides what is in it, and asks the shell to change the height when the handle is dragged.
-// ≈ the screen component that a native container renders.
-// QuickLook is the framework behind the `.quickLookPreview` modifier below.
+// What the panel shows: the resize handle, the search box, the tabs and the row of cards. It
+// also owns the panel's keyboard handling. PanelWindow decides where the panel is and how tall.
 import ClipCore
 import QuickLook
 import SwiftUI
@@ -17,13 +12,11 @@ struct PanelView: View {
     /// Asks the window for a new height, in points, while the handle is dragged. The window
     /// keeps it within the allowed range and remembers it.
     let resize: (CGFloat) -> Void
-    /// What ⌘, does: the Mac-wide key for Settings. The window hides itself and opens the
-    /// Settings window; passed in for the same reason as `dismiss`.
+    /// What ⌘, does: hides the panel and opens Settings. Passed in for the same reason as
+    /// `dismiss`.
     let openSettings: () -> Void
 
-    /// The two places the keyboard focus can be. SwiftUI tracks focus with a `@FocusState`
-    /// value: setting it moves the cursor, and clicking something sets it. ≈ a `ref.focus()`
-    /// you can also read. `nil` means nothing in the panel has focus.
+    /// The two places the keyboard focus can be.
     private enum Focus { case search, cards }
     @FocusState private var focus: Focus?
     /// The panel's height and the pointer's screen position when a drag on the handle began;
@@ -31,15 +24,11 @@ struct PanelView: View {
     @State private var dragStart: (height: CGFloat, mouseY: CGFloat)?
 
     var body: some View {
-        // `@Bindable` lets a text field write into an `@Observable` model: `$model.searchText`
-        // is the two-way binding (≈ value + onChange in one).
         @Bindable var model = model
         GeometryReader { geometry in
             VStack(spacing: 8) {
                 resizeHandle(panelHeight: geometry.size.height)
                 HStack(spacing: 12) {
-                    // The search box. A plain `TextField` bound to the model's text; the model
-                    // searches on every change, so there is nothing to wire here.
                     TextField(model.searchPrompt, text: $model.searchText)
                         .textFieldStyle(.roundedBorder)
                         .focused($focus, equals: .search)
@@ -62,13 +51,10 @@ struct PanelView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                // History and the pinboards as tabs, with the filter button at the right.
                 PanelTabs(model: model)
-                // A scrolling row cannot take keyboard focus on its own; `focusable()` lets Tab
-                // land on it so typing stops going into the search box. The system's blue focus
-                // ring around the whole row is turned off: the selected card's own highlight
-                // already shows where the keys go, and a ring around the container looked
-                // like a stray outline whenever a click landed on the row.
+                // Focusable so Tab can land on the row and typing stops going into the search
+                // box. No focus ring: the selected card's outline already shows where the keys
+                // go, and a ring around the whole row looked like a stray outline.
                 CardRow(model: model)
                     .focusable()
                     .focusEffectDisabled()
@@ -76,30 +62,23 @@ struct PanelView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        // The frosted-glass look of system panels: what is behind shows through, blurred.
         .background(.regularMaterial)
-        // Quick Look for images and files. Setting the model's URL opens the system's preview
-        // panel on that file; clearing it, or the user closing the panel, sets it back to nil.
         .quickLookPreview($model.quickLookURL)
         // Every time the panel opens, the cursor goes to search so the user can type at once.
-        // `onChange` runs when the value flips, like a `useEffect` with `[isVisible]`.
         .onChange(of: model.isVisible, initial: true) { _, visible in
             if visible { focus = .search }
         }
         // Tab moves between search and the cards and back; SwiftUI would otherwise only move
-        // it forward and then out of the panel. `.handled` means "I used this key, do not pass
-        // it on". The handlers below also hear the keys typed in a popover (a name prompt, the
-        // pin chooser), because the popover hangs off this view; while one is open
-        // (`isPrompting`) they step aside with `.ignored` so the key reaches the popover.
+        // it forward and then out of the panel. The handlers below also hear the keys typed in
+        // a popover, because the popover hangs off this view; while one is open they return
+        // `.ignored` so the key reaches the popover.
         .onKeyPress(.tab) {
             guard !model.isPrompting else { return .ignored }
             focus = focus == .search ? .cards : .search
             return .handled
         }
-        // ← and → move the selection even while typing in search, because what the user wants
-        // is to pick a card, not to move the text cursor. These run before the text field sees
-        // the key, because the handler sits above it in the view tree. With ⇧ held they grow
-        // the selection one card at a time, like ⇧→ in Finder's icon view.
+        // ← and → move the selection even while typing in search: the user wants to pick a
+        // card, not to move the text cursor. With ⇧ held they extend the selection.
         .onKeyPress(keys: [.leftArrow, .rightArrow]) { press in
             guard !model.isPrompting else { return .ignored }
             let step = press.key == .leftArrow ? -1 : 1
@@ -124,15 +103,14 @@ struct PanelView: View {
             model.confirmDelete(of: model.selectedItems)
             return .handled
         }
-        // Return pastes the selected card; ⇧Return pastes it as plain text. The handler gets
-        // the modifier keys with the press, so one handler covers both.
+        // Return pastes the selected cards; ⇧Return pastes them as plain text.
         .onKeyPress(keys: [.return]) { press in
             guard !model.isPrompting else { return .ignored }
             model.pasteSelected(plainText: press.modifiers.contains(.shift))
             return .handled
         }
         // ⌘1–⌘9 paste the card with that number on its badge; with ⇧ as plain text. A digit
-        // without ⌘ is left alone (`.ignored`) so it still types into the search box.
+        // without ⌘ still types into the search box.
         .onKeyPress(characters: .decimalDigits) { press in
             guard press.modifiers.contains(.command), let number = Int(press.characters) else {
                 return .ignored
@@ -140,15 +118,14 @@ struct PanelView: View {
             model.paste(shortcutNumber: number, plainText: press.modifiers.contains(.shift))
             return .handled
         }
-        // Space opens or closes the selected card's preview, unless the user is typing a
-        // search with words in it: then it is a space in the text. `.ignored` passes it on.
+        // Space opens or closes the selected card's preview, unless the search box has focus
+        // and text in it: then it is a space in the text.
         .onKeyPress(.space) {
             if model.isPrompting || focus == .search && !model.searchText.isEmpty { return .ignored }
             model.togglePreview()
             return .handled
         }
-        // Esc closes a popover if one is open, else the preview, else the panel. `onExitCommand`
-        // is SwiftUI's name for the Escape key (and ⌘. ) on the Mac.
+        // Esc (or ⌘.) closes a popover if one is open, else the preview, else the panel.
         .onExitCommand {
             if model.isPrompting {
                 model.closePrompts()
@@ -159,16 +136,13 @@ struct PanelView: View {
             }
         }
         // ⌘, opens Settings. Yank has no menu bar of its own while the panel is up (it is not
-        // the active app), so the key has to be caught here. Only with ⌘ held: a plain comma
-        // is text for the search box. `phases: .down` means the press, not the repeat or
-        // release.
+        // the active app), so the key has to be caught here.
         .onKeyPress(.init(","), phases: .down) { press in
             guard press.modifiers == .command else { return .ignored }
             openSettings()
             return .handled
         }
-        // ⌘[ and ⌘] move one tab left or right (History, then the pinboards, round and round);
-        // ⌘P pins the selected card or unpins it. Without ⌘ the keys type into search.
+        // ⌘[ and ⌘] move one tab left or right, wrapping round; ⌘P pins or unpins the selected card.
         .onKeyPress(.init("["), phases: .down) { press in
             guard press.modifiers == .command else { return .ignored }
             model.selectPreviousTab()
@@ -211,8 +185,7 @@ struct PanelView: View {
     }
 
     /// The strip along the top edge the user drags to make the panel taller or shorter. It is
-    /// drawn as a short bar in the middle, like the grab handle on an iOS sheet, but the whole
-    /// strip takes the drag. The cursor turns into the up/down resize arrows over it.
+    /// drawn as a short bar in the middle, but the whole strip takes the drag.
     private func resizeHandle(panelHeight: CGFloat) -> some View {
         Capsule()
             .fill(.secondary.opacity(0.5))
@@ -221,11 +194,10 @@ struct PanelView: View {
             .frame(height: 14)
             .contentShape(Rectangle())
             .pointerStyle(.frameResize(position: .top))
-            // The pointer is read in screen coordinates (`NSEvent.mouseLocation`, y upwards)
-            // rather than from the gesture, because the gesture measures from the panel's
-            // own top-left corner, which is the very edge being moved. The panel's bottom
-            // edge stays on the Dock, so moving the pointer up by 10 points makes it 10
-            // points taller.
+            // The pointer is read in screen coordinates (y upwards) rather than from the
+            // gesture, because the gesture measures from the panel's own top-left corner, which
+            // is the very edge being moved. The panel's bottom edge stays put, so moving the
+            // pointer up by 10 points makes it 10 points taller.
             .gesture(
                 DragGesture(minimumDistance: 1)
                     .onChanged { _ in
@@ -236,10 +208,8 @@ struct PanelView: View {
                     }
                     .onEnded { _ in dragStart = nil }
             )
-            // VoiceOver users cannot drag, so to them the handle is a slider instead:
-            // `accessibilityRepresentation` swaps in another control's accessibility (a real
-            // `Slider`, never drawn) for this view. It says the height, and VoiceOver's
-            // increase and decrease (⌃⌥⇧↑ ↓) move it 20 points within the allowed range.
+            // VoiceOver users cannot drag, so to them the handle is a slider: it says the
+            // height, and increase and decrease move it 20 points within the allowed range.
             .accessibilityRepresentation {
                 Slider(
                     value: Binding(get: { Double(panelHeight) }, set: { resize(CGFloat($0)) }),

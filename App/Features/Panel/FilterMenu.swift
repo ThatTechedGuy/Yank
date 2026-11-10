@@ -1,11 +1,6 @@
-// The filter button at the right of the tab row and its menu: the type of item (Text, Image,
-// Link, File, Color) and how far back (Today, Last 7 Days, Last 30 Days, Any Time), with a
-// Clear Filters row. Each choice writes straight into the model's filter, and the model
-// restarts the list and the search; the button's icon fills in while anything is narrowed, so
-// a short list is never a mystery. ≈ a dropdown bound to two fields of a filter object.
-//
-// The user-facing names of the kinds and ranges live here too, where the menu and the cards
-// both read them.
+// The filter button at the right of the tab row and its menu. The icon fills in while anything
+// is narrowed, so a short list is never a mystery. The user-facing names of the kinds and ranges
+// live here too, where the menu and the cards both read them.
 import ClipCore
 import SwiftUI
 
@@ -15,8 +10,6 @@ struct FilterMenu: View {
     var body: some View {
         @Bindable var model = model
         Menu {
-            // `.inline` lays the picker's choices out as rows of this menu under a heading,
-            // with a tick on the chosen one, instead of a submenu.
             Picker("Type", selection: $model.filter.kind) {
                 Text("Any Type").tag(ItemKind?.none)
                 ForEach(ItemKind.allCases, id: \.self) { kind in

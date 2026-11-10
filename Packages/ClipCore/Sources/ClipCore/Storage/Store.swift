@@ -1,24 +1,8 @@
 import Foundation
 import GRDB
 
-// The one place that touches the disk: every read and write of the database and of the large
-// data files goes through the Store. Everyone else, the capture loop today and any UI that lists
-// items, calls these async methods and never sees SQL or GRDB.
-//
-// Inside, the Store uses GRDB's record API (see Records.swift) and never writes SQL by hand:
-// GRDB builds the statements from `filter`, `order`, `insert`, `update` and `deleteAll`. The one
-// exception is the full-text search table, where the `MATCH` query goes through GRDB's
-// `FTS5Pattern`, because SQL has no column-style way to say "matches these words".
-//
-// Threading, in one paragraph: `DatabasePool` is GRDB's connection pool. Writes queue up on one
-// background thread, one at a time; reads run in parallel on other threads and don't wait for a
-// write to finish (SQLite's WAL mode: a write goes to a side log first, so readers keep seeing
-// the last committed state). Each `write { db in }` block is one transaction. The `async`
-// methods below are what callers await from the main thread, like `await db.insert(...)` with
-// Drizzle; the work itself never blocks the UI.
-//
-// `final class ... : Sendable`: a class (a reference type, shared by pointer) that the compiler
-// lets us use from any thread, because every field is a `let` and is itself safe to share.
+// The one place that touches the disk: every read and write of the database and of the large data
+// files goes through the Store, with GRDB's record API (see Records.swift), never hand-written SQL.
 /// Saves, lists and searches clipboard items. One instance per app.
 public final class Store: Sendable {
     private let pool: DatabasePool
@@ -33,14 +17,9 @@ public final class Store: Sendable {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var configuration = Configuration()
         #if DEBUG
-            // In a debug build, log every SQL statement the database runs, with how long it took,
-            // under the "sql" category. It is the only way to see the SQL GRDB builds from the
-            // record calls below. `prepareDatabase` runs once for each connection the pool opens,
-            // and `trace` asks SQLite to call back after each statement (`.profile` = with its
-            // duration). The logged SQL is the statement as prepared, with `?` where the values
-            // go, so clipboard contents never reach the log; that is why it can be public.
-            // SQLite measures the duration with a millisecond clock, so it is logged as whole
-            // milliseconds; "0 ms" means under one.
+            // The SQL is logged as prepared, with `?` where the values go, so clipboard contents
+            // never reach the log; that is why it can be public. SQLite measures the duration with
+            // a millisecond clock, so "0 ms" means under one.
             configuration.prepareDatabase { db in
                 db.trace(options: .profile) { event in
                     guard case .profile(let statement, let duration) = event else { return }
@@ -55,9 +34,7 @@ public final class Store: Sendable {
         files = try LargeDataFiles(folder: folder.appending(path: "LargeData"))
         quickLookFolder = URL.temporaryDirectory.appending(path: "QuickLook/\(folder.lastPathComponent)")
         try Migrations.migrator.migrate(pool)
-        // A data file that no row points at can only come from a crash in the middle of a save or
-        // a delete (see LargeDataFiles). Sweep now, before capture starts, so the folder never
-        // grows with leftovers. It is a quick directory listing, so doing it here is fine.
+        // Data files no row points at are left by a crash mid-save or mid-delete (see LargeDataFiles).
         let (count, fileNames) = try pool.read { db in
             (
                 try ClipboardItem.fetchCount(db),
@@ -68,33 +45,23 @@ public final class Store: Sendable {
         Log.store.info("opened store at \(folder.path, privacy: .public) with \(count) items")
     }
 
-    // The app's data folder. In a sandboxed app (one macOS keeps inside its own private folder),
-    // `.applicationSupportDirectory` resolves to
-    // ~/Library/Containers/com.thattechedguy.Yank/Data/Library/Application Support, the
-    // sandbox's private home, like an Android app's /data/data/<id>/files. A debug build has the
-    // bundle id com.thattechedguy.Yank.debug, so the same line gives it a separate folder under
-    // ~/Library/Containers/com.thattechedguy.Yank.debug. Tests pass a temporary folder instead.
+    // Inside the sandbox container, so a debug build, with its own bundle id, gets a separate folder.
     /// Where the real app keeps its data.
     public static var defaultFolder: URL {
         URL.applicationSupportDirectory.appending(path: "Yank")
     }
 
     /// Saves a copy as a new item, or moves the existing item with the same content to the top.
-    /// Returns the saved item either way. (`@discardableResult` lets a caller ignore the return
-    /// value without a compiler warning; the capture loop does use it.)
+    /// Returns the saved item either way.
     @discardableResult
     public func save(_ copy: CapturedCopy) async throws -> ClipboardItem {
         let (kind, fingerprint, cardText, cardDetail, searchText) = Self.describe(copy.data)
-        // Large data goes to disk *before* the transaction, so a row never points at a file that
-        // isn't fully there yet. If the transaction then fails, these files are leftovers; they
-        // are removed right away (see `write(newFiles:)`), or by the sweep at the next launch
-        // after a crash.
+        // Large data goes to disk before the transaction, so a row never points at a file that
+        // isn't fully there yet. `write(newFiles:)` removes the files if the transaction fails.
         let fileNames = try writeLargeData(of: copy.data)
         return try await write(newFiles: fileNames) { db in
-            // Repeat copy? Reuse the newest item with the same content instead of adding a
-            // duplicate: it keeps its id, title and pinboard, and takes the new time, source
-            // app and data. Its old data rows are dropped here; their files are deleted
-            // only after this transaction has committed.
+            // A repeat copy reuses the newest item with the same content, which keeps its id,
+            // title and pinboard. Its old files are deleted only after this transaction commits.
             let existing =
                 try ClipboardItem
                 .filter(ClipboardItemColumns.contentFingerprint == fingerprint)
@@ -104,12 +71,11 @@ public final class Store: Sendable {
             if var existing {
                 existing.copiedAt = copy.copiedAt
                 existing.cardText = cardText
-                // A detail the save cannot compute (an image's size) is left as the
-                // Enricher set it last time: the bytes are the same, so it still holds.
+                // A detail the save cannot compute (an image's size) is left as the Enricher set
+                // it last time: the bytes are the same, so it still holds.
                 existing.cardDetail = cardDetail ?? existing.cardDetail
                 existing.sourceAppBundleId = copy.sourceApp?.bundleId
                 existing.sourceAppName = copy.sourceApp?.name
-                // `update` writes every column of the row back, matched by `id`.
                 try existing.update(db)
                 _ = try ClipboardItem.filter(key: existing.id)
                     .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
@@ -118,8 +84,6 @@ public final class Store: Sendable {
                 oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
                 try oldRows.deleteAll(db)
             } else {
-                // `insertAndFetch` inserts and reads the new row straight back, so the
-                // caller gets the item exactly as stored, with the id the database chose.
                 item = try NewClipboardItem(
                     kind: kind, cardText: cardText, searchText: searchText, cardDetail: cardDetail,
                     sourceAppBundleId: copy.sourceApp?.bundleId,
@@ -136,14 +100,10 @@ public final class Store: Sendable {
         }
     }
 
-    /// Gives an item new bytes in place: what the editor's "Replace Original" does. The item
-    /// keeps its id, its place in the list (`copiedAt`), its title, its source app and its
-    /// pinboard; its kind, card text, footer detail and fingerprint are worked out afresh from
-    /// the new bytes, the same way a save does. The thumbnail and the words read out of the
-    /// old image are dropped, because they described the old bytes; the caller runs the
-    /// Enricher again for the new ones. Returns the item as stored, or nil if it was deleted
-    /// in the meantime (nothing is written then). Files are handled like a save: new ones are
-    /// written before the transaction, old ones deleted after it.
+    /// Gives an item new bytes in place: the editor's "Replace Original". It keeps its id,
+    /// `copiedAt`, title, source app and pinboard; the rest is worked out afresh, as in a save.
+    /// The thumbnail, image text and link page title are dropped because they described the old
+    /// bytes; the caller runs the Enricher again. Returns nil if the item was deleted meanwhile.
     public func replaceData(for id: Int64, with data: [ClipboardItemData]) async throws -> ClipboardItem? {
         let (kind, fingerprint, cardText, cardDetail, searchText) = Self.describe(data)
         let fileNames = try writeLargeData(of: data)
@@ -172,10 +132,8 @@ public final class Store: Sendable {
         }
     }
 
-    /// What a save works out from a copy's bytes: its kind, the fingerprint that spots a
-    /// repeat, and the card's texts. None of it needs the database, so it is computed before
-    /// the write block: the one writer thread is then busy only for the actual SQL, and other
-    /// saves queue behind it for less time.
+    /// What a save works out from a copy's bytes. None of it needs the database, so it is
+    /// computed before the write block and the one writer is busy only for the actual SQL.
     private static func describe(_ data: [ClipboardItemData]) -> (
         kind: ItemKind, fingerprint: String, cardText: String, cardDetail: String?, searchText: String
     ) {
@@ -186,23 +144,18 @@ public final class Store: Sendable {
         )
     }
 
-    /// Writes each piece of data that is too big for its row to a file, and returns one file
-    /// name per piece (nil for the small ones that go in the row). Called before a
-    /// transaction, see `save`. (`try ... ? :` picks the branch first, then runs the `try`
-    /// in it.)
+    /// Writes each piece of data that is too big for its row to a file, and returns one file name
+    /// per piece (nil for the small ones). Called before a transaction, see `save`.
     private func writeLargeData(of data: [ClipboardItemData]) throws -> [String?] {
         try data.map { item in
             item.data.count <= LargeDataFiles.inlineLimit ? nil : try files.write(item.data)
         }
     }
 
-    /// One write transaction whose rows point at large files written just before it, and the
-    /// file work around it. The block returns its result and the files to delete once it has
-    /// committed: those whose rows it dropped, or the new ones when the item turned out to be
-    /// gone. If the block throws, the transaction was rolled back and the new files belong to
-    /// nobody, so they go instead. Deleting is best effort (`try?`): a file already removed by
-    /// the sweep or an earlier crash is no reason to fail a committed write, and the sweep at
-    /// the next launch catches anything left behind.
+    /// One write transaction whose rows point at large files written just before it. The block
+    /// returns its result and the files to delete once it has committed: those whose rows it
+    /// dropped, or the new ones when the item turned out to be gone. If the block throws, the new
+    /// files go instead. Deleting is best effort: the launch sweep catches leftovers.
     private func write<T: Sendable>(
         newFiles: [String?], _ updates: @Sendable (Database) throws -> (T, [String])
     ) async throws -> T {
@@ -217,10 +170,8 @@ public final class Store: Sendable {
         return result
     }
 
-    /// One data row per clipboard type, in the source app's order (`position`). Small data
-    /// goes in the row; large data is already in the file `writeLargeData` made, and the row
-    /// keeps its name. (`enumerated()` gives (index, element) pairs, ≈ `.forEach((d, i) =>
-    /// ...)`.)
+    /// One data row per clipboard type, in the source app's order (`position`). Large data is
+    /// already in the file `writeLargeData` made, and the row keeps only its name.
     private static func insertDataRows(
         _ db: Database, of itemId: Int64, data: [ClipboardItemData], fileNames: [String?]
     ) throws {
@@ -234,17 +185,11 @@ public final class Store: Sendable {
         }
     }
 
-    /// Moves items to the top of the history by giving them a new "last copied" time: what a
-    /// paste from the panel does, so what you just used comes first next time. One transaction,
-    /// keeping their order: the first id ends up newest. Each gets a time one millisecond older
-    /// than the one before, because the column keeps milliseconds and two items with the same
-    /// time would fall back to id order. Only the time changes; the data rows and files stay
-    /// as they are. The live list (`observeItems`) delivers the new order on its own.
+    /// Moves items to the top of the history, as a paste from the panel does, keeping their
+    /// order: the first id ends up newest. Each gets a `copiedAt` one millisecond older than the
+    /// one before, because the column keeps milliseconds and equal times fall back to id order.
     public func moveToTop(ids: [Int64]) async throws {
         let now = Date()
-        // `updateAll` on a filtered request is GRDB's "UPDATE ... SET ... WHERE": one statement,
-        // no need to fetch the row first. It returns how many rows changed (0 if the item was
-        // deleted meanwhile), which nobody needs here, hence the `_ =`.
         try await pool.write { db in
             for (offset, id) in ids.enumerated() {
                 _ = try ClipboardItem.filter(key: id)
@@ -253,24 +198,14 @@ public final class Store: Sendable {
         }
     }
 
-    /// The newest `limit` items, newest copied first, once. ≈ `SELECT * ... ORDER BY copiedAt
-    /// DESC, id DESC LIMIT ?`. The panel uses the live form, `observeItems`.
+    /// The newest `limit` items, once. The panel uses the live form, `observeItems`.
     public func items(limit: Int) async throws -> [ClipboardItem] {
         try await pool.read { db in try ClipboardItem.newestFirst.limit(limit).fetchAll(db) }
     }
 
-    /// The newest `limit` items that match `filter` (History or a pinboard, a kind, a date
-    /// range; the default is all of History), delivered now and again every time they change,
-    /// so the panel shows a new copy the moment it is saved without asking for the list again.
-    ///
-    /// This is a live query: GRDB watches the tables the fetch read and re-runs it after every
-    /// write that touches them, on its own background thread, then hands the fresh list to
-    /// whoever is looping over the result with `for try await`. ≈ Room's `Flow<List<T>>` or a
-    /// Supabase subscription. The loop ends when the task running it is cancelled, which also
-    /// stops the watching. `removeDuplicates` skips a delivery when a write changed nothing the
-    /// list shows (for example, bytes of an item below the limit), so the panel is not redrawn
-    /// for nothing. (`some AsyncSequence<...>` hides GRDB's own type: callers only see "a
-    /// sequence of item lists that can fail", so the app never has to import GRDB.)
+    /// The newest `limit` items that match `filter` (the default is all of History), delivered
+    /// now and again every time they change. `removeDuplicates` skips a delivery when a write
+    /// changed nothing the list shows. The opaque return type keeps GRDB out of the app.
     // shortcut: a date range is worked out once, when the query starts, so a panel left open
     // across midnight keeps yesterday's "today" until the filter or the panel changes; restart
     // the query on a day change if anyone notices.
@@ -285,8 +220,7 @@ public final class Store: Sendable {
             .values(in: pool)
     }
 
-    /// Every pinboard in tab order, delivered now and again whenever one is added, renamed or
-    /// deleted: the same kind of live query as `observeItems`, for the panel's tab row.
+    /// Every pinboard in tab order, delivered now and again whenever one changes.
     public func observePinboards() -> some AsyncSequence<[Pinboard], any Error> {
         ValueObservation
             .tracking { db in try Pinboard.inOrder.fetchAll(db) }
@@ -303,7 +237,6 @@ public final class Store: Sendable {
     /// the panel trims it and refuses an empty one before calling this.
     public func createPinboard(named name: String) async throws -> Pinboard {
         try await pool.write { db in
-            // The new tab goes last: one past the highest position so far (0 for the first).
             let last = try Pinboard.select(max(PinboardColumns.position), as: Int.self).fetchOne(db)
             let pinboard = try NewPinboard(name: name, position: (last ?? -1) + 1)
                 .insertAndFetch(db, as: Pinboard.self)
@@ -320,8 +253,7 @@ public final class Store: Sendable {
     }
 
     /// Deletes a pinboard. Its items are not deleted: the foreign key on `clipboardItem` is
-    /// declared `ON DELETE SET NULL` (see Migrations), so SQLite clears their `pinboardId` in
-    /// the same statement and they are back in History at once.
+    /// `ON DELETE SET NULL` (see Migrations), so they are back in History at once.
     public func deletePinboard(id: Int64) async throws {
         _ = try await pool.write { db in
             let deleted = try Pinboard.deleteOne(db, key: id)
@@ -333,8 +265,7 @@ public final class Store: Sendable {
     /// off whichever one it was on, and off History. Nothing happens if either was deleted.
     public func pin(itemId: Int64, to pinboardId: Int64) async throws {
         _ = try await pool.write { db in
-            // The foreign key would refuse a missing pinboard with an error; checking first
-            // turns a race with a delete into a quiet no-op, which is what the user would want.
+            // A missing pinboard would fail the foreign key; this makes a race with a delete a no-op.
             guard try Pinboard.exists(db, key: pinboardId) else { return }
             try ClipboardItem.filter(key: itemId)
                 .updateAll(db, [ClipboardItemColumns.pinboardId.set(to: pinboardId)])
@@ -354,9 +285,8 @@ public final class Store: Sendable {
         try await pool.read { db in try ClipboardItem.fetchCount(db) }
     }
 
-    /// How many items are saved, delivered now and again whenever the number changes: the same
-    /// kind of live query as `observeItems`, for the menu. A write that leaves the count as it
-    /// was (a repeat copy moving an item up) delivers nothing, thanks to `removeDuplicates`.
+    /// How many items are saved, delivered now and again whenever the number changes, for the
+    /// menu. A write that leaves the count as it was (a repeat copy) delivers nothing.
     public func observeCount() -> some AsyncSequence<Int, any Error> {
         ValueObservation
             .tracking { db in try ClipboardItem.fetchCount(db) }
@@ -369,9 +299,7 @@ public final class Store: Sendable {
         let files = self.files
         return try await pool.read { db in
             try ClipboardItemDataRow.ofItem(itemId).fetchAll(db).map { row in
-                // Large data was written to a file at save time and only its name is in the
-                // row, so read it back from disk; otherwise the bytes are in the row. One of the
-                // two is always set, so the `?? Data()` fallback never runs.
+                // Exactly one of the two is set, so the `?? Data()` fallback never runs.
                 let data = try row.largeDataFileName.map(files.read) ?? row.data ?? Data()
                 return ClipboardItemData(
                     pasteboardItemIndex: row.pasteboardItemIndex, type: row.type, data: data)
@@ -379,13 +307,9 @@ public final class Store: Sendable {
         }
     }
 
-    /// Adds what the Enricher worked out for an item: its thumbnail, footer detail, the text
-    /// read out of an image and/or a link's page title. One transaction, so the live list sees
-    /// all of it at once. A thumbnail replaces the item's old one (`upsert`); a nil part leaves
-    /// that side alone. The text columns are in the search index, which SQLite's triggers
-    /// update on this write, so a screenshot is searchable by its words the moment they land.
-    /// Nothing happens if the item was deleted in the meantime: the thumbnail's foreign key
-    /// would refuse it, so it is checked first.
+    /// Saves what the Enricher worked out for an item, in one transaction so the live list sees
+    /// all of it at once; a nil part is left alone. Nothing happens if the item was deleted in
+    /// the meantime: the thumbnail's foreign key would refuse it, so it is checked first.
     public func setPreview(_ preview: CardPreview, for itemId: Int64) async throws {
         try await pool.write { db in
             guard try ClipboardItem.exists(db, key: itemId) else { return }
@@ -407,80 +331,63 @@ public final class Store: Sendable {
     }
 
     /// A file Quick Look can open for the item: the file itself for a file item, otherwise the
-    /// item's bytes written to a temporary file named after it, so Quick Look sees the right
-    /// type. Images get their best image type; anything else is written as plain text. Nil when
-    /// the item has no data. The write happens off the main thread, like every read here.
+    /// item's image or plain text written to a temporary file. Nil when it has neither.
     public func quickLookFile(for item: ClipboardItem) async throws -> URL? {
         let data = try await data(for: item.id)
         if item.kind == .file {
             return data.first { $0.type == ClipboardType.fileURL }.flatMap { URL(string: $0.text) }
         }
-        // The first image type the source app offered that we know an extension for; Quick
-        // Look picks its viewer from the extension, so a TIFF must not be called .png.
+        // Quick Look picks its viewer from the extension, so a TIFF must not be called .png.
         let extensions = [
             "public.png": "png", "public.jpeg": "jpg", "public.tiff": "tiff", "public.heic": "heic",
             "com.compuserve.gif": "gif",
         ]
-        let (type, ext) =
-            data.lazy.compactMap { d in extensions[d.type].map { (d.type, $0) } }.first
-            ?? (ClipboardType.plainText, "txt")
-        guard let bytes = data.first(where: { $0.type == type })?.data else { return nil }
-        // One file per item in the app's temporary folder, overwritten on each preview. Deleting
-        // items clears the folder (`removeQuickLookCopies`).
+        let image = data.firstImage
+        let ext = image.flatMap { extensions[$0.type] }
+        let chosen = ext == nil ? data.first { $0.type == ClipboardType.plainText } : image
+        guard let bytes = chosen?.data else { return nil }
+        // One file per item, overwritten on each preview; deleting items clears the folder.
         try FileManager.default.createDirectory(at: quickLookFolder, withIntermediateDirectories: true)
-        let url = quickLookFolder.appending(path: "\(item.id).\(ext)")
+        let url = quickLookFolder.appending(path: "\(item.id).\(ext ?? "txt")")
         try bytes.write(to: url, options: .atomic)
         return url
     }
 
     /// Removes every temporary copy, so deleted content does not linger in the temporary folder
-    /// until macOS gets round to it. All of them rather than only the deleted items': the rest
-    /// are simply written again the next time they are needed. (`try?`: a folder that was never
-    /// made is fine.)
+    /// until macOS gets round to it. The copies of other items are written again when needed.
     private func removeQuickLookCopies() {
         try? FileManager.default.removeItem(at: quickLookFolder)
     }
 
-    /// Up to this many matches are sorted best match first; more than this and they come
-    /// newest first instead. SQLite scores every matching row one by one, about 1 µs each on
-    /// an M-series Mac, so scoring 50,000 matches of a two-letter search over a big history
-    /// would take 50 ms, past the speed limit; 5,000 takes about 6 ms. A search that broad is
-    /// a prefix of a very common word, where the score says little anyway and newest first is
-    /// what the user expects of a history.
+    /// Up to this many matches are sorted best match first; more than this and they come newest
+    /// first instead. SQLite scores every matching row, about 1 µs each on an M-series Mac, so
+    /// the 50,000 matches of a two-letter search over a big history would take 50 ms; 5,000 takes
+    /// about 6 ms. A search that broad is a prefix of a very common word, where the score says
+    /// little anyway.
     static let rankedMatchLimit = 5_000
 
-    /// The items that match what the user typed, at most `limit` of them: best match first
-    /// when the match is narrow enough to score (see `rankedMatchLimit`), newest first among
-    /// equals and otherwise. Matches the card text, a title, text read out of an image, a
-    /// link's page title and the source app's name, each word as a prefix ("qua" finds
-    /// "quarterly"), and every word must match. Only items that `filter` allows (the tab,
-    /// kind and date the panel is on) are searched, so the two narrow the list together.
+    /// The items `filter` allows that match what the user typed, at most `limit` of them: best
+    /// match first when few enough to score (see `rankedMatchLimit`), newest first among equals
+    /// and otherwise. Every word must match, as a prefix ("qua" finds "quarterly"), in the item's
+    /// text, title, image text, link page title or source app name.
     ///
     /// Returns `nil` when the text is not a search yet: fewer than two letters, or nothing
-    /// searchable in it (only spaces or punctuation). The caller shows the full list then.
-    /// Two letters is where the index's prefix tables begin; a single letter would match most
-    /// of the history, which is the one slow case.
+    /// searchable in it (only spaces or punctuation). Two letters is where the index's prefix
+    /// tables begin; a single letter would match most of the history, the one slow case.
     public func search(_ query: String, matching filter: ItemFilter = ItemFilter(), limit: Int)
         async throws -> [ClipboardItem]?
     {
-        // Full-text search has no `filter` equivalent: SQLite's `MATCH` takes a search pattern
-        // in its own little language, with special words (OR, NOT) and symbols (quotes, *).
-        // `FTS5Pattern` turns anything the user typed into a safe pattern, so "don't" or "c++"
-        // or a stray quote can never break the query or be misread as an operator.
+        // `FTS5Pattern` makes anything typed safe: "don't", "c++" or a stray quote can never
+        // break the query or be misread as an operator.
         guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2,
             let pattern = FTS5Pattern(matchingAllPrefixesIn: query)
         else { return nil }
         let filtered = ClipboardItem.matching(filter, now: Date(), calendar: .current)
         return try await pool.read { db in
-            // Counting the matches first is cheap (the index answers it without scoring), and
-            // it decides whether scoring all of them would fit in the speed limit.
+            // Counting first is cheap (the index answers without scoring) and decides whether to rank.
             let matches = try clipboardItemSearchIndex.all().matching(pattern).fetchCount(db)
-            // The index is joined to the item table (`joining(required:)` = INNER JOIN) with the
-            // MATCH in the join condition, which is how SQLite wants a full-text query over a
-            // separate content table. The `TableAlias` names the index's side of the join, so
-            // the ordering can reach its `rank` column: FTS5's score, lowest first = best match.
-            // `order` here replaces the newest-first order `matching` set; its `WHERE` clauses
-            // stay, so the search only sees the items the panel's tab and filter allow.
+            // The alias lets the ordering reach the index's `rank` column: FTS5's score, lowest
+            // is best. `order` replaces the newest-first order `matching` set; its filters stay.
             let index = TableAlias()
             let byScore: [any SQLOrderingTerm] = matches <= Self.rankedMatchLimit ? [index[Column.rank]] : []
             return
@@ -497,16 +404,14 @@ public final class Store: Sendable {
         try await delete(ids: [id])
     }
 
-    /// Deletes several items at once: one transaction for the rows, then their files. The
-    /// live list drops them all in one delivery, so the panel never shows a half-deleted
-    /// selection.
+    /// Deletes several items in one transaction, then their files. The live list drops them all
+    /// in one delivery, so the panel never shows a half-deleted selection.
     public func delete(ids: [Int64]) async throws {
         try await deleteItems(in: ClipboardItem.filter(keys: ids))
     }
 
     /// Gives an item your own name, shown on its card instead of the first line and found by
-    /// search (the index's triggers pick the column up). Nil, or a blank name, clears it so
-    /// the first line is back.
+    /// search. Nil, or a blank name, clears it so the first line is back.
     public func rename(id: Int64, to title: String?) async throws {
         let title = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         let stored = title.flatMap { $0.isEmpty ? nil : $0 }
@@ -515,16 +420,14 @@ public final class Store: Sendable {
         }
     }
 
-    /// Makes a second, separate item with the same content, title and pinboard, copied now,
-    /// so it sits at the top. The two share a fingerprint: copying that content again moves
-    /// whichever is newest to the top, and the other stays where it is. Large data files are
-    /// copied too, so deleting one item never takes the other's bytes away. Returns the new
-    /// item, or nil if the original was deleted meanwhile.
+    /// Makes a second, separate item with the same content, title and pinboard, copied now. The
+    /// two share a fingerprint: copying that content again moves whichever is newest to the top.
+    /// Large data files are copied too, so deleting one item never takes the other's bytes away.
+    /// Returns the new item, or nil if the original was deleted meanwhile.
     @discardableResult
     public func duplicate(id: Int64) async throws -> ClipboardItem? {
         let files = self.files
-        // The files are copied before the transaction, like a save writes them first: a row
-        // never points at a file that is not there yet. On failure they are removed again.
+        // Files are copied before the transaction, as in `save`: a row never points at a missing file.
         let rows = try await pool.read { db in try ClipboardItemDataRow.ofItem(id).fetchAll(db) }
         let copiedFileNames: [String?] = try rows.map { row in
             try row.largeDataFileName.map { try files.write(try files.read($0)) }
@@ -565,24 +468,18 @@ public final class Store: Sendable {
 
     /// Deletes every item that is not on a pinboard, with its data rows, thumbnail (both by
     /// cascade) and large files, then rebuilds the database file so the space goes back to the
-    /// disk. Pinned items are untouched. The rows go in one transaction, so a crash in the
-    /// middle erases nothing; the files go after it commits (a crash there leaves files for
-    /// the launch sweep). Rebuilding (`VACUUM`, here GRDB's `vacuum`) copies the live rows
-    /// into a fresh file, so it runs last and can take a moment on a big history; the caller
-    /// awaits all of it off the main thread.
+    /// disk. The rebuild copies the live rows into a fresh file, so it runs last and can take a
+    /// moment on a big history.
     public func eraseHistory() async throws {
         try await deleteItems(in: ClipboardItem.filter(ClipboardItemColumns.pinboardId == nil))
         try await pool.vacuum()
-        // The database runs in WAL mode (writes go to a side file first, see the top of this
-        // file), so the rebuilt pages sit in that side file until a checkpoint copies them into
-        // the main file. Doing it now, with `truncate`, is what makes the files on disk small
-        // right away instead of at some later automatic checkpoint.
+        // In WAL mode the rebuilt pages sit in the -wal file until a checkpoint copies them into
+        // the main file. Truncating now makes the files on disk small right away.
         _ = try await pool.writeWithoutTransaction { db in try db.checkpoint(.truncate) }
     }
 
     /// Deletes every item not on a pinboard that was last copied before `cutoff`: the "Keep
-    /// history" setting. No rebuild of the database file afterwards: that can take a while, and
-    /// SQLite reuses the freed space for new copies.
+    /// history" setting. No rebuild afterwards: it can take a while, and SQLite reuses the space.
     public func deleteUnpinned(copiedBefore cutoff: Date) async throws {
         try await deleteItems(
             in: ClipboardItem.filter(ClipboardItemColumns.pinboardId == nil)
@@ -591,8 +488,7 @@ public final class Store: Sendable {
 
     /// One transaction for the rows, then the files: a crash between the two leaves files for
     /// the launch sweep, never a row pointing at a missing file. Takes a request, not a list of
-    /// ids, so it can remove any number of items in one statement. A file that is already
-    /// gone does not fail the delete (`try?`): the rows are, which is what matters.
+    /// ids, so it can remove any number of items in one statement.
     private func deleteItems(in items: QueryInterfaceRequest<ClipboardItem>) async throws {
         let fileNames = try await pool.write { db in
             let names = try ClipboardItemDataRow.fileNames(in: ClipboardItemDataRow.ofItems(in: items))
@@ -606,11 +502,8 @@ public final class Store: Sendable {
     }
 }
 
-// Fake history for trying the panel with thousands of items. Only debug builds contain this
-// code (`#if DEBUG` ≈ `__DEV__`), so the app you use every day can never run it, and it always
-// works on its own database (`seedFolder`), never on your real history. It lives in this file
-// because it needs the Store's private database handle: thousands of rows have to go in as one
-// transaction, and only Storage/ may talk to GRDB.
+// Fake history for trying the panel with thousands of items. It lives in this file because it
+// needs the Store's private database handle: thousands of rows have to go in as one transaction.
 #if DEBUG
     extension Store {
         /// Where the fake history lives: a folder next to the real one, so the two never mix.
@@ -618,10 +511,9 @@ public final class Store: Sendable {
             URL.applicationSupportDirectory.appending(path: "Yank-seed")
         }
 
-        /// Replaces everything in this store (items and pinboards) with `count` fake items, all
-        /// small, with a mix of kinds and apps and times spread over the past, newest first by
-        /// id. One transaction, so 100,000 items take a second or two instead of minutes of
-        /// single saves.
+        /// Replaces everything in this store (items and pinboards) with `count` small fake items
+        /// of mixed kinds and apps, spread over the past. One transaction, so 100,000 items take
+        /// a second or two instead of minutes of single saves.
         public func seed(count: Int) async throws {
             try await pool.write { db in
                 try ClipboardItem.deleteAll(db)
@@ -635,10 +527,6 @@ public final class Store: Sendable {
                 ]
                 for i in 0..<count {
                     let (app, bundleId) = apps[i % apps.count]
-                    // Half the items are text; the rest cycle through link, file, colour and
-                    // image, so a seeded panel shows every kind of card. The image is a real
-                    // one-pixel PNG, so anything that decodes it later works on seeded data too.
-                    // The footer details are made up to look like real ones.
                     let (kind, text, detail, type, data): (ItemKind, String, String, String, Data) =
                         switch i % 8 {
                         case 1:
@@ -647,8 +535,7 @@ public final class Store: Sendable {
                                 Data()
                             )
                         case 3:
-                            // A real file URL (to a file that does not exist), so the code that
-                            // reads file URLs sees the same shape as from Finder.
+                            // A file URL (to no real file) in the same shape Finder gives.
                             (
                                 .file, "report-\(i).pdf", "\(i % 900 + 24) KB", ClipboardType.fileURL,
                                 Data("file:///tmp/report-\(i).pdf".utf8)
@@ -682,8 +569,7 @@ public final class Store: Sendable {
             Log.store.info("seeded \(count) fake items")
         }
 
-        /// A valid 1 × 1 PNG (one blue pixel), 70 bytes: the smallest real image a fake item can
-        /// carry.
+        /// A valid 1 × 1 PNG (one blue pixel), so anything that decodes a seeded image works.
         private static let onePixelPNG = Data([
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44,
             0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F,

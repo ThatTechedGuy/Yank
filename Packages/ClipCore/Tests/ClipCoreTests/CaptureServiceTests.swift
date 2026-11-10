@@ -3,11 +3,6 @@ import Testing
 
 @testable import ClipCore
 
-// Proves the whole capture path works together: a change on the clipboard ends up as a saved
-// item, and private copies are never even read. This is what the user relies on every time they
-// copy. The clipboard and the frontmost app are fakes the test controls; the Store is real, on a
-// SQLite file in a temporary folder, so saving is tested for real too. (`@MainActor` on the suite
-// runs every test on the main thread, which CaptureService and the fakes require.)
 /// Says the front app is TextEdit the first time it is asked and, at that very moment, has the
 /// user switch to Safari and copy again. The service asks just before its settle wait, so the
 /// second copy always lands during the wait, with no timers racing each other in the test.
@@ -32,9 +27,7 @@ import Testing
 
     func makeService(rules: PrivacyRules = PrivacyRules()) throws -> (CaptureService, Store) {
         let store = try Store(folder: folder.url)
-        // `settle` is how long the service waits after a change before reading, so an app that
-        // writes the clipboard in several steps is read once, complete. 1 ms keeps the tests fast;
-        // the real app waits 300 ms.
+        // A 1 ms settle keeps the tests fast; the real app waits 300 ms.
         let service = CaptureService(
             clipboard: clipboard, frontmostApp: frontmost, store: store, rules: rules,
             settle: .milliseconds(1))
@@ -44,8 +37,7 @@ import Testing
     @Test func nothingIsSavedUntilTheClipboardChanges() async throws {
         defer { folder.remove() }
         // Whatever is on the clipboard when the app launches is not a new copy, so it must not be
-        // saved or even read. The service remembers the change count it started with and only
-        // acts when that number moves.
+        // saved or even read.
         clipboard.put([.text("already there")])
         let (service, store) = try makeService()
         try await service.tick()
@@ -60,7 +52,7 @@ import Testing
         #expect(captured?.sourceAppBundleId == "com.apple.TextEdit")
         #expect(try await store.count() == 1)
         // The app ticks over and over while it runs, so a tick with no new copy must cost
-        // nothing: no read, no save. `reads` stays at 1, the one real copy above.
+        // nothing: no read, no save.
         try await service.tick()
         #expect(clipboard.reads == 1)
     }
@@ -74,10 +66,9 @@ import Testing
         clipboard.put([.text("first")])
         try await service.tick()
         // The first copy is stale by the time the wait ends: saving now would file "second"
-        // under TextEdit. So nothing is saved on this tick, and nothing was read.
+        // under TextEdit.
         #expect(try await store.count() == 0)
         #expect(clipboard.reads == 0)
-        // The next tick sees the newer change and saves it under the app that made it.
         try await service.tick()
         let items = try await store.items(limit: 10)
         #expect(items.map(\.cardText) == ["second"])
@@ -93,8 +84,7 @@ import Testing
         #expect(try await store.count() == 0)
     }
 
-    // An app the user put on the ignored list is skipped by its bundle id alone: the service
-    // never reads the data, so nothing secret ever enters the process.
+    // An ignored app is skipped by its bundle id alone, so nothing secret ever enters the process.
     @Test func copiesFromIgnoredAppsAreNeverRead() async throws {
         defer { folder.remove() }
         let (service, store) = try makeService(rules: PrivacyRules(ignoredApps: ["com.example.vault"]))
@@ -105,8 +95,7 @@ import Testing
         #expect(try await store.count() == 0)
     }
 
-    // While paused, a copy is neither read nor saved, and it stays unsaved after the pause
-    // ends: only copies made after resuming are saved.
+    // A copy made while paused stays unsaved after the pause ends.
     @Test func nothingIsSavedWhilePaused() async throws {
         defer { folder.remove() }
         let (service, store) = try makeService()

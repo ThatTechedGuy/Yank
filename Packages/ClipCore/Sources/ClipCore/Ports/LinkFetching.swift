@@ -1,11 +1,7 @@
 import Foundation
 
-// A port (≈ a TS interface) for the one thing in Yank that uses the network: asking a web page
-// for its title and icon, so a link card can say "Apple" with the Apple logo instead of a bare
-// address. The core only knows "fetch this address"; ClipSystem's LinkFetcher does it with
-// Apple's LinkPresentation framework, and tests use a fake that records which addresses were
-// asked for, because a test must never go on the network and must prove that a local address
-// never does. `Sendable`, because the Enricher calls it from a background task.
+// The one thing in Yank that uses the network. A port so tests never go on the network and can
+// prove that a local address is never fetched.
 
 /// Fetches a web page's title and icon.
 public protocol LinkFetching: Sendable {
@@ -17,8 +13,8 @@ public protocol LinkFetching: Sendable {
 /// What a web page says about itself: its title and its icon, either of which it may lack.
 public struct LinkPreview: Hashable, Sendable {
     public var title: String?
-    /// The site's icon as a PNG, at most `Thumbnailer.maxPixelSize` on its long side, with
-    /// its pixel size; nil when the page offers none. Kept as the card's thumbnail.
+    /// The site's icon as a PNG, at most `Thumbnailer.maxPixelSize` on its long side, with its
+    /// pixel size; nil when the page offers none. Kept as the card's thumbnail.
     public var icon: Icon?
 
     public struct Icon: Hashable, Sendable {

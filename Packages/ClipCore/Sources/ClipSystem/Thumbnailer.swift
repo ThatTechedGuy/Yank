@@ -1,9 +1,6 @@
-// Makes the card-sized preview of an item from its bytes, with Apple's own decoders: ImageIO
-// for images (the framework behind every image on the Mac, which can make a small version of a
-// 50 MB photo without decoding all of it), Quick Look for files (the same previews Finder shows
-// in Gallery view and on Space), and the file's Finder icon when Quick Look has none. Colours
-// are unarchived with AppKit and turned into their hex value. The Enricher in ClipCore calls
-// `preview` after each save, from a background task; nothing here needs the main thread.
+// ImageIO for images, because it can make a small version of a 50 MB photo without decoding all
+// of it; Quick Look for files, and the file's Finder icon when Quick Look has none. The Enricher
+// in ClipCore calls `preview` from a background task; nothing here needs the main thread.
 import AppKit
 import ClipCore
 import ImageIO
@@ -49,8 +46,8 @@ public enum Thumbnailer {
     }
 
     /// A PNG of at most `maxPixelSize` on its long side, plus the image's real pixel size.
-    /// ImageIO reads only as much of the image as the small version needs, and never scales
-    /// up: a tiny image stays tiny. Nil when the bytes are not an image it can read.
+    /// Never scaled up: a tiny image stays tiny. Nil when the bytes are not an image ImageIO
+    /// can read.
     static func imageThumbnail(_ data: Data) -> (
         png: Data, width: Int, height: Int, originalWidth: Int, originalHeight: Int
     )? {
@@ -94,8 +91,6 @@ public enum Thumbnailer {
         return icon.cgImage(forProposedRect: &rect, context: nil, hints: nil)
     }
 
-    /// The image encoded as PNG. (`CGImageDestination` is ImageIO's encoder; it writes into
-    /// the mutable data and `Finalize` flushes it.)
     static func pngData(_ image: CGImage) -> Data? {
         let data = NSMutableData()
         guard

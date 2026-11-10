@@ -1,14 +1,8 @@
 import Foundation
 
-// How much CPU time and memory this process has used, read from the kernel, for the Developer
-// window of a debug build. Two samples taken some time apart give the CPU percentage over that
-// time, the same way Activity Monitor and `top` compute it. The memory number is the process's
-// "physical footprint", the same figure the `footprint` tool and Instruments report, which is
-// what the app's memory limits are written against.
-//
-// `proc_pid_rusage` is the kernel call behind all of this; it fills one struct and takes a
-// few microseconds, so sampling once a second costs nothing worth measuring. ≈ `process.cpuUsage()`
-// and `process.memoryUsage()` in Node, or `Debug.getNativeHeapSize()` on Android.
+// For the Developer window of a debug build. The memory number is the "physical footprint" the
+// `footprint` tool and Instruments report, which the app's memory limits are written against.
+// `proc_pid_rusage` takes a few microseconds, so sampling once a second costs nothing.
 #if DEBUG
     /// This process's CPU time and memory footprint at one moment.
     public struct ProcessSample: Sendable {
@@ -27,18 +21,15 @@ import Foundation
 
         /// Reads the process's current numbers from the kernel.
         public static func current() -> ProcessSample {
-            // The kernel fills in a C struct; `withUnsafeMutablePointer` hands it the struct's
-            // address, and `withMemoryRebound` presents that address as the untyped pointer the
-            // C function was declared with. Version 4 of the struct has every field we read.
+            // Version 4 of the struct has every field we read.
             var info = rusage_info_v4()
             let status = withUnsafeMutablePointer(to: &info) { pointer in
                 pointer.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { untyped in
                     proc_pid_rusage(getpid(), RUSAGE_INFO_V4, untyped)
                 }
             }
-            // The kernel reports CPU time in its own ticks ("Mach absolute time"), not in
-            // nanoseconds; on Apple silicon one tick is 125/3 ns. `mach_timebase_info` gives the
-            // fraction that turns ticks into nanoseconds on whatever Mac this runs on.
+            // The kernel reports CPU time in Mach ticks, not nanoseconds: 125/3 ns each on Apple
+            // silicon.
             var timebase = mach_timebase_info()
             mach_timebase_info(&timebase)
             let ticks = status == 0 ? info.ri_user_time + info.ri_system_time : 0

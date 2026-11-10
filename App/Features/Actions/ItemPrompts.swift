@@ -1,8 +1,5 @@
-// The two small dialogs a card action opens first: the Rename box and the "Delete N items?"
-// question. Popovers hung under the card, like the pinboard prompts in PanelTabs and for the
-// same reason: the panel never becomes the active app, and a popover is the one dialog that
-// still takes typing there. Each one writes its answer through the model and closes itself
-// by clearing the model's prompt.
+// The Rename box and the "Delete N items?" question, as popovers under the card: the panel never
+// becomes the active app, and a popover is the one dialog that still takes typing there.
 import ClipCore
 import SwiftUI
 
@@ -17,8 +14,6 @@ struct RenamePrompt: View {
     init(item: ClipboardItem, model: PanelModel) {
         self.item = item
         self.model = model
-        // `_name` is the `@State` box itself; this is how a `@State` gets a starting value
-        // that depends on an argument.
         _name = State(initialValue: item.title ?? "")
     }
 

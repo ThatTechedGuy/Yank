@@ -1,12 +1,6 @@
-// The "Open at login" switch, used in two places: the General tab of Settings and the welcome
-// window. Turning it on asks macOS to start Yank whenever the user logs in; turning it off asks
-// macOS to stop. ≈ a small shared React component that both screens render.
-//
-// "Open at login" is not a setting Yank keeps: macOS keeps it, in System Settings › General ›
-// Login Items, and the user can change it there too. So the truth is
-// `SMAppService.mainApp.status`, read when the switch appears and after each change, and the
-// switch's own state is only a copy of it to draw from. ServiceManagement is the Apple
-// framework behind login items.
+// The "Open at login" switch, shared by Settings and the welcome window. macOS keeps this setting,
+// not Yank (System Settings › General › Login Items, where the user can change it too), so
+// `SMAppService.mainApp.status` is the truth and the switch's state only a copy of it.
 import ClipCore
 import ServiceManagement
 import SwiftUI

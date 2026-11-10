@@ -1,21 +1,9 @@
 import Foundation
 import os
 
-// Timing markers: a named interval with a start and an end, so the app can be measured against
-// its speed limits (opening the panel, a search). Each interval goes to Apple's `OSSignposter`,
-// which is what Instruments draws on its timeline, exactly as before. On top of that, a debug
-// build remembers the last few durations of every marker name in memory, because the sandbox
-// gives an app no way to read its own signposts back from the system log: the Developer window
-// shows those remembered durations as a chart. A release build keeps only the signposts and
-// records nothing.
-//
-// Used like the signposter it wraps, so call sites do not change:
-//     let state = Log.timing.beginInterval("Open panel")
-//     ...
-//     Log.timing.endInterval("Open panel", state)
-//
-// ≈ `performance.mark` + `performance.measure` on the web, with `performance.getEntries()`
-// available only in a dev build.
+// Wraps `OSSignposter` with the same calls. A debug build also remembers the last durations of
+// every marker name for the Developer window, because the sandbox gives an app no way to read its
+// own signposts back from the system log. A release build records nothing.
 /// Timing markers for Instruments that, in debug builds, also keep their last durations.
 public struct TimingSignposter: Sendable {
     private let signposter: OSSignposter
@@ -33,8 +21,7 @@ public struct TimingSignposter: Sendable {
         signposter = OSSignposter(subsystem: subsystem, category: category)
     }
 
-    /// Starts an interval. `name` must be a literal string (a `StaticString`), which is what
-    /// signposts require so the name costs nothing to record.
+    /// Starts an interval. Signposts require a literal `name`, so it costs nothing to record.
     public func beginInterval(_ name: StaticString) -> IntervalState {
         #if DEBUG
             IntervalState(signpost: signposter.beginInterval(name), start: .now)
@@ -55,10 +42,7 @@ public struct TimingSignposter: Sendable {
         /// How many durations are kept per marker name. Enough for a "p95 over 20 tries" check.
         public static let keptPerName = 20
 
-        // The remembered intervals, shared by every copy of this struct (a struct is copied on
-        // assignment, but the lock inside is a reference, so all copies see one list). The lock
-        // makes it safe to record from any thread: `withLock` runs the closure while no other
-        // thread can touch the list. ≈ a `synchronized` block in Java.
+        // The lock is a reference, so every copy of this struct shares one list.
         private let recent = OSAllocatedUnfairLock<[TimingInterval]>(initialState: [])
 
         /// Every remembered interval, oldest first, at most `keptPerName` per marker name.

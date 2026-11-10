@@ -3,14 +3,10 @@ import Testing
 
 @testable import ClipCore
 
-// Proves the numbers the Developer window shows are right: a CPU percentage computed from two
-// samples, timing markers that remember their last durations, and a read-only snapshot of the
-// database that only does work when something was written.
 struct DeveloperTests {
     @Test func cpuPercentIsCpuTimeOverWallTime() {
         let start = ContinuousClock.now
         let earlier = ProcessSample(cpuTime: .seconds(5), footprint: 0, takenAt: start)
-        // 200 ms of CPU time in 1 s of wall time is one fifth of one core.
         let later = ProcessSample(
             cpuTime: .seconds(5) + .milliseconds(200), footprint: 0, takenAt: start + .seconds(1))
         #expect(later.cpuPercent(since: earlier) == 20)
@@ -32,7 +28,6 @@ struct DeveloperTests {
         let state = timing.beginInterval("Search")
         timing.endInterval("Search", state)
         let intervals = timing.recentIntervals
-        // The extra five "Open panel" intervals pushed out the oldest five; "Search" is untouched.
         #expect(intervals.count(where: { $0.name == "Open panel" }) == TimingSignposter.keptPerName)
         #expect(intervals.count(where: { $0.name == "Search" }) == 1)
         #expect(intervals.last?.name == "Search")
@@ -55,7 +50,6 @@ struct DeveloperTests {
         #expect(first.searchIndexRowCount == 2)
         #expect(first.databaseBytes > 0)
 
-        // Nothing written since: no snapshot, no work.
         #expect(try await inspector.snapshot(ifChangedSince: first.dataVersion) == nil)
 
         try await store.save(CapturedCopy(data: [.text("again")], sourceApp: app, copiedAt: .now))
@@ -76,7 +70,6 @@ struct DeveloperTests {
         let inspector = try StoreInspector(folder: folder.url)
         let list = try #require(try await inspector.tables(ifChangedSince: nil))
         let byName = Dictionary(uniqueKeysWithValues: list.tables.map { ($0.name, $0) })
-        // The app's tables, the search index, and the ones SQLite and GRDB keep for themselves.
         for name in [
             "clipboardItem", "clipboardItemData", "cardThumbnail", "pinboard",
             "clipboardItemSearchIndex", "grdb_migrations", "sqlite_sequence",
@@ -88,7 +81,6 @@ struct DeveloperTests {
         #expect(byName["clipboardItemData"]?.columns.contains { $0.name == "data" } == true)
         #expect(try await inspector.tables(ifChangedSince: list.dataVersion) == nil)
 
-        // Page 2 of size 2 holds the one remaining row; the text blob previews as its text.
         let items = try await inspector.page(of: "clipboardItem", offset: 2, limit: 2)
         #expect(items.rows.count == 1)
         let columns = try #require(byName["clipboardItem"]?.columns.map(\.name))

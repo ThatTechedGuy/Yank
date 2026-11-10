@@ -1,20 +1,13 @@
-// The pictures the cards draw, kept in memory. A card asks for its item's thumbnail; if it is
-// here, it draws at once; if not, the card draws blank, the thumbnail is read from the database
-// in the background (or made on the spot, for an item saved before previews existed) and the
-// card fills in a moment later. ≈ an image cache in front of a FlatList, like react-native-
-// fast-image's, or Glide's memory cache on Android.
-//
-// `NSCache` is Apple's in-memory cache: a dictionary that throws things out on its own when
-// it holds too many or when memory runs low. The limits keep a scroll through ten thousand
-// cards from piling up ten thousand pictures.
+// The pictures the cards draw, kept in memory. A card whose thumbnail is not here draws blank
+// while it is read from the database (or made, for an item that has none yet) and fills in a
+// moment later.
 import AppKit
 import ClipCore
 import SwiftUI
 
 @Observable final class ThumbnailCache {
     /// Changes every time a thumbnail lands in the cache. A card reads it through `image(for:)`,
-    /// which makes SwiftUI re-draw the card when a thumbnail arrives. (The cache itself is not
-    /// observable: NSCache is a plain Objective-C object.)
+    /// which makes SwiftUI re-draw the card when a thumbnail arrives; NSCache is not observable.
     private(set) var version = 0
 
     private let store: Store
@@ -38,8 +31,7 @@ import SwiftUI
     }
 
     /// The item's thumbnail if it is in memory. Otherwise nil, and a background read starts
-    /// that re-draws the caller when it lands. Images and files have thumbnails; a link's is
-    /// its site's icon, when the page offered one.
+    /// that re-draws the caller when it lands. A link's thumbnail is its site's icon.
     func image(for item: ClipboardItem) -> NSImage? {
         if let image = images.object(forKey: item.id as NSNumber) { return image }
         guard item.kind == .image || item.kind == .file || item.kind == .link, !loading.contains(item.id)
@@ -60,8 +52,20 @@ import SwiftUI
         version += 1
     }
 
-    /// Reads the thumbnail from the database, or makes one for an item that has none yet (a
-    /// copy saved before previews existed), decodes it off the main thread and caches it.
+    /// Starts the item's preview in the background, as every new or edited item needs. A link
+    /// card drawn before its page was fetched found no icon, and `load` does not ask twice,
+    /// so once the fetch is done the card is made to ask again.
+    func enrichInBackground(_ item: ClipboardItem) {
+        let enriching = enricher.enrichInBackground(item)
+        guard item.kind == .link else { return }
+        Task {
+            await enriching.value
+            forget(item.id)
+        }
+    }
+
+    /// Reads the thumbnail from the database, or makes one for an item that has none yet, and
+    /// caches the image.
     private func load(_ item: ClipboardItem) async {
         do {
             var thumbnail = try await store.thumbnail(for: item.id)
@@ -71,8 +75,7 @@ import SwiftUI
                 thumbnail = try await enricher.enrich(item)?.thumbnail
             }
             guard let thumbnail, let image = await Self.decode(thumbnail.png) else { return }
-            // The cost is what the cache really holds: the decoded pixels, four bytes each,
-            // not the PNG they came from.
+            // The cost is the decoded pixels, four bytes each, not the PNG they came from.
             images.setObject(
                 image, forKey: item.id as NSNumber, cost: thumbnail.width * thumbnail.height * 4)
             loading.remove(item.id)
@@ -87,10 +90,9 @@ import SwiftUI
         }
     }
 
-    /// Decodes a picture into pixels on a background thread, so a card never waits for it.
-    /// (`NSImage(data:)` would decode lazily on first draw, on the main thread, during the
-    /// scroll.) `@concurrent` is what moves an async function off the caller's thread. The
-    /// editor uses it for its picture too.
+    /// Decodes a picture into pixels off the main thread, so a card never waits for it:
+    /// `NSImage(data:)` would decode lazily on first draw, on the main thread, during the
+    /// scroll. The editor uses it for its picture too.
     @concurrent static func decode(_ png: Data) async -> NSImage? {
         guard let source = CGImageSourceCreateWithData(png as CFData, nil),
             let image = CGImageSourceCreateImageAtIndex(

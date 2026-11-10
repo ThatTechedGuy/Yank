@@ -1,14 +1,11 @@
-// The panel's item actions, kept apart from the list and selection logic in PanelModel.swift:
-// what the card's menu (right-click or ⌘K) can do to a card, and the small dialogs some of
-// them open first. Like the pinboard actions, each is one Store call in a Task and the live
-// list shows the result; an error is logged and the panel stays as it was. The ones that
-// leave the app (Share, Open With, Show in Finder) go through AppKit's NSWorkspace, the
-// object that opens files and talks to Finder (≈ Android's Intent system).
+// The panel's item actions: what the card's menu (right-click or ⌘K) can do to a card, and the
+// small dialogs some of them open first. Each is one Store call in a Task and the live list
+// shows the result; an error is logged and the panel stays as it was.
 import AppKit
 import ClipCore
 import UniformTypeIdentifiers
 
-/// A small dialog open on one card. `anchorId` is the card it hangs under.
+/// A small dialog open on one card. `anchorId` is the card it is anchored to.
 enum CardPrompt: Equatable {
     /// The actions menu, opened with ⌘K (right-click opens the same rows as a real menu).
     case actions(anchorId: Int64)
@@ -74,10 +71,9 @@ extension PanelModel {
     }
 
     /// Does one action on a card, for a menu row or Return on a ⌘K row. Paste, Copy and Delete
-    /// act on the whole selection when the card is part of it, the way Finder treats a
-    /// right-click on a selected file. Pin to and Open With have their own submenus; from the
-    /// keyboard they do the plain thing (⌘P's behaviour, the default app). Share needs its
-    /// own button, so Return on it does nothing. Edit opens the card in the editor window.
+    /// act on the whole selection when the card is part of it. Pin to and Open With have their
+    /// own submenus; from the keyboard they do the plain thing (⌘P's behaviour, the default
+    /// app). Share needs its own button, so Return on it does nothing.
     func perform(_ action: ItemAction, on item: ClipboardItem) {
         prompt = nil
         let targets = selection.contains(item.id) ? selectedItems : [item]
@@ -167,8 +163,7 @@ extension PanelModel {
     }
 
     /// The apps that can open what the card holds, for the Open With rows: by the file's
-    /// extension for a file card, by the kind of content for the rest (a web address goes to
-    /// browsers, an image to image apps, text to text editors).
+    /// extension for a file card, by the kind of content for the rest.
     func appsThatOpen(_ item: ClipboardItem) -> [URL] {
         let type: UTType
         switch item.kind {

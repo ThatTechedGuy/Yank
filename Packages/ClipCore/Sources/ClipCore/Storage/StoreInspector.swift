@@ -1,20 +1,9 @@
 import Foundation
 import GRDB
 
-// A read-only window onto the Store's database and files for the Developer window, in debug
-// builds only. It opens its own connection to the same SQLite file instead of going through the
-// Store, for two reasons: its queries never queue behind the app's own reads, and they never show
-// up in the SQL trace the Store writes to the log (see Store.init), so watching the app does not
-// change what is being watched. SQLite's WAL mode lets this extra reader see the last committed
-// state while the Store keeps writing. ≈ opening the database in DB Browser for SQLite while the
-// app runs, but from inside the app.
-//
-// It is an `actor`: a class whose methods run one at a time on their own background thread, so
-// the file-size counting and the queries never touch the main thread, and callers simply `await`
-// the results. ≈ an object whose every method is `async` and internally serialised.
-//
-// Only the Store and this type may use GRDB, so the Developer window gets plain values back:
-// `Snapshot`, `TableList` and `Page` below.
+// Opens its own read-only connection to the Store's SQLite file instead of going through the
+// Store, so its queries never queue behind the app's own reads and never show up in the SQL trace
+// the Store logs (see Store.init).
 #if DEBUG
     /// Read-only facts about the database and its files, for the Developer window.
     public actor StoreInspector {
@@ -58,9 +47,9 @@ import GRDB
             public let dataVersion: Int
         }
 
-        /// One cell of one row, as a plain value the Database tab can draw. SQLite stores five
-        /// kinds of value and nothing else; a blob comes back as its size plus a preview, never
-        /// the bytes themselves, so a page of rows stays small.
+        /// One cell of one row, as a plain value the Database tab can draw. A blob comes back as
+        /// its size plus a preview (the whole image only up to `previewLimit`), so a page of rows
+        /// stays small.
         public enum CellValue: Sendable, Hashable {
             case null
             case integer(Int64)
@@ -81,7 +70,7 @@ import GRDB
             public let rows: [[CellValue]]
         }
 
-        /// Blobs longer than this are not sniffed for a preview at all.
+        /// Blobs longer than this (in bytes) are not sniffed for a preview at all.
         private static let previewLimit = 512 * 1024
         /// How many characters of a text blob the preview keeps.
         private static let previewTextLength = 200
@@ -92,9 +81,6 @@ import GRDB
         /// Opens the database in `folder` read-only. The Store must have created it already.
         public init(folder: URL) throws {
             self.folder = folder
-            // `readonly` opens the file with SQLite's read-only flag: this connection cannot
-            // write even by mistake. No trace is installed, so its statements stay out of the
-            // "sql" log. A `DatabaseQueue` is one connection; one reader needs no pool.
             var configuration = Configuration()
             configuration.readonly = true
             queue = try DatabaseQueue(
@@ -109,7 +95,6 @@ import GRDB
                 guard let dataVersion = try dataVersion(db, ifChangedSince: version) else {
                     return nil
                 }
-                // `SELECT kind, COUNT(id) FROM clipboardItem GROUP BY kind`, read as plain rows.
                 let countRows = try Row.fetchAll(
                     db,
                     ClipboardItem
@@ -136,22 +121,18 @@ import GRDB
                 guard let dataVersion = try dataVersion(db, ifChangedSince: version) else {
                     return nil
                 }
-                // `sqlite_master` is SQLite's own catalogue of what the file contains. GRDB can
-                // describe a table once you name it (`columns(in:)`, below) but has no call that
-                // lists the tables, so this one line of SQL asks SQLite directly. It returns
-                // everything, including the five `_data`/`_idx`/... shadow tables FTS5 keeps
-                // behind the search index and GRDB's own `grdb_migrations`, so a new table shows
-                // up here without anyone remembering to add it. The app's own tables come first,
-                // then the system and shadow ones (the ones with an underscore in the name).
+                // GRDB has no call that lists the tables, so this one line of SQL asks SQLite
+                // directly. It returns everything, including the shadow tables FTS5 keeps behind
+                // the search index and GRDB's own `grdb_migrations`, so a new table shows up here
+                // without anyone remembering to add it. The app's own tables come first, then the
+                // system and shadow ones (the ones with an underscore in the name).
                 let names = try String.fetchAll(
                     db, sql: "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
                 let (own, system) = (names.filter { !$0.contains("_") }, names.filter { $0.contains("_") })
                 let tables = try (own + system).map { name in
                     TableInfo(
                         name: name,
-                        // `SELECT COUNT(*) FROM "name"`.
                         rowCount: try Table<Row>(name).fetchCount(db),
-                        // `PRAGMA table_info`, through GRDB.
                         columns: try db.columns(in: name).map {
                             TableColumnInfo(name: $0.name, type: $0.type)
                         })
@@ -162,11 +143,10 @@ import GRDB
 
         /// `limit` rows of one table starting `offset` rows in, every column, as plain cells.
         /// Rows come in SQLite's own scan order, which for an ordinary table is rowid order:
-        /// oldest first, the way DB Browser for SQLite lists them. Offset paging means page 500
-        /// of a 100,000-row table skips 99,800 rows on each read, a few milliseconds.
+        /// oldest first. Offset paging means page 500 of a 100,000-row table skips 99,800 rows
+        /// on each read, a few milliseconds.
         public func page(of table: String, offset: Int, limit: Int) throws -> Page {
             try queue.read { db in
-                // `SELECT * FROM "table" LIMIT ? OFFSET ?`.
                 let rows = try Table<Row>(table).all().limit(limit, offset: offset).fetchAll(db)
                 return Page(rows: rows.map { row in row.map { Self.cell(for: $0.1) } })
             }
@@ -176,9 +156,8 @@ import GRDB
         nonisolated private func dataVersion(_ db: Database, ifChangedSince version: Int?) throws
             -> Int?
         {
-            // `PRAGMA data_version` is SQLite's own "did another connection commit?" counter: it
-            // changes whenever a different connection has written to the file. This is a
-            // question the query builder has no way to ask, so it is raw SQL.
+            // `PRAGMA data_version` changes whenever a different connection has written to the
+            // file. The query builder has no way to ask for it, so it is raw SQL.
             let dataVersion = try Int.fetchOne(db, sql: "PRAGMA data_version") ?? 0
             return dataVersion == version ? nil : dataVersion
         }

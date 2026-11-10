@@ -1,13 +1,6 @@
-// Reads this launch's log lines back from the system log. macOS keeps every app's log lines in
-// one system-wide store (the one Console.app shows) and `OSLogStore` is the API that reads it.
-// From inside the sandbox an app may only read its own process's entries, and even then each
-// read is a request to the `logd` daemon that takes a second or more to answer, while costing
-// this process almost no CPU. So reads are few (see LogsView), always off the main thread, and
-// each one asks only for what is new since the last read.
-//
-// It is an `actor`: its methods run one at a time on a background thread, so the slow read
-// never touches the main thread, and `OSLogStore`, which is not safe to share between threads,
-// never leaves it. ≈ a class whose every method is async and internally serialised.
+// Reads this launch's log lines back from the system log. Each read is a request to `logd` that
+// takes a second or more, so reads are few (see LogsView), incremental, and on an actor: off the
+// main thread, with `OSLogStore`, which is not safe to share between threads, kept inside it.
 #if DEBUG
     import ClipCore
     import OSLog
@@ -22,7 +15,6 @@
         /// `<private>`, exactly as in Console.app, so clipboard contents never appear here.
         let message: String
 
-        /// The level as a word.
         var levelName: String {
             switch level {
             case .debug: "debug"
@@ -41,24 +33,23 @@
         private var newest: Date?
 
         init() throws {
-            // `.currentProcessIdentifier`: only this process's entries, the one scope the
-            // sandbox allows. It only sees the current launch.
+            // The one scope the sandbox allows: this process's entries, so this launch only.
             store = try OSLogStore(scope: .currentProcessIdentifier)
         }
 
         /// The app's log lines since the last call (all of them on the first call), oldest
         /// first, at `.info` level and above. Debug lines are never returned by the store.
         func newLines() throws -> [LogLine] {
-            // Start reading at the newest line already seen (the store has no "after" position,
-            // so that line comes back once more and is skipped below).
+            // The store has no "after" position, so the newest line already seen comes back once
+            // more and is skipped below.
             let position = newest.map { store.position(date: $0) }
             let entries = try store.getEntries(
                 at: position,
                 matching: NSPredicate(format: "subsystem == %@", Log.subsystem))
             var lines: [LogLine] = []
-            // `for case let entry as OSLogEntryLog in` keeps only the entries that are log lines
-            // (not signposts or activities) and gives them that type.
             for case let entry as OSLogEntryLog in entries {
+                // shortcut: a new line with the same timestamp as `newest` is dropped too; count
+                // the lines seen at that instant if the Logs tab is ever seen to miss one.
                 if let newest, entry.date <= newest { continue }
                 lines.append(
                     LogLine(

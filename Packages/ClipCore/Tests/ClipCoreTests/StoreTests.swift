@@ -15,10 +15,8 @@ struct StoreTests {
     let folder = TemporaryFolder()
 
     // Opens a fresh Store, runs the test body against it, then deletes the folder even if the
-    // body failed. Keeps each test to the lines that matter. (`async throws` works like an async
-    // function in TS that may reject: callers `try await` it, and a thrown error fails the test.)
+    // body failed.
     func withStore(_ body: (Store) async throws -> Void) async throws {
-        // `defer` runs when the function exits, however it exits. ≈ `finally`.
         defer { folder.remove() }
         try await body(try Store(folder: folder.url))
     }
@@ -161,7 +159,7 @@ struct StoreTests {
 
     // Whatever the user types must give a sensible answer: SQLite's search language has its
     // own meaning for quotes, `*`, OR and NOT, and a typed one must never cause an error or a
-    // wrongly empty list. Each argument is one run of the test (`arguments:` ≈ `test.each`).
+    // wrongly empty list.
     @Test(arguments: ["\"hello", "don't", "c++", "OR", "NOT", "hello NOT", "meeting?"])
     func typedPunctuationAndOperatorsAreOrdinaryWords(typed: String) async throws {
         try await withStore { store in
@@ -259,9 +257,8 @@ struct StoreTests {
         try await withStore { store in
             let t0 = Date(timeIntervalSince1970: 1_000_000)
             try await store.save(copy([.text("old")], at: t0))
-            // `makeAsyncIterator` + `next()` is the hand-driven form of `for try await`: each
-            // `next()` waits for the next delivery. The first comes at once with what is saved
-            // now; the second only after the new copy is written.
+            // The first delivery comes at once with what is saved now; the second only after
+            // the new copy is written.
             var deliveries = store.observeItems(limit: 2).makeAsyncIterator()
             #expect(try await deliveries.next()?.map(\.cardText) == ["old"])
             try await store.save(copy([.text("new")], at: t0 + 1))
@@ -564,6 +561,10 @@ struct StoreTests {
             let url = try #require(try await store.quickLookFile(for: image))
             #expect(url.pathExtension == "png")
             #expect(try Data(contentsOf: url) == Data([1, 2, 3]))
+            // A copy that lists TIFF before PNG previews the PNG, the image its thumbnail shows.
+            let tiff = ClipboardItemData(pasteboardItemIndex: 0, type: "public.tiff", data: Data([9]))
+            let both = try await store.save(copy([tiff, .png([4, 5])]))
+            #expect(try await store.quickLookFile(for: both)?.pathExtension == "png")
             let text = try await store.save(copy([.text("hi")]))
             #expect(try await store.quickLookFile(for: text)?.pathExtension == "txt")
         }

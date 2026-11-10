@@ -1,12 +1,6 @@
-// The Overview tab: how many items are saved and of which kinds, how big the database and the
-// large-data folder are, and what the process costs right now in memory and CPU. The numbers
-// refresh once a second while the tab is showing, except while the panel is open, so the
-// refresh never overlaps a timing the app is measuring.
-//
-// A window that watches a process is part of that process, so its own drawing shows up in the
-// CPU number. The Measure button is the honest way round that: it hides the window, samples for
-// 60 seconds while nothing is drawn, then shows the window again with the result. Instruments
-// (outside the process) stays the final word on any number here.
+// The Overview tab: item counts, disk sizes, and the process's memory and CPU, refreshed once a
+// second. The window's own drawing shows up in the CPU number, so Measure hides the window and
+// samples with nothing drawn; Instruments (outside the process) stays the final word.
 #if DEBUG
     import AppKit
     import ClipCore
@@ -16,7 +10,7 @@
         let model: AppModel
         let inspector: StoreInspector
 
-        /// How long the Measure button samples for, with the window hidden.
+        /// Seconds the Measure button samples for, with the window hidden.
         static let measureDuration = 60
 
         @State private var snapshot: StoreInspector.Snapshot?
@@ -34,8 +28,6 @@
         }
 
         var body: some View {
-            // A `Form` with the grouped style is the standard look for a settings-like page of
-            // labelled values on macOS. `LabeledContent` is one "label: value" row.
             Form {
                 Section("Items") {
                     LabeledContent("Saved", value: snapshot?.itemCount ?? 0, format: .number)
@@ -63,8 +55,7 @@
                         }
                     }
                     Button("Measure for \(Self.measureDuration) Seconds") {
-                        // `Task { }` starts work that outlives this click. It is not tied to the
-                        // view's `.task`, so hiding the window does not cancel it.
+                        // Not tied to the view's `.task`, so hiding the window does not cancel it.
                         Task { await measure() }
                     }
                     .disabled(isMeasuring)
@@ -89,9 +80,9 @@
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 let sample = ProcessSample.current()
-                // While the panel is open, or Measure is running, the display is left alone: no
-                // queries and no re-rendering. The sample is still taken (a microsecond) so the
-                // next CPU figure covers one second, not the whole pause.
+                // While the panel is open or Measure is running: no queries and no re-rendering, so
+                // the refresh never overlaps a timing. The sample is still taken (a microsecond) so
+                // the next CPU figure covers one second, not the whole pause.
                 if model.isPanelVisible || isMeasuring {
                     previous = sample
                     continue

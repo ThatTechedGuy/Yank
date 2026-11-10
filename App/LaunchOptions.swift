@@ -1,12 +1,6 @@
-// Flags on the command line Yank was started with. They exist for trying the app and for the
-// UI tests: a test can start Yank with a fake history of any size and the panel already open,
-// without touching the real history. Nothing is read from the command line in a release build,
-// so the app you use every day always opens its real database.
-//
-// Try it from Terminal (after a debug build):
+// Debug-only command-line flags, for trying the app and for the UI tests: a fake history of any
+// size and the panel already open, without touching the real one. Release builds read none.
 //     build/Build/Products/Debug/Yank.app/Contents/MacOS/Yank --seed 10000 --show-panel
-//
-// ≈ `process.argv` flags, or Android `adb shell am start` extras.
 import ClipCore
 import Foundation
 
@@ -26,7 +20,6 @@ struct LaunchOptions {
 
     init(arguments: [String] = CommandLine.arguments) {
         #if DEBUG
-            // `firstIndex` finds the flag; the number is the next word on the line.
             if let i = arguments.firstIndex(of: "--seed"), i + 1 < arguments.count {
                 seedCount = Int(arguments[i + 1])
             }

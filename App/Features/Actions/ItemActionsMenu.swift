@@ -1,10 +1,5 @@
-// The rows of a card's actions menu, and the two places they appear: the right-click menu
-// (SwiftUI's `.contextMenu` draws them as a real macOS menu, with the keyboard for free) and
-// the ⌘K popover, a list above the card that ↑ ↓ walk and Return fires. Both are built from
-// the one `ItemAction` list, so a row added there shows up in both. Most rows are plain
-// buttons that hand the action to the model; three carry their own control: Pin to… is a
-// submenu of the pinboards, Share… is SwiftUI's `ShareLink` (the system share sheet), Open
-// With is a submenu of the apps that can open the card.
+// A card's actions menu, in its two places: the right-click menu and the ⌘K popover. Both are built
+// from the one `ItemAction` list, so a row added there shows up in both.
 import ClipCore
 import SwiftUI
 
@@ -21,10 +16,9 @@ struct ItemActionsMenu: View {
     }
 }
 
-/// The ⌘K version: the same rows in a list the arrow keys move through. The list takes the
-/// keyboard when it opens, so ⌘K ↓ ↓ Return needs no mouse. Return does the highlighted
-/// action; Share… and Open With show their own control and want a click (Return on Open
-/// With uses the default app).
+/// The ⌘K version: the same rows in a list the arrow keys move through. The list takes the keyboard
+/// when it opens, so ⌘K ↓ ↓ Return needs no mouse. Share… and Open With show their own control and
+/// want a click (Return on Open With uses the default app).
 struct ActionsPopover: View {
     let item: ClipboardItem
     let model: PanelModel
@@ -83,7 +77,6 @@ private struct ItemActionRow: View {
             let apps = model.appsThatOpen(item)
             Menu(action.title) {
                 ForEach(apps, id: \.self) { app in
-                    // The app's name as Finder shows it, without ".app".
                     Button(FileManager.default.displayName(atPath: app.path)) { model.open(item, with: app) }
                 }
             }

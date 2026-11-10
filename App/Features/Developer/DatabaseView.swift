@@ -1,16 +1,6 @@
-// The Database tab: a read-only browser of every table in the SQLite file, the way DB Browser for
-// SQLite shows them. A picker at the top lists the tables with their row counts (found by asking
-// the file, so a table added by a later migration appears by itself); the grid below shows every
-// column of the chosen table, one page of rows at a time, with ◀ ▶ to move between pages. A
-// blob cell shows its size and, when the bytes say so, the text or the image inside.
-//
-// Paging instead of one endless list is what keeps 100,000 rows cheap: a page is one small query,
-// and the grid only ever holds `pageSize` rows. The table list is re-read only after something
-// was written (the inspector checks SQLite's change counter once a second), and the open page
-// with it, so a quiet database costs one tiny query per second and nothing else.
-//
-// There is no place to type SQL on purpose: DB Browser for SQLite does that far better, on the
-// same file, which "Open Data Folder" in the menu bar menu takes you to.
+// The Database tab: a read-only browser of every table in the SQLite file, one page of rows at a
+// time, which is what keeps 100,000 rows cheap. There is no place to type SQL on purpose: `sqlite3`
+// does that far better on the same file ("Open Data Folder" in the menu leads to it).
 #if DEBUG
     import ClipCore
     import SwiftUI
@@ -62,11 +52,9 @@
             .background(.bar)
         }
 
-        /// `Table` is the macOS multi-column list (≈ a data grid). Its columns are usually fixed in
-        /// code; `TableColumnForEach` makes one per column of whatever table is chosen. The rows
-        /// are plain arrays of cells, so each is identified by its place on the page. `.id` on
-        /// the whole grid makes SwiftUI build a fresh one when the table changes, because a grid
-        /// cannot swap its columns in place.
+        /// One column per column of the chosen table. The rows are plain arrays of cells, so each
+        /// is identified by its place on the page. `.id` builds a fresh grid when the table
+        /// changes, because a `Table` cannot swap its columns in place.
         private var grid: some View {
             let columns = table?.columns ?? []
             let rows = (page?.rows ?? []).enumerated().map { PageRow(id: $0.offset, cells: $0.element) }

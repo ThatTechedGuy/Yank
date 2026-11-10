@@ -1,0 +1,13 @@
+// Code signing. The default is an ad hoc signature, so anyone can build Yank without an Apple
+// account. macOS ties the Accessibility permission to the signature, and an ad hoc signature
+// changes on every build, so for a copy you rebuild often create Signing.local.xcconfig next
+// to this file (it is git-ignored) with your own certificate:
+//
+//     CODE_SIGN_IDENTITY = Apple Development
+//     DEVELOPMENT_TEAM = <your team id, from Xcode › Settings › Accounts; a free Apple ID has one>
+//
+// then run `xcodegen` again.
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+
+#include? "Signing.local.xcconfig"

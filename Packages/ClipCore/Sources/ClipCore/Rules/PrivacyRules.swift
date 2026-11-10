@@ -1,10 +1,6 @@
-// The privacy check. It runs on the *names* of the clipboard types only,
-// before any data is read, so a password never enters our process at all.
-//
-// How it works on macOS: there is no "secret" flag on the clipboard. Instead, by convention
-// (nspasteboard.org), an app that copies something sensitive adds an extra, empty type whose name
-// is a marker. Password managers add "org.nspasteboard.ConcealedType"; apps that copy something
-// temporary add "TransientType". We look for those names in the type list.
+// The privacy check runs on the names of the clipboard types only, before any data is read, so a
+// password never enters our process at all. macOS has no "secret" flag: by convention
+// (nspasteboard.org) an app that copies something sensitive adds an empty type as a marker.
 
 /// What CaptureService should do with a clipboard change.
 public enum CaptureDecision: Equatable, Sendable {
@@ -17,13 +13,8 @@ public enum CaptureDecision: Equatable, Sendable {
     case moveOwnPasteToTop
 }
 
-// Two settings and one pure function: no state changes, no side effects. That makes it safe to
-// share between threads (`Sendable`, which the compiler checks) and easy to test with plain
-// inputs. ≈ a pure TS function with its config closed over.
 /// Decides whether a copy may be saved, from the clipboard's type names and the source app.
 public struct PrivacyRules: Sendable {
-    // One list for every PrivacyRules; `static let` ≈ `static final`. A `Set` so the check below
-    // is a fast lookup, not a scan.
     /// Types that mark a copy as secret, temporary or machine-made. Never saved.
     public static let markerTypes: Set<String> = [
         "org.nspasteboard.ConcealedType",
@@ -32,10 +23,10 @@ public struct PrivacyRules: Sendable {
         "com.agilebits.onepassword",  // 1Password's older marker, see nspasteboard.org
     ]
 
-    // There is no built-in list of password managers on purpose. Well-behaved ones (1Password,
-    // the Bitwarden desktop app, KeePassXC) add the marker types above themselves, and a list of
-    // bundle ids goes stale and has to be maintained. The user adds any app that doesn't mark its
-    // copies, once Settings exist. Until then the list is empty.
+    // Deliberately no built-in list of password managers. Well-behaved ones (1Password, the
+    // Bitwarden desktop app, KeePassXC) add the marker types above themselves, and a list of
+    // bundle ids goes stale. The user adds any app that doesn't mark its copies in Settings ›
+    // Privacy.
     /// Bundle ids of apps whose copies are never saved. Empty unless the user adds apps.
     public var ignoredApps: Set<String>
     /// The type we add to our own pastes so we recognise them.
@@ -49,17 +40,12 @@ public struct PrivacyRules: Sendable {
         self.ownMarker = ownMarker
     }
 
-    // The order matters: our own paste first (it carries no other marker,
-    // but checking it first keeps the meaning clear), then markers, then ignored apps.
-    /// The decision for one clipboard change.
+    /// The decision for one clipboard change: our own paste first, then markers, then ignored
+    /// apps.
     public func decision(types: [String], sourceApp: String?) -> CaptureDecision {
         if types.contains(ownMarker) { return .moveOwnPasteToTop }
-        // Skip when any marker type is present. (`isDisjoint(with:)` is true when the two sets
-        // share nothing; `!` flips it to "they share at least one".)
         if !Self.markerTypes.isDisjoint(with: types) { return .skip }
-        // Skip when the copy came from an app on the ignored list. With no known source app there
-        // is nothing to compare, so the copy is saved. (`if let sourceApp` runs the body only when
-        // the optional has a value; ≈ `if (sourceApp != null && ...)`, but the compiler checks it.)
+        // With no known source app there is nothing to compare, so the copy is saved.
         if let sourceApp, ignoredApps.contains(sourceApp) { return .skip }
         return .save
     }

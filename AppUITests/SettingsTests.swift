@@ -1,11 +1,6 @@
-// The menu and the Settings window as a user meets them: Pause Saving flips the menu to
-// "Paused" and Resume flips it back; a setting changed in the window is still set after a
-// relaunch; cancelling "Erase History…" keeps the history; every tab passes Apple's
-// accessibility audit. (See LaunchTests for what XCTest and XCUIApplication are.)
-//
-// These tests drive the real Settings window, so they write to the saved settings of the app
-// they launch: the Debug build, "Yank Debug", whose settings are its own and never those of the
-// Release copy in /Applications. Each test still puts back what it changed before it ends.
+// These tests drive the real Settings window, so they write to the saved settings of the Debug
+// build, "Yank Debug", never those of the Release copy in /Applications. Each test puts back
+// what it changed.
 import XCTest
 
 final class SettingsTests: XCTestCase {
@@ -17,8 +12,6 @@ final class SettingsTests: XCTestCase {
         let statusItem = app.statusItems.firstMatch
         XCTAssertTrue(statusItem.waitForExistence(timeout: 5))
 
-        // Pause Saving › Until Resumed. Clicking a submenu's title opens it; its rows are then
-        // ordinary menu items.
         statusItem.click()
         let pauseMenu = app.menuItems["Pause Saving"]
         XCTAssertTrue(pauseMenu.waitForExistence(timeout: 5))
@@ -28,7 +21,6 @@ final class SettingsTests: XCTestCase {
         untilResumed.click()
         XCTAssertTrue(pauseMenu.waitForNonExistence(timeout: 5))
 
-        // The menu now says Paused and offers Resume instead of Pause.
         statusItem.click()
         let resume = app.menuItems["Resume Saving"]
         XCTAssertTrue(resume.waitForExistence(timeout: 5))
@@ -37,7 +29,6 @@ final class SettingsTests: XCTestCase {
         resume.click()
         XCTAssertTrue(resume.waitForNonExistence(timeout: 5))
 
-        // And back to Pause Saving after Resume.
         statusItem.click()
         XCTAssertTrue(app.menuItems["Pause Saving"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.menuItems["Resume Saving"].exists)
@@ -52,14 +43,13 @@ final class SettingsTests: XCTestCase {
         // The window reopens on the tab it was last on, so pick General each time.
         let settings = openSettings(app)
         settings.toolbars.buttons["General"].click()
-        // In a grouped Form a Toggle is a switch with no label of its own, so it is found by id.
+        // In a grouped Form a Toggle has no label of its own, so it is found by id.
         let plainText = settings.switches["always-plain-text"]
         XCTAssertTrue(plainText.waitForExistence(timeout: 5))
         let before = plainText.value as? Int
         plainText.click()
         XCTAssertNotEqual(plainText.value as? Int, before)
 
-        // A fresh launch reads the setting back from disk.
         app.launch()
         let reopened = openSettings(app)
         reopened.toolbars.buttons["General"].click()
@@ -79,14 +69,13 @@ final class SettingsTests: XCTestCase {
         let settings = openSettings(app)
         settings.toolbars.buttons["Data"].click()
 
-        // The Data tab shows the same count as the menu. Match its shape, not the number: the
-        // seeded database may hold more than the twenty fake items.
+        // Match the count's shape, not the number: the seeded database may hold more than the
+        // twenty fake items.
         let count = settings.staticTexts.matching(NSPredicate(format: "value MATCHES '[0-9]+ items? saved'"))
             .firstMatch
         XCTAssertTrue(count.waitForExistence(timeout: 5))
         let countBefore = count.value as? String
 
-        // Erase History… asks first; Cancel changes nothing.
         settings.buttons["erase-history"].click()
         let cancel = settings.sheets.buttons["Cancel"]
         XCTAssertTrue(cancel.waitForExistence(timeout: 5))
@@ -101,19 +90,17 @@ final class SettingsTests: XCTestCase {
         app.launchArguments = ["--seed", "20"]
         app.launch()
         let settings = openSettings(app)
-        // Each tab shows different controls, so each gets its own audit (see AccessibilityAudit.swift).
         for tab in ["General", "Privacy", "Data"] {
             settings.toolbars.buttons[tab].click()
-            // The window is titled after the open tab; checking it makes sure the audit below
-            // looks at the tab it names, not the one before.
+            // The window is titled after the open tab; checking it makes sure the audit looks
+            // at this tab, not the one before.
             XCTAssertEqual(settings.title, tab)
             try app.auditAccessibility()
         }
     }
 
-    /// Opens Settings from the menu bar menu and returns its window. Settings is a SwiftUI
-    /// scene, so the window's title is the selected tab's name; the toolbar with the three tab
-    /// buttons is what identifies it.
+    /// Opens Settings from the menu bar menu and returns its window. The window's title is the
+    /// selected tab's name, so the toolbar with the tab buttons is what identifies it.
     @MainActor
     private func openSettings(_ app: XCUIApplication) -> XCUIElement {
         let statusItem = app.statusItems.firstMatch

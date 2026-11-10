@@ -7,14 +7,12 @@ import Testing
 // Proves the real NSPasteboard adapter reads what the user copied, in full and in order, and
 // drops data over the size limits. It talks to the real pasteboard system, because that is the
 // part a fake cannot prove. Each test uses its own private pasteboard, so the user's actual
-// clipboard is never read or changed. (`NSPasteboard(name:)` creates or joins a pasteboard by
-// name; `NSPasteboard.general` is just the shared one every app uses.)
+// clipboard is never read or changed.
 @MainActor struct SystemClipboardTests {
     @Test func readsEveryTypeOfEveryItemInOrder() {
         let pasteboard = NSPasteboard(name: .init("com.thattechedguy.Yank.test.\(UUID())"))
-        // Named pasteboards live in the system's pasteboard server, outside this process, and
-        // stay there until released. `releaseGlobally` removes this one when the test ends, so
-        // repeated test runs don't leave hundreds behind. (`defer` runs at the end of the test.)
+        // Named pasteboards live in the system's pasteboard server until released; without
+        // this, repeated test runs would leave hundreds behind.
         defer { pasteboard.releaseGlobally() }
         let before = pasteboard.changeCount
 
@@ -27,8 +25,7 @@ import Testing
         let b = NSPasteboardItem()
         b.setString("two", forType: .string)
         // A type name nobody else uses, so the test proves the adapter passes unknown types
-        // through as raw bytes instead of only the ones it recognises. `setData(_:forType:)`
-        // accepts any type name; nothing has to be registered first.
+        // through as raw bytes instead of only the ones it recognises.
         b.setData(Data([2, 2]), forType: .init("com.example.custom"))
         pasteboard.clearContents()
         pasteboard.writeObjects([a, b])

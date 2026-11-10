@@ -9,7 +9,6 @@ import Testing
 // stray character. Runs against the real layouts macOS ships, without pressing anything.
 @MainActor struct KeyPresserTests {
     /// A keyboard layout by its macOS id, whether or not the user has it enabled.
-    /// (`TISCreateInputSourceList` with `true` lists every installed source.)
     func installed(_ id: String) throws -> TISInputSource {
         let filter = [kTISPropertyInputSourceID as String: id] as CFDictionary
         let list = TISCreateInputSourceList(filter, true).takeRetainedValue() as! [TISInputSource]

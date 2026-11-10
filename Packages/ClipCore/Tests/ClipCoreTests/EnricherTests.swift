@@ -4,13 +4,8 @@ import Testing
 
 @testable import ClipCore
 
-// Proves the Enricher saves what the decoder returns, asks it once per item however many cards
-// ask at the same time, and never reads the bytes of a text. The decoder is a closure here (the
-// real one needs AppKit); it counts its calls and returns a fixed preview. The link tests cover
-// the one thing in Yank that goes on the network: the fetch is fake (see FakeLinkFetcher), so
-// they run offline and count exactly which addresses were asked for: none while link previews
-// are off, none ever for a local address, and one for a public link, whose title and icon then
-// land on the item.
+// The decoder is a closure here because the real one needs AppKit. Link fetching is the one
+// thing in Yank that goes on the network; the fetch is fake, so these tests run offline.
 struct EnricherTests {
     let folder = TemporaryFolder()
 
@@ -35,7 +30,8 @@ struct EnricherTests {
         #expect(calls.withLock { $0 } == 1)
         #expect(try await store.thumbnail(for: item.id)?.png == Data([4, 2]))
         #expect(try await store.items(limit: 1).first?.cardDetail == "decoded")
-        // Done: the next ask decodes again (a thumbnail lost to a corrupt row, say).
+        // Once the first decode is done, a later ask decodes again (a thumbnail lost to a
+        // corrupt row, say).
         try await enricher.enrich(item)
         #expect(calls.withLock { $0 } == 2)
     }
@@ -52,8 +48,6 @@ struct EnricherTests {
         #expect(try await enricher.enrich(item) == nil)
     }
 
-    // The words an image recognizer returns land on the item and in the search index; an
-    // item with no words, or no image, is left alone.
     @Test func wordsReadFromAnImageAreSearchable() async throws {
         defer { folder.remove() }
         let store = try Store(folder: folder.url)
@@ -70,8 +64,8 @@ struct EnricherTests {
         #expect(found?.first?.imageText == "Quarterly revenue")
     }
 
-    // Copying the same picture again moves the item up; its thumbnail and its words are still
-    // right, so the capture path must not decode or read it a second time.
+    // Copying the same picture again only moves the item up: its thumbnail and its words are
+    // still right.
     @Test func aRepeatCopyIsNotDecodedOrReadAgain() async throws {
         defer { folder.remove() }
         let store = try Store(folder: folder.url)
@@ -104,7 +98,6 @@ struct EnricherTests {
             sourceApp: SourceApp(bundleId: "com.apple.Safari", name: "Safari"), copiedAt: .now)
     }
 
-    /// An Enricher with the fake web, thumbnails switched off, and the given setting.
     @MainActor func enricher(_ store: Store, web: FakeLinkFetcher, previews: Bool = true) -> Enricher {
         Enricher(
             store: store, makePreview: { _, _ in nil }, linkFetcher: web, linkPreviewsEnabled: { previews })
@@ -118,7 +111,7 @@ struct EnricherTests {
         let preview = try await enricher(store, web: web).enrich(item)
         #expect(web.fetched == [URL(string: "https://example.com/page")!])
         #expect(preview?.linkPageTitle == "Example Domain")
-        // The title is on the item, in the search index, and the icon is the card's thumbnail.
+        // The title is searchable, and the icon is saved as the card's thumbnail.
         let found = try await store.search("Example Domain", limit: 10)
         #expect(found?.map(\.id) == [item.id])
         #expect(found?.first?.linkPageTitle == "Example Domain")
@@ -147,8 +140,8 @@ struct EnricherTests {
         #expect(preview == nil)
     }
 
-    // A link to a router, a development server or a Bonjour name is never fetched, with
-    // previews on, however it was copied (URL type or plain text alone).
+    // A router, a development server, IPv6 loopback and a Bonjour name, each copied both with a
+    // URL type and as plain text alone.
     @MainActor
     @Test(arguments: [
         "http://192.168.1.1/admin", "http://localhost:3000/", "http://[::1]/", "http://nas.local/",

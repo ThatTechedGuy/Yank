@@ -1,11 +1,5 @@
-// A port (≈ a TS interface) for the Accessibility permission. Pressing a key in another app
-// needs it: it is the macOS permission that lets one app control others (System Settings ›
-// Privacy & Security › Accessibility; ≈ enabling an AccessibilityService on Android). The real
-// version asks macOS; tests use a fake set to allowed or not, because changing the real
-// permission takes a person clicking in System Settings.
-//
-// Apple's word for "has the permission" is *trusted* (`AXIsProcessTrusted`), so that is the
-// name here too.
+// A port so tests can fake the permission: changing the real one takes a person clicking in
+// System Settings.
 
 /// Whether macOS lets this app control other apps, which pressing ⌘V needs.
 @MainActor public protocol AccessibilityStatus: AnyObject {

@@ -1,11 +1,6 @@
-// The whole item, shown above the selected card when the user presses Space: the full text
-// with its character and word counts, the link with its site, the colour with its hex value.
-// Images and files do not come here; Space opens them in Quick Look, the system's own viewer
-// (see PanelView). ≈ a modal that shows the full record behind a list row.
-//
-// The card only has the first 200 characters of the text, so the full text is read from the
-// database when the preview opens, in a `.task`: SwiftUI starts it when the view appears and
-// cancels it if the view goes away first (≈ a `useEffect` with cleanup).
+// The whole item, shown above the selected card on Space: full text with its counts, a link with
+// its site, a colour with its hex value. Images and files go to Quick Look instead (see
+// `PanelModel.togglePreview`).
 import ClipCore
 import SwiftUI
 
@@ -13,15 +8,15 @@ struct LargePreview: View {
     let item: ClipboardItem
     let model: PanelModel
 
-    /// The item's full text once read; nil while it loads.
+    /// The item's full text once read; nil while it loads. The card only has the first 200
+    /// characters.
     @State private var text: String?
     /// The full text's counts, made once when it lands rather than on every draw (counting a
     /// long text walks all of it). Nil while the text loads; the card's text stands in.
     @State private var counts: TextCounts?
 
     /// How much of the text is drawn. Laying out one `Text` of a whole log file (tens of MB)
-    /// would stall the panel for seconds; this much is more than anyone reads in a preview.
-    /// The counts below the text still cover all of it.
+    /// would stall the panel for seconds. The counts below the text still cover all of it.
     static let shownCharacters = 200_000
 
     private var fullText: String { text ?? item.cardText }
@@ -30,13 +25,11 @@ struct LargePreview: View {
         VStack(alignment: .leading, spacing: 8) {
             switch item.kind {
             case .color:
-                // The swatch and its value, which is what a designer wants to copy from it.
                 (ItemCard.color(hex: item.cardDetail ?? "") ?? Color.gray)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
                 Text(item.cardDetail ?? "")
                     .font(.title3.monospaced())
             default:
-                // Text and links: all of it, scrolling, selectable so a bit can be copied out.
                 ScrollView {
                     Text(String(fullText.prefix(Self.shownCharacters)))
                         .font(.body)

@@ -1,11 +1,6 @@
-// The Timings tab: a bar chart per timing marker ("Open panel" today; a search marker once
-// search exists) of its last durations, with the app's limit drawn across as a line, so a slow
-// open is visible at a glance. The durations come from `Log.timing`, which remembers the last
-// 20 of each name in a debug build; the tab copies that list once a second while it is showing,
-// never while the panel is open.
-//
-// Swift Charts is Apple's charting framework (≈ Recharts or Victory): marks such as `BarMark`
-// and `RuleMark` are declared like views, and the axes come for free.
+// The Timings tab: a bar chart per timing marker ("Open panel" and "Search") of its last durations,
+// with the app's limits drawn across as lines. The durations come from `Log.timing`, which
+// remembers the last 20 of each name in a debug build.
 #if DEBUG
     import Charts
     import ClipCore
@@ -15,8 +10,7 @@
         let model: AppModel
 
         /// The speed limits, in milliseconds, by marker name. A name that is not here still
-        /// gets a chart, just without a line. The search marker's name is a guess until the
-        /// search code names it; adjust it here if it differs.
+        /// gets a chart, just without a line.
         static let limits: [String: [(label: String, milliseconds: Double)]] = [
             "Open panel": [("50 ms limit", 50)],
             "Search": [("16 ms with 10k items", 16), ("33 ms with 100k items", 33)],
@@ -54,8 +48,8 @@
             let runs = intervals.filter { $0.name == name }
             let limits = Self.limits[name] ?? []
             return Chart {
-                // `enumerated()` pairs each run with its position, which becomes the bar's place
-                // on the x axis: a plain 1, 2, 3 reads better than a timestamp for a few tries.
+                // The x axis is the run's position: a plain 1, 2, 3 reads better than a timestamp
+                // for a few tries.
                 ForEach(Array(runs.enumerated()), id: \.element.id) { index, run in
                     BarMark(
                         x: .value("Try", index + 1),

@@ -1,11 +1,6 @@
-// The editor's state and its two ways out: what the editor window shows (a text with its
-// formatting, or a picture), the changes made to it, and saving as a new item or over the
-// original. The view reads it and re-renders when it changes (`@Observable`, like the
-// panel's model). One of these is made per open editor window; it holds the item being
-// edited, or nil for a blank text item typed from scratch. ≈ a form's state object.
-//
-// The work itself is elsewhere: RichText and ImageEditor (ClipSystem) convert and transform,
-// the Store writes. This class only sequences them and keeps the result.
+// The editor's state, one per open editor window: the text or picture being edited, and saving it
+// as a new item or over the original. The work itself is elsewhere: RichText and ImageEditor
+// (ClipSystem) convert and transform, the Store writes; this class sequences them.
 import ClipCore
 import ClipSystem
 import SwiftUI
@@ -16,8 +11,8 @@ import UniformTypeIdentifiers
     let original: ClipboardItem?
     /// The text in the editor, with its bold, italics and so on. Used unless `image` is set.
     var text = AttributedString()
-    /// The picture in the editor, as PNG bytes, when the original is an image. Each rotation
-    /// or cut-out replaces it; nothing is written until a save.
+    /// The picture in the editor, as bytes of `imageType`, when the original is an image. Each
+    /// rotation or cut-out replaces it; nothing is written until a save.
     private(set) var image: Data?
     /// The clipboard type of `image`: the type it was copied as (a screenshot may be TIFF), or
     /// PNG once a tool has run, since the tools always give back a PNG.
@@ -31,13 +26,11 @@ import UniformTypeIdentifiers
     var didSave: (ClipboardItem) -> Void = { _ in }
 
     private let store: Store
-    private let enricher: Enricher
     private let thumbnails: ThumbnailCache
 
-    init(original: ClipboardItem?, store: Store, enricher: Enricher, thumbnails: ThumbnailCache) {
+    init(original: ClipboardItem?, store: Store, thumbnails: ThumbnailCache) {
         self.original = original
         self.store = store
-        self.enricher = enricher
         self.thumbnails = thumbnails
     }
 
@@ -62,7 +55,7 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// Turns the picture a quarter turn, the way Preview's Rotate Left and Rotate Right do.
+    /// Turns the picture a quarter turn.
     func rotate(clockwise: Bool) async {
         guard let image else { return }
         isBusy = true
@@ -72,8 +65,7 @@ import UniformTypeIdentifiers
         imageType = UTType.png.identifier
     }
 
-    /// Rotates off the main thread, because a big photo takes over a second to decode and
-    /// encode. `@concurrent` is what moves an async function off the caller's thread.
+    /// Off the main thread: a big photo takes over a second to decode and encode.
     @concurrent private static func turned(_ image: Data, clockwise: Bool) async -> Data? {
         ImageEditor.rotated(image, clockwise: clockwise)
     }
@@ -97,10 +89,9 @@ import UniformTypeIdentifiers
         }
     }
 
-    /// Writes the editor's content to the history: over the original when `replacing` (same
-    /// card, same place, new bytes), else as a new item at the top. The new bytes get their
-    /// preview in the background the way a fresh copy does, and the card's cached picture is
-    /// dropped so it draws the new one. Returns whether it worked; the error is kept otherwise.
+    /// Writes the editor's content to the history: over the original when `replacing` (same card,
+    /// same place, new bytes), else as a new item at the top. Returns whether it worked; the error
+    /// is kept otherwise.
     func save(replacing: Bool) async -> Bool {
         isBusy = true
         defer { isBusy = false }
@@ -117,7 +108,7 @@ import UniformTypeIdentifiers
                 error = "This item was deleted in the meantime."
                 return false
             }
-            enricher.enrichInBackground(saved)
+            thumbnails.enrichInBackground(saved)
             didSave(saved)
             return true
         } catch {

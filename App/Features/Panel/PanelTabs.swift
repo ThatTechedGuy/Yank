@@ -1,20 +1,14 @@
-// The row under the search box: a tab for History, one per pinboard, a "+" to make a new
-// pinboard, and the filter button at the right. Clicking a tab switches the cards to that
-// list; right-clicking a pinboard's tab offers Rename and Delete. ≈ a tab bar component with
-// its own small dialogs.
-//
-// The name prompts and the delete confirmation are popovers, not alert sheets: the panel is a
-// non-activating window (see PanelWindow), and a popover is the one kind of dialog proven to
-// take typing on it without making Yank the active app (the large preview is one too).
+// The row under the search box: a tab for History, one per pinboard, a "+" and the filter button.
+// Its prompts are popovers, not alert sheets: on the non-activating panel (see PanelWindow) a
+// popover is the one kind of dialog proven to take typing without making Yank the active app.
 import ClipCore
 import SwiftUI
 
 struct PanelTabs: View {
     let model: PanelModel
 
-    /// The name typed so far in the Rename popover, and in the New Pinboard one. Which
-    /// popover is open lives in the model, so the panel's key handling can tell a prompt is
-    /// up (see `isPrompting`).
+    /// The names typed so far in the Rename and New Pinboard popovers. Which popover is open
+    /// lives in the model, so the panel's key handling can tell a prompt is up.
     @State private var renameText = ""
     @State private var newName = ""
 
@@ -59,8 +53,7 @@ struct PanelTabs: View {
             Button {
                 model.newPinboardPrompt = NewPinboardPrompt()
             } label: {
-                // An icon-only button still needs words for VoiceOver: a `Label` with the
-                // `.iconOnly` style shows just the "+" and gives VoiceOver the title.
+                // A `Label`, not an `Image`, so VoiceOver still gets the title.
                 Label("New Pinboard", systemImage: "plus")
                     .labelStyle(.iconOnly)
             }

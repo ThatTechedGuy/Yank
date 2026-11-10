@@ -1,8 +1,5 @@
-// The icon and the colour of the app a copy came from, for the card header. macOS keeps every
-// installed app's icon; `NSWorkspace` finds the app by its bundle id and hands the icon over.
-// The colour is worked out from that icon once per app and remembered, because counting the
-// pixels of an icon takes a millisecond or two and a row of cards asks for it on every draw.
-// ≈ a memoised selector keyed by bundle id.
+// The colour is worked out from the icon once per app and remembered, because counting the pixels
+// of an icon takes a millisecond or two and a row of cards asks for it on every draw.
 import AppKit
 
 /// Icons and header colours of the apps copies come from, cached per app.
@@ -35,16 +32,13 @@ import AppKit
         return tint
     }
 
-    /// The most common clearly coloured pixel of an image, or grey when it has none (a black
-    /// and white icon, say). The image is drawn at 128 × 128 pixels, small enough to count
-    /// quickly and big enough to be true to the icon. Only fully opaque pixels count, so the
-    /// transparent corners and soft edges of an icon do not; only pixels with a saturation
-    /// above 0.25 count, so white, black and grey do not. Near-identical shades are counted as
-    /// one (each channel rounded to 16 steps), and the answer is the average of the winning
-    /// shade, so a flat blue icon gives its blue and a gradient gives its middle.
+    /// The most common clearly coloured pixel of an image drawn at 128 × 128, or grey when it has
+    /// none. Only fully opaque pixels count, so an icon's transparent corners and soft edges do
+    /// not; only a saturation above 0.25 counts, so white, black and grey do not. Near-identical
+    /// shades are counted as one (each channel rounded to 16 steps), and the answer is the
+    /// average of the winning shade.
     public static func dominantColor(of image: NSImage) -> NSColor {
         let size = 128
-        // Draw into our own RGBA buffer so the pixels can be read back as plain bytes.
         guard
             let context = CGContext(
                 data: nil, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
@@ -58,7 +52,6 @@ import AppKit
         }
         context.draw(cgImage, in: rect)
 
-        // Bucket → (count, red sum, green sum, blue sum).
         var buckets: [Int: (count: Int, red: Int, green: Int, blue: Int)] = [:]
         for i in stride(from: 0, to: size * size * 4, by: 4) {
             let red = Int(pixels[i])

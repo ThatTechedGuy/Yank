@@ -1,13 +1,8 @@
 import Foundation
 
-// The paste stack: a queue of items to paste one after another. Turn it on from the menu bar,
-// copy A, B and C, then press "paste next" three times in another app and A, B, C come out in
-// that order. It is a plain value with three states, Off, On and empty, On with items waiting,
-// and a method for each way of moving between them; the app keeps one of these and the menu
-// bar draws its count. ≈ a discriminated union in TS: `{ kind: 'off' } | { kind: 'on', queue }`.
-//
-// The queue holds whole items, not ids, so "paste next" can hand the item straight to the
-// paste service and the menu can list what is waiting without a database read.
+// A queue of copies to paste one after another: copy A, B and C, then "paste next" gives A, B, C.
+// The queue holds whole items, not ids, so "paste next" can hand the item straight to the paste
+// service and the menu can list what is waiting without a database read.
 /// Whether the paste stack is on, and the items waiting in it, oldest first.
 public enum PasteStack: Equatable, Sendable {
     /// Copies go to the history only.

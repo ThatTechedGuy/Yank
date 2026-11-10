@@ -1,9 +1,8 @@
 import Foundation
 
-// The one line in a card's footer, next to the ⌘N badge: how long a text is, how big a file
-// is, which site a link points at. Computed once at save time from the copy's bytes, like the
-// card text, so the list never reads them again. Images need their pixels decoded and colours
-// their value unarchived, which takes AppKit; those two are filled in later by the Enricher.
+// Computed once at save time from the copy's bytes, so the list never reads them again. Images
+// need their pixels decoded and colours their value unarchived, which takes AppKit; those two are
+// filled in later by the Enricher.
 /// Builds the footer detail for a copy.
 public enum CardDetail {
     /// The detail for a copy of the given kind, or nil when it has to wait for the Enricher.
@@ -18,9 +17,8 @@ public enum CardDetail {
             let count = text.count
             return "\(count) \(count == 1 ? "character" : "characters")"
         case .file:
-            // One file: its size on disk. Several: how many. The URLs came from the clipboard,
-            // which is what lets the sandbox read the files (see the README); a file that has
-            // gone since the copy has no size, and the card then shows nothing here.
+            // The URLs came from the clipboard, which is what lets the sandbox read the files. A
+            // file that has gone since the copy has no size, and the card then shows nothing here.
             let urls = data.filter { $0.type == ClipboardType.fileURL }.compactMap { URL(string: $0.text) }
             if urls.count > 1 { return "\(urls.count) files" }
             guard let url = urls.first,
@@ -38,10 +36,8 @@ public enum CardDetail {
     }
 }
 
-// Character and word counts of a text, for the card footer and the large preview. Characters
-// are what the user sees as one: "é" and an emoji with a skin tone each count once (Swift's
-// `String.count` already works that way). Words are runs of non-whitespace, the plain reading
-// of "word": "don't" is one, "3 pm" is two, and a run of punctuation on its own counts too.
+// Words are runs of non-whitespace: "don't" is one, "3 pm" is two, and a run of punctuation on
+// its own counts too.
 /// How many characters and words a text has.
 public struct TextCounts: Hashable, Sendable {
     public let characters: Int

@@ -1,12 +1,8 @@
 import Foundation
 
-// Which items the panel is showing: which list (History or one pinboard), narrowed by kind
-// and by date. One value carries all three, so the live list and the search take the same
-// argument and can never disagree about what is filtered. A fresh `ItemFilter()` means the
-// History tab with nothing narrowed, which is what the panel shows when it opens.
-//
-// `Hashable` so the model can tell whether a change really changed anything before it
-// restarts a query; `Sendable` because the Store reads it on its own threads.
+// One value carries the list, the kind and the date, so the live list and the search take the
+// same argument and can never disagree about what is filtered. `Hashable` so the model can tell
+// whether a change really changed anything before it restarts a query.
 /// What the panel shows: the list, and the kind and date it is narrowed to.
 public struct ItemFilter: Hashable, Sendable {
     /// The History tab (items on no pinboard) or one pinboard's tab (its items).

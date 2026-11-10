@@ -1,8 +1,6 @@
-// What "Share…" hands to the system share sheet. SwiftUI's `ShareLink` wants a value that
-// knows how to export itself (`Transferable`, ≈ an object with its own serializers), and it
-// asks for the bytes only when a service is picked, so nothing is read from the database
-// just to show the menu. Text, links and colours go as plain text; images and files go as a
-// file, the same one Quick Look previews, so Mail or Messages get a real attachment.
+// What "Share…" hands to the system share sheet. `ShareLink` asks for the bytes only when a service
+// is picked, so nothing is read from the database just to show the menu. Images and files go as the
+// file Quick Look previews, so Mail or Messages get a real attachment.
 import ClipCore
 import CoreTransferable
 import UniformTypeIdentifiers
@@ -11,8 +9,8 @@ struct ShareableItem: Transferable {
     let item: ClipboardItem
     let store: Store
 
-    /// Which export each kind offers. `exportingCondition` turns a representation off for the
-    /// kinds it does not fit, so a text card never pretends to be a file and the other way round.
+    /// Plain text for text, links and colours, a file for images and files; `exportingCondition`
+    /// turns off the representation that does not fit the kind.
     static var transferRepresentation: some TransferRepresentation {
         DataRepresentation(exportedContentType: .utf8PlainText) { shareable in
             let data = try await shareable.store.data(for: shareable.item.id)

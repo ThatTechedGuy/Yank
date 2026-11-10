@@ -1,10 +1,5 @@
-// The names of the settings the app keeps in UserDefaults, written out once. UserDefaults is
-// the Mac's key-value store for an app's preferences (≈ AsyncStorage or SharedPreferences):
-// the Settings window writes each key with SwiftUI's `@AppStorage`, and the code that acts on
-// a setting reads the same key. Keeping the strings here means a typo shows up in one place.
-//
-// Each setting can also be set for one run from the command line, because macOS lets any
-// launch argument of the form `-key value` override a default for that process:
+// The UserDefaults keys, written once so the Settings window (`@AppStorage`) and the code that acts
+// on a setting share them. Any of them can be set for one run with a launch argument:
 //     Yank.app/Contents/MacOS/Yank -pasteDestination clipboardOnly -alwaysPlainText YES
 import Foundation
 
@@ -32,8 +27,7 @@ enum SettingsKey {
     static let hasShownWelcome = "hasShownWelcome"
 
     /// Whether link previews are on right now, for code outside a SwiftUI view. `nonisolated`
-    /// because the Enricher asks from a background task; UserDefaults is safe to read from any
-    /// thread.
+    /// because the Enricher asks from a background task.
     nonisolated static var linkPreviewsEnabled: Bool {
         // `bool(forKey:)` also understands "NO" typed on the command line, which arrives as a
         // string that `as? Bool` would miss; only a missing key needs the "on" default.
@@ -44,12 +38,9 @@ enum SettingsKey {
 
 /// The apps whose copies are never saved, by bundle id, in the order the user added them.
 ///
-/// Stored as one JSON string under `SettingsKey.ignoredApps`. `@AppStorage` can hold a value
-/// whose `rawValue` is a String (`RawRepresentable`), and JSON is the natural way to put a list
-/// in a string; `defaults read com.thattechedguy.Yank ignoredApps` shows it as is (add `.debug`
-/// to the id for a debug build's settings). A list, not a
-/// set, so the Settings window shows the apps in a stable order; the privacy rules turn it
-/// into a set for their lookups.
+/// Stored as one JSON string under `SettingsKey.ignoredApps`: `@AppStorage` can hold a value whose
+/// `rawValue` is a String. A list, not a set, so the Settings window shows the apps in a stable
+/// order; the privacy rules turn it into a set for their lookups.
 struct IgnoredApps: RawRepresentable, Equatable {
     var bundleIds: [String]
 

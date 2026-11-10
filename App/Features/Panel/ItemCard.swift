@@ -1,11 +1,5 @@
-// One card in the row: what one saved copy looks like, laid out the way Paste lays out its
-// cards. Top: a header tinted with the source app's icon colour, naming the kind of thing it
-// is, how long ago it was copied, and the app's icon. Middle: the content, as a preview: the
-// text (or the item's own name, if renamed), the picture for an image or a file, a swatch for
-// a colour, the site's icon and page title for a link. Bottom: the ⌘1–⌘9 hint for the first
-// nine cards and one detail: how long the text is, the image's size, the link's site, the
-// file's size, the colour's hex value. Selected cards get a coloured outline, the lead one
-// brightest; a file card whose file is gone says so instead of a preview. ≈ a list-row component that gets its item as a prop.
+// One card in the row: a header tinted with the source app's icon colour, a preview of the
+// content, and a footer with the ⌘1–⌘9 hint and one detail (length, size, site or hex value).
 import AppKit
 import ClipCore
 import ClipSystem
@@ -29,9 +23,8 @@ struct ItemCard: View {
 
     @Environment(ThumbnailCache.self) private var thumbnails
     @Environment(\.sourceAppIcons) private var appIcons
-    /// Whether the user turned on Increase Contrast (System Settings › Accessibility ›
-    /// Display). Then every card gets a visible edge, not only the selected ones, so cards stand
-    /// apart from the frosted background behind them.
+    /// With Increase Contrast on, every card gets a visible edge, not only the selected ones,
+    /// so cards stand apart from the frosted background behind them.
     @Environment(\.colorSchemeContrast) private var contrast
 
     static let cornerRadius: CGFloat = 10
@@ -48,17 +41,13 @@ struct ItemCard: View {
         .frame(maxHeight: .infinity)
         .background(.background.opacity(0.7))
         .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-        // The selection outline: the user's accent colour on the lead card, a fainter accent on
-        // the other selected cards, nothing otherwise (a thin edge with Increase Contrast).
-        // An overlay is drawn on top without taking space, so the card keeps its size either
-        // way.
+        // The outline is an overlay, so the card keeps its size selected or not.
         .overlay(
             RoundedRectangle(cornerRadius: Self.cornerRadius)
                 .stroke(outlineColor, lineWidth: isSelected ? 3 : 1)
         )
-        // For VoiceOver the card is one element (`.combine` merges the pieces inside into one
-        // piece of text) that reads as one sentence, the label replacing the pieces' own
-        // words, marked selected or not. The id is for the UI tests.
+        // To VoiceOver the card is one element that reads as one sentence, the label replacing
+        // the pieces' own words. The id is for the UI tests.
         .accessibilityElement(children: .combine)
         .accessibilityLabel(spokenDescription)
         .accessibilityIdentifier("card-\(item.id)")
@@ -71,17 +60,17 @@ struct ItemCard: View {
         return contrast == .increased ? Color.primary.opacity(0.6) : .clear
     }
 
-    /// "Card 1 of 20. Text from Safari, 2 minutes ago: Hello world": what the card says to a
-    /// VoiceOver user, the same facts the eye gets from the header and the preview, in the
-    /// order they matter. The age uses the same wording as the header.
+    /// What VoiceOver reads: "Card 1 of 20. Text from Safari, 2 minutes ago: Hello world". The
+    /// age uses the same wording as the header.
     private var spokenDescription: String {
         let source = item.sourceAppName.map { " from \($0)" } ?? ""
         let age = item.copiedAt.formatted(.relative(presentation: .named))
         return "Card \(position) of \(listSize). \(item.kind.displayName)\(source), \(age): \(spokenContent)"
     }
 
-    /// The preview in words: a renamed card's own name first, then by kind the text, the
-    /// picture's size, the page title and address, or the colour's hex value.
+    /// The preview in words: a missing file's notice or a renamed card's own name first, then
+    /// by kind the text, the picture's size, the page title and address, or the colour's hex
+    /// value.
     private var spokenContent: String {
         if fileIsMissing { return "File no longer exists" }
         if let title = item.title { return title }
@@ -99,8 +88,7 @@ struct ItemCard: View {
             Text(item.kind.displayName)
                 .font(.caption.weight(.semibold))
             Spacer()
-            // "2 minutes ago", "yesterday". `TimelineView` re-renders its content on a
-            // schedule, here once a minute, so a card left on screen keeps its time right.
+            // Re-rendered once a minute, so a card left on screen keeps its age right.
             TimelineView(.everyMinute) { _ in
                 Text(item.copiedAt, format: .relative(presentation: .named))
                     .font(.caption)
@@ -126,9 +114,9 @@ struct ItemCard: View {
         } else if item.kind == .color, let color = Self.color(hex: item.cardDetail ?? "") {
             color
         } else if item.kind == .link {
-            // A link reads like a bookmark: the site's icon, the page's title in bold, and the
-            // address underneath, once the page has been fetched; until then (or with previews
-            // off) just the address. The renamed title wins over the page's.
+            // Once the page has been fetched: the site's icon, the page's title and the address
+            // underneath; until then (or with previews off) just the address. The renamed title
+            // wins over the page's.
             VStack(alignment: .leading, spacing: 8) {
                 if let icon = thumbnails.image(for: item) {
                     Image(nsImage: icon)
@@ -147,10 +135,9 @@ struct ItemCard: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(10)
         } else if let image = thumbnails.image(for: item) {
-            // A photo fills the card, like a thumbnail in Photos; a file's preview (a page, an
-            // icon) is shown whole, like in Finder. The picture is drawn as an overlay on an
-            // empty box so that a filling picture, which is bigger than the box, cannot push
-            // the card's header and footer out of place; `clipped` cuts off the overflow.
+            // A photo fills the card; a file's preview (a page, an icon) is shown whole. The
+            // picture is an overlay on an empty box so that a filling picture, which is bigger
+            // than the box, cannot push the card's header and footer out of place.
             Color.clear.overlay {
                 Image(nsImage: image)
                     .resizable()
@@ -158,8 +145,7 @@ struct ItemCard: View {
                     .padding(item.kind == .file ? 12 : 0)
             }
         } else {
-            // The renamed title wins over the saved text. An image whose thumbnail has not
-            // arrived yet shows nothing here; it fills in a moment later.
+            // An image whose thumbnail has not arrived yet lands here and fills in a moment later.
             Text(item.title ?? item.cardText)
                 .font(.body)
                 .lineLimit(8)
@@ -200,11 +186,8 @@ struct ItemCard: View {
     }
 }
 
-// The app-icon cache travels to every card through SwiftUI's environment (≈ a React context),
-// so the row does not have to pass it down by hand. `@Entry` writes the environment key
-// boilerplate; the app sets the one shared instance on the panel's root view. (The default
-// has to be a single stored object: SwiftUI would otherwise make a new, empty cache on every
-// read.)
+// The app sets the one shared icon cache on the panel's root view. The default has to be a single
+// stored object: SwiftUI would otherwise make a new, empty cache on every read.
 extension EnvironmentValues {
     private static let defaultSourceAppIcons = SourceAppIcons()
     @Entry var sourceAppIcons = defaultSourceAppIcons

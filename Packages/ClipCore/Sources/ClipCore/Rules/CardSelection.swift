@@ -1,16 +1,10 @@
 import Foundation
 
-// Which cards are selected in the panel, and how the keys and clicks change that. The panel
-// shows an ordered list of items; this value only knows their ids and is told the order on
-// every call, so it stays a pure value with no view inside (≈ a reducer over `{ anchor, lead,
-// ids }`). A plain click selects one card; ⇧← and ⇧→ grow or shrink a run of cards from
-// where the selection started; ⌘-click adds or removes a single card anywhere; ⌘A takes the
-// whole list. When the list changes (a search, another tab, a delete), `keep(in:)` drops what
-// is no longer shown.
+// Knows only the cards' ids and is told their order on every call, so it stays a pure value with
+// no view inside.
 /// The selected cards: a lead card the keys move, an anchor the run starts from, and the set.
 public struct CardSelection: Equatable, Sendable {
-    /// The card the keys move and the outline follows: the one a single-card panel would call
-    /// "the selected card". Nil when nothing is selected.
+    /// The card the keys move and the outline follows. Nil when nothing is selected.
     public private(set) var lead: Int64?
     /// Where a ⇧-arrow run starts; the lead is its other end.
     public private(set) var anchor: Int64?
@@ -66,8 +60,8 @@ public struct CardSelection: Equatable, Sendable {
         anchor = order.first
     }
 
-    /// The list changed: forgets cards that are no longer in it. If the lead went, the first
-    /// card of the new list takes over, so the panel always has a card to paste.
+    /// The list changed: forgets cards that are no longer in it. If the lead went, the selection
+    /// becomes the first card of the new list alone, so the panel always has a card to paste.
     public mutating func keep(in order: [Int64]) {
         ids.formIntersection(order)
         if let lead, ids.contains(lead) { return }

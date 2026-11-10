@@ -1,24 +1,9 @@
 import Foundation
 import os
 
-// Adds to a saved item what the save itself could not: a thumbnail for an image or a file, the
-// pixel size of an image, the hex value of a colour, the title and icon of the page a link
-// points at, and the words in an image so search can find a screenshot by what it says. It runs
-// after the save, at low priority, so a copy is in the history and on the panel before any
-// decoding starts, and a slow Quick Look or web page never delays the next copy. ≈ a background
-// job queued after the insert.
-//
-// Decoding needs macOS frameworks (ImageIO, Quick Look, Vision, LinkPresentation) that this
-// module keeps out, so the actual work comes in as functions and a port: the app passes
-// ClipSystem's `Thumbnailer`, `TextRecognizer` and `LinkFetcher`; a test passes closures and a
-// fake fetcher that return whatever they like. The service itself only reads the item's bytes,
-// calls those, and saves the answer through the Store.
-//
-// Links are the one place Yank goes on the network, so three rules guard them here: nothing is
-// fetched while the user has turned link previews off, nothing is ever fetched for an address
-// on this Mac or the local network (see `LocalAddress`), and an address is fetched once, not
-// once per card that shows it. Copies the privacy rules refuse are never saved, so they never
-// reach this service at all.
+// The decoding frameworks (ImageIO, Quick Look, Vision, LinkPresentation) stay out of this module,
+// so the work comes in as functions and a port. Links are the one place Yank goes on the network:
+// nothing is fetched with link previews off, or ever for an address on this Mac or the local network.
 /// Makes previews for saved items in the background.
 public final class Enricher: Sendable {
     /// The function that turns an item and its bytes into a preview. Nil means "nothing to
@@ -36,12 +21,10 @@ public final class Enricher: Sendable {
     /// The work in progress, by item id. A copy made while the panel is open is asked for twice
     /// at once, by the capture path and by the card that appears for it; both wait for the one
     /// task instead of decoding the same bytes (or fetching the same page) twice.
-    /// `OSAllocatedUnfairLock` guards the dictionary, since callers come from different threads.
     private let inFlight = OSAllocatedUnfairLock<[Int64: Task<CardPreview?, Error>]>(initialState: [:])
 
-    /// `recognizeText` and `linkFetcher` are optional so a test, or an app without those
-    /// features, can run the Enricher with thumbnails only. `linkPreviewsEnabled` defaults to
-    /// "on" and only matters when there is a fetcher.
+    /// `recognizeText` and `linkFetcher` are optional: without them the Enricher makes thumbnails
+    /// only. `linkPreviewsEnabled` only matters when there is a fetcher.
     public init(
         store: Store, makePreview: @escaping MakePreview, recognizeText: RecognizeText? = nil,
         linkFetcher: (any LinkFetching)? = nil,
@@ -54,12 +37,9 @@ public final class Enricher: Sendable {
         self.linkPreviewsEnabled = linkPreviewsEnabled
     }
 
-    /// Makes and saves the item's preview, and returns it. Text has none to make, and a link
-    /// has none without a fetcher, so those return nil without reading any bytes. A link whose
-    /// page title is already saved is not fetched again: opening a page can use up a one-time
-    /// link, so a repeat copy must not open it a second time.
-    /// (`@discardableResult`: the capture path ignores the return value; the panel uses it to
-    /// show a thumbnail straight away.)
+    /// Makes and saves the item's preview, and returns it; nil for text, and for a link without a
+    /// fetcher. A link whose page title is already saved is not fetched again: opening a page can
+    /// use up a one-time link, so a repeat copy must not open it a second time.
     @discardableResult
     public func enrich(_ item: ClipboardItem) async throws -> CardPreview? {
         switch item.kind {
@@ -92,8 +72,7 @@ public final class Enricher: Sendable {
     }
 
     /// The title and icon of the page a link points at, or nil when previews are off, the
-    /// address is local, or the copy holds no usable address. The icon becomes the card's
-    /// thumbnail, the title its text.
+    /// address is local, or the copy holds no usable address.
     private func linkPreview(_ item: ClipboardItem, _ data: [ClipboardItemData]) async throws -> CardPreview?
     {
         guard let linkFetcher, linkPreviewsEnabled() else { return nil }
@@ -110,11 +89,10 @@ public final class Enricher: Sendable {
             linkPageTitle: page.title)
     }
 
-    /// Reads the words in an image and saves them, so search finds the screenshot by what it
-    /// says. Kept apart from `enrich`, which the panel waits on for a card's thumbnail: reading
-    /// text takes a good part of a second, and a thumbnail must not wait for it. Nothing happens
-    /// for other kinds, or without a recognizer, or when the image was read before (a repeat
-    /// copy has the same bytes). An image with no words in it is saved as having none ("").
+    /// Reads the words in an image and saves them, so search finds a screenshot by what it says.
+    /// Kept apart from `enrich`, which the panel waits on for a card's thumbnail: reading text
+    /// takes a good part of a second. Nothing happens for other kinds, or without a recognizer,
+    /// or when the image was read before (a repeat copy has the same bytes).
     public func recognizeText(in item: ClipboardItem) async throws {
         guard item.kind == .image, item.imageText == nil, let recognizeText else { return }
         // Reads the bytes a second time after `enrich`, rather than keeping them around between
@@ -128,11 +106,9 @@ public final class Enricher: Sendable {
     }
 
     /// `enrich` and then `recognizeText`, started in the background at low priority: what the
-    /// capture path calls after each save, without waiting on the task it gets back (tests
-    /// do). `.utility` tells the system this can wait behind anything the user is looking at.
-    /// A failure is logged, not shown: the item is saved either way. A repeat copy (same
-    /// bytes, so the Store moved the item up instead of adding one) already has its preview,
-    /// so nothing is decoded, read or fetched again for it.
+    /// capture path calls after each save, without waiting on the task it gets back (tests do).
+    /// A failure is logged, not shown: the item is saved either way. A repeat copy already has
+    /// its preview, so nothing is decoded, read or fetched again for it.
     // shortcut: "has a preview" means "has a thumbnail", so a link whose page gave neither a
     // title nor an icon is fetched again on a repeat copy; remember a failed fetch on the item
     // if a one-time link ever gets used up that way.

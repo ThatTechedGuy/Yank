@@ -1,9 +1,6 @@
-// The panel's pinboard actions, kept apart from the list and selection logic in
-// PanelModel.swift: switching tabs (⌘[ ⌘]), pinning and unpinning the selected card (⌘P or
-// the card's menu), and creating, renaming and deleting pinboards from the tab row. Each
-// action is one Store call in a Task; the model never updates its own lists afterwards,
-// because the live queries deliver the new state on their own (≈ a mutation that invalidates
-// a query). An error is logged and the panel simply stays as it was.
+// The panel's pinboard actions: switching tabs, pinning and unpinning, and creating, renaming and
+// deleting pinboards. Each is one Store call in a Task; the model never updates its own lists
+// afterwards, because the live queries deliver the new state. An error is logged.
 import ClipCore
 import SwiftUI
 
@@ -27,7 +24,6 @@ extension PanelModel {
     private func moveTab(by step: Int) {
         let tabs = tabs
         guard let index = tabs.firstIndex(of: filter.list) else { return }
-        // `%` can go negative in Swift, so add the count first to wrap backwards too.
         filter.list = tabs[(index + step + tabs.count) % tabs.count]
     }
 

@@ -1,18 +1,8 @@
 import Foundation
 
-// Decides whether a web address points at this Mac or the local network, where a link preview
-// must never be fetched: a request there could reach a router's admin page, a development
-// server, or a one-time link on the LAN, and would tell the local network that Yank exists.
-// Pure function over the URL's host, so the tests can list the edge cases without a network.
-//
-// Blocked by name: anything with no dot in it (`localhost`, `router`, `nas`: a public site always
-// has one) and names under the suffixes kept for private networks, such as `*.local` (Bonjour
-// names, like `printer.local`), `*.localhost`, `*.home.arpa`, `*.internal` and `*.lan`. A name may
-// end in one dot (`localhost.`), which means the same name. Blocked by number: the loopback,
-// private, shared (Tailscale and carrier networks) and link-local ranges of IPv4 (127.x, 10.x,
-// 172.16–31.x, 192.168.x, 100.64–127.x, 169.254.x) and IPv6 (::1, fc00::/7, fe80::/10), plus an
-// IPv4 address written inside an IPv6 one (::ffff:10.0.0.1). An address with no host at all is
-// local too, since there is nothing public to fetch.
+// A link preview must never be fetched from this Mac or the local network: a request there could
+// reach a router's admin page, a development server or a one-time link on the LAN, and would tell
+// the local network that Yank exists. A name with no dot is local too: a public site always has one.
 //
 // shortcut: a public name that secretly resolves to a local address, or a public page that
 // redirects to one, still gets fetched, because the check sees only the address as written;
@@ -35,10 +25,9 @@ public enum LocalAddress {
     /// The name endings set aside for private networks.
     private static let privateSuffixes = [".localhost", ".local", ".home.arpa", ".internal", ".lan"]
 
-    /// The four bytes of an IPv4 address, or nil for anything else. `inet_aton` is the C
-    /// library's forgiving parser, and it has to be: the system's URL loading also accepts the
-    /// short and odd spellings ("127.1", "2130706433", "0x7f.0.0.1"), so each must be judged by
-    /// the address it really means.
+    /// The four bytes of an IPv4 address, or nil for anything else. `inet_aton` because the
+    /// system's URL loading also accepts the short and odd spellings ("127.1", "2130706433",
+    /// "0x7f.0.0.1"), so each must be judged by the address it really means.
     private static func ipv4Bytes(_ host: String) -> [UInt8]? {
         var address = in_addr()
         guard inet_aton(host, &address) != 0 else { return nil }
@@ -46,8 +35,8 @@ public enum LocalAddress {
     }
 
     /// The sixteen bytes of an IPv6 address, or nil. The URL parser has already removed the
-    /// square brackets; a zone such as "%en0" (which interface to use) is dropped, because it
-    /// says nothing about where the address points and `inet_pton` refuses it.
+    /// square brackets; a zone such as "%en0" is dropped, because it says nothing about where
+    /// the address points and `inet_pton` refuses it.
     private static func ipv6Bytes(_ host: String) -> [UInt8]? {
         let plain = host.prefix { $0 != "%" }
         var address = in6_addr()

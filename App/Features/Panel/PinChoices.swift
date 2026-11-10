@@ -1,7 +1,6 @@
-// The pin rows for one card: "Unpin" when it is on a pinboard, otherwise one "Pin to …" row per
-// pinboard and "Pin to New Pinboard…". The same rows serve as the card's right-click menu and
-// as the small chooser ⌘P opens on the card when there is more than one pinboard: in a menu,
-// SwiftUI draws the buttons as menu rows; in a popover, as a column of buttons.
+// The pin rows for one card. The same rows serve the card's right-click menu and the chooser ⌘P
+// opens when there is more than one pinboard: SwiftUI draws the buttons as menu rows in a menu
+// and as a column of buttons in a popover.
 import ClipCore
 import SwiftUI
 

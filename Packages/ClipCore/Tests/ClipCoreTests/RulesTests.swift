@@ -1,32 +1,19 @@
-// Tests for the pure rules that decide what happens to a copy: skip it, what kind it is, what
-// the menu shows for it, and when two copies count as the same. These rules take plain values
-// and return plain values, so the tests need no fakes and no disk. The framework is Swift
-// Testing (≈ Jest / JUnit 5): `@Test` marks a test, `#expect` checks a condition and prints
-// both sides when it fails. Run with `swift test` or scripts/test.sh --fast.
 import Foundation
 import Testing
 
 @testable import ClipCore
 
-// Proves the privacy rules keep secrets out of the history: a copy that an app marks as
-// private, or that comes from an app the user chose to ignore, is skipped. The rules only see
-// type names and the app's bundle id, never the content, so the decision costs no read. One
-// suite per rule; test names describe the behaviour.
 struct PrivacyRulesTests {
     let rules = PrivacyRules()
 
-    // Every marker type the app knows about must cause a skip, so each one gets its own run.
-    // (`arguments:` runs the test once per value, ≈ Jest's `test.each`; a failing marker shows
-    // by name in the report.)
     @Test(arguments: PrivacyRules.markerTypes)
     func copiesWithAMarkerTypeAreSkipped(marker: String) {
         let types = [ClipboardType.plainText, marker]
         #expect(rules.decision(types: types, sourceApp: "com.apple.TextEdit") == .skip)
     }
 
-    // The rules ship with no ignored apps at all: an unmarked copy is saved whoever sent it,
-    // even a password manager, until the user adds that app. This pins that choice down so a
-    // built-in list can't creep back in unnoticed.
+    // An unmarked copy is saved whoever sent it, even a password manager, until the user adds
+    // that app. This pins that choice down so a built-in list can't creep back in unnoticed.
     @Test func noAppIsIgnoredByDefault() {
         let types = [ClipboardType.plainText]
         #expect(rules.ignoredApps.isEmpty)
@@ -39,7 +26,6 @@ struct PrivacyRulesTests {
         #expect(rules.decision(types: types, sourceApp: nil) == .moveOwnPasteToTop)
     }
 
-    // Only apps the user added are skipped, and only by exact bundle id.
     @Test func copiesFromAppsTheUserIgnoresAreSkipped() {
         let custom = PrivacyRules(ignoredApps: ["com.example.secret"])
         #expect(custom.decision(types: [], sourceApp: "com.example.secret") == .skip)
@@ -48,9 +34,6 @@ struct PrivacyRulesTests {
     }
 }
 
-// Proves a pause ends when it should and not before: a timed pause is over the moment its end
-// time passes, and "until resumed" never ends on its own. The state carries no clock, so each
-// check passes a made-up time; nothing waits.
 struct PauseStateTests {
     let start = Date(timeIntervalSince1970: 1_000_000)
 
@@ -59,7 +42,7 @@ struct PauseStateTests {
         #expect(state == .pausedUntil(start + 15 * 60))
         #expect(state.isPaused(at: start))
         #expect(state.isPaused(at: start + 15 * 60 - 1))
-        // At exactly 15 minutes the pause is over: the end time itself is not paused.
+        // The end time itself is not paused.
         #expect(!state.isPaused(at: start + 15 * 60))
         #expect(!state.isPaused(at: start + 24 * 60 * 60))
     }
@@ -88,8 +71,8 @@ struct KindDetectionTests {
 
     @Test func aSentenceContainingAnAddressIsText() {
         #expect(ItemKind.detect([.text("see https://example.com for details")]) == .text)
-        // Only a full http(s) address counts as a link. A mail address or a scheme with nothing
-        // after it is not something the user can open in a browser, so both stay plain text.
+        // A mail address or a scheme with nothing after it is not something the user can open
+        // in a browser, so both stay plain text.
         #expect(ItemKind.detect([.text("mailto:a@b.com")]) == .text)
         #expect(ItemKind.detect([.text("https://")]) == .text)
     }
@@ -126,14 +109,13 @@ struct CardTextTests {
     }
 
     @Test func aLinkWithOnlyAUrlTypeShowsTheAddress() {
-        // Some apps copy a link as the URL type alone, with no plain text. The card must still
-        // show the address, not come up blank.
+        // Some apps copy a link as the URL type alone, with no plain text.
         #expect(CardText.make(kind: .link, data: [.url("https://a.com/x")]) == "https://a.com/x")
     }
 
     @Test func aHugeTextStillGetsACardQuickly() {
         // A copied log file of many megabytes must not be split into words in full just to show
-        // 200 characters. Only the start is looked at, and the card is still correct.
+        // 200 characters.
         let text = "start here " + String(repeating: "word ", count: 2_000_000)
         let card = CardText.make(kind: .text, data: [.text(text)])
         #expect(card.hasPrefix("start here word"))
@@ -160,7 +142,7 @@ struct DuplicateKeyTests {
 
     @Test func aLinkIsTheSameKeyWithOrWithoutSurroundingWhitespace() {
         // The address bar copies "https://a.com"; a chat message copies "https://a.com\n". Both
-        // are the same link to the user, so they must be one item.
+        // are the same link to the user.
         let bare = DuplicateKey.make(kind: .link, data: [.text("https://a.com")])
         let withNewline = DuplicateKey.make(kind: .link, data: [.text("https://a.com\n")])
         #expect(bare == withNewline)
@@ -169,15 +151,12 @@ struct DuplicateKeyTests {
     @Test func theKindIsPartOfTheKey() {
         // Copying the text "file:///tmp/a" and copying the file /tmp/a produce the same bytes, but
         // they are different things to the user and must not collapse into one history item.
-        // Mixing the kind into the hash keeps them apart.
         let text = DuplicateKey.make(kind: .text, data: [.text(URL(filePath: "/tmp/a").absoluteString)])
         let file = DuplicateKey.make(kind: .file, data: [.fileURL("/tmp/a")])
         #expect(text != file)
     }
 }
 
-// The footer line and the counts behind the large preview. Each case is one the card could
-// get wrong: the singular, a file that is gone, a site with "www.", a kind that must wait.
 struct CardDetailTests {
     @Test func textsCountTheirCharactersWithTheRightPlural() {
         #expect(CardDetail.make(kind: .text, data: [.text("x")]) == "1 character")
@@ -217,9 +196,8 @@ struct CardDetailTests {
     }
 }
 
-// Proves the date ranges start at local midnight and count calendar days, with the clock and
-// the calendar fixed so the answers never depend on when or where the test runs. Each test
-// builds moments in UTC (`utc`) and asks where a range starts for a calendar in some time zone.
+// The clock and the calendar are fixed, so the answers never depend on when or where the tests
+// run.
 struct DateRangeTests {
     func utc(_ year: Int, _ month: Int, _ day: Int, _ hour: Int = 0, _ minute: Int = 0) -> Date {
         var calendar = Calendar(identifier: .gregorian)
@@ -255,8 +233,8 @@ struct DateRangeTests {
         #expect(noon.timeIntervalSince(start) == 13 * 3600)
     }
 
-    // Counting back across the change: seven days back from 2 November reaches 27 October,
-    // whose midnight was still on summer time. Six blocks of 24 hours would land an hour late.
+    // The last seven days from 2 November begin on 27 October, whose midnight was still on
+    // summer time. Six blocks of 24 hours would land an hour late.
     @Test func sevenDaysBackAcrossTheChangeIsSevenCalendarDays() {
         let now = utc(2026, 11, 2, 17)
         let newYork = calendar(in: "America/New_York")
@@ -275,10 +253,9 @@ struct PanelHeightTests {
     }
 }
 
-// Proves a link preview is never fetched for this Mac or the local network: every private
-// range the rule knows, by name and by number, both sides of each boundary (172.15 is public,
-// 172.16 is private, 172.31 is private, 172.32 is public), and the IPv6 forms a browser
-// accepts. A miss here would send a request to a router or a development server.
+// Covers both sides of each private range's boundary (172.15 is public, 172.16 and 172.31 are
+// private, 172.32 is public). A miss here would send a link-preview request to a router or a
+// development server.
 struct LocalAddressTests {
     func isLocal(_ string: String) -> Bool { LocalAddress.isLocal(URL(string: string)!) }
 

@@ -1,11 +1,6 @@
-// Turns a copy's text into something the editor can show with its bold and italics, and
-// back into clipboard bytes once the user is done. The editor works on `AttributedString`,
-// Foundation's "text with formatting runs" (≈ a Draft.js / Slate document: characters plus
-// ranges of attributes), which SwiftUI's TextEditor edits directly. The clipboard, though,
-// speaks RTF (Rich Text Format, the 1987 Microsoft format every Mac text app still copies as),
-// so each side needs a conversion. Both go through `AttributedTextFormatting.Transferable`,
-// SwiftUI's own RTF import and export: it reads and writes the same attributes the TextEditor
-// uses (font, colour, underline), so what the editor shows is what the RTF says.
+// The editor works on `AttributedString`; the clipboard speaks RTF. Both conversions go through
+// `AttributedTextFormatting.Transferable`, SwiftUI's own RTF import and export: it reads and
+// writes the same attributes the TextEditor uses, so what the editor shows is what the RTF says.
 import ClipCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -29,8 +24,7 @@ public enum RichText {
     }
 
     /// The clipboard bytes for the edited text, best type first the way a source app lists
-    /// them: RTF with the formatting, then the plain text. Pasting into an app that takes rich
-    /// text gets the bold; a plain text field gets the words. (An `EnvironmentValues()` with
+    /// them: RTF with the formatting, then the plain text. (An `EnvironmentValues()` with
     /// nothing set is the plain environment the export resolves relative fonts against.)
     public static func clipboardData(for text: AttributedString) async throws -> [ClipboardItemData] {
         let rtf = try await AttributedTextFormatting.Transferable(text: text, in: EnvironmentValues())

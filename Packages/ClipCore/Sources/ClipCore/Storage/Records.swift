@@ -1,31 +1,20 @@
 import Foundation
 import GRDB
 
-// How the Store talks to the tables without writing SQL by hand. GRDB's "record" API is its
-// ORM: a Swift type that says which table it belongs to can be fetched (`fetchOne`, `fetchAll`,
-// `fetchCount`), filtered and ordered (`filter`, `order`), inserted (`insert`), updated
-// (`update`) and deleted (`deleteAll`), and GRDB writes the SQL. ≈ Drizzle or Prisma models, or
-// Room entities. The column names come from the property names, which is why the model
-// properties are named exactly like the columns in Migrations.
-//
-// These conformances live here, not on the model files, so only Storage/ knows GRDB exists.
+// GRDB record conformances for the model types. They live here, not on the models, so only
+// Storage/ knows GRDB exists. Column names come from property names, so the model properties must
+// be named exactly like the columns in Migrations.
 
-// `FetchableRecord`: GRDB can build a `ClipboardItem` from a row (it already is `Decodable`).
-// `PersistableRecord`: GRDB can write one back with `update(db)` (it already is `Encodable`).
-// The table name comes from the type name: "clipboardItem". Inserts don't use this type, see
-// `NewClipboardItem` below.
+// Inserts go through `NewClipboardItem` below.
 extension ClipboardItem: FetchableRecord, PersistableRecord {
     /// Every item, newest copied first: the order the panel shows them in. The `id` tie-break
-    /// keeps two items copied in the same second in a fixed order, so paging never shows one
-    /// twice or skips one.
+    /// keeps items with the same `copiedAt` in a fixed order, so paging never repeats or skips one.
     static var newestFirst: QueryInterfaceRequest<ClipboardItem> {
         order(ClipboardItemColumns.copiedAt.desc, ClipboardItemColumns.id.desc)
     }
 
-    /// The items the panel shows for a filter, newest first: the History tab's unpinned items
-    /// or one pinboard's items, only the chosen kind, only those copied since the date range
-    /// began. Each part of the filter adds one `WHERE` clause, or none when it is "any".
-    /// `now` and `calendar` are passed in so the date maths stays testable (see `DateRange`).
+    /// The items the panel shows for a filter, newest first. `now` and `calendar` are passed in
+    /// so the date maths stays testable (see `DateRange`).
     static func matching(_ filter: ItemFilter, now: Date, calendar: Calendar)
         -> QueryInterfaceRequest<ClipboardItem>
     {
@@ -43,18 +32,14 @@ extension ClipboardItem: FetchableRecord, PersistableRecord {
         return request
     }
 
-    /// An item's row in the search index. The index has no id column of its own: SQLite gives
-    /// every row a hidden `rowid`, and the sync triggers keep it equal to the item's `id`, so
-    /// that is the link. ≈ a one-to-one relation in Prisma, declared so the Store can `JOIN`
-    /// the two tables with the query builder instead of writing the join by hand.
+    /// An item's row in the search index. The index has no id column of its own: the sync
+    /// triggers keep its `rowid` equal to the item's `id`, so that is the link.
     static let searchIndex = hasOne(clipboardItemSearchIndex, using: ForeignKey(["rowid"], to: ["id"]))
 }
 
-// Named columns of `clipboardItem` for `filter` and `order`, so the Store never repeats a column
-// name as a string and a typo shows up in one place. (Swift keeps a public type's generated
-// `CodingKeys` private to its own file, so these are spelled out; they must match the property
-// names in ClipboardItem.swift. A separate enum, not one nested in `ClipboardItem`, because GRDB
-// reserves a nested `Columns` for its own use.)
+// Spelled out because a public type's synthesised `CodingKeys` are private to its own file; they
+// must match the property names in ClipboardItem.swift. A separate enum, not one nested in
+// `ClipboardItem`, because GRDB reserves a nested `Columns` for its own use.
 enum ClipboardItemColumns {
     static let id = Column("id")
     static let kind = Column("kind")
@@ -68,9 +53,7 @@ enum ClipboardItemColumns {
     static let searchText = Column("searchText")
 }
 
-// `Pinboard` as a row of `pinboard`, fetched and updated the same way as items. Inserts go
-// through `NewPinboard` below, for the same reason as `NewClipboardItem`: a `Pinboard` always
-// has an id, and a row about to be inserted has none yet.
+// Inserts go through `NewPinboard` below, for the same reason as `NewClipboardItem`.
 extension Pinboard: FetchableRecord, PersistableRecord {
     /// Every pinboard in tab order.
     static var inOrder: QueryInterfaceRequest<Pinboard> {
@@ -84,8 +67,7 @@ enum PinboardColumns {
     static let position = Column("position")
 }
 
-// A pinboard about to be inserted: every column but `id`. `insertAndFetch` returns the full
-// `Pinboard` with the id the database chose.
+// A pinboard about to be inserted: every column but `id`.
 struct NewPinboard: Encodable, PersistableRecord {
     static let databaseTableName = Pinboard.databaseTableName
 
@@ -93,19 +75,14 @@ struct NewPinboard: Encodable, PersistableRecord {
     var position: Int
 }
 
-// `CardThumbnail` as a row of `cardThumbnail` (the table name comes from the type name). Its
-// primary key is the item's id, so writing one with `upsert` replaces the item's old thumbnail
-// in place: ≈ `INSERT ... ON CONFLICT DO UPDATE`.
+// The primary key is the item's id, so `upsert` replaces the item's old thumbnail in place.
 extension CardThumbnail: FetchableRecord, PersistableRecord {}
 
-// A clipboard item about to be inserted. It has every column of `clipboardItem` except `id`,
-// because the database hands out the id on insert; a `ClipboardItem` always has an id, so it
-// can't stand in for a row that has none yet. Inserting one with `insertAndFetch` returns the
-// full `ClipboardItem` as stored, id and all. `kind` and `cardText` and the rest mirror the
-// model on purpose: the column names must match. The optional columns a fresh copy never has
-// (title, recognised text, pinboard) default to nil; a duplicate fills them from the original.
-// `searchText` is here and not on `ClipboardItem` on purpose: it can be thousands of characters
-// and only the search index reads it, so the cards never carry it around.
+// A clipboard item about to be inserted: every column but `id`, which the database hands out; a
+// `ClipboardItem` always has one, so it can't stand in for a row that has none yet. The optional
+// columns default to nil for a fresh copy; a duplicate fills them from the original. `searchText`
+// is here and not on `ClipboardItem` on purpose: it can be thousands of characters and only the
+// search index reads it, so the cards never carry it around.
 struct NewClipboardItem: Encodable, PersistableRecord {
     static let databaseTableName = ClipboardItem.databaseTableName
 
@@ -125,9 +102,7 @@ struct NewClipboardItem: Encodable, PersistableRecord {
 }
 
 // One row of `clipboardItemData`, with the storage-only columns the public `ClipboardItemData`
-// doesn't carry: the row id, which item it belongs to, its position and the large-data file
-// name. The Store turns these into `ClipboardItemData` values when reading, so nobody outside
-// Storage/ sees file names or row ids. `id` is optional because it is nil until the insert.
+// doesn't carry (row id, item id, position, file name), so nobody outside Storage/ sees them.
 struct ClipboardItemDataRow: Codable, FetchableRecord, PersistableRecord {
     static let databaseTableName = "clipboardItemData"
 
@@ -153,8 +128,6 @@ struct ClipboardItemDataRow: Codable, FetchableRecord, PersistableRecord {
     }
 
     /// The rows of every item a request finds: what erasing or expiring items removes.
-    /// `clipboardItemId IN (SELECT id FROM clipboardItem WHERE ...)`, written with the builder:
-    /// the inner request selects only the id column.
     static func ofItems(in items: QueryInterfaceRequest<ClipboardItem>)
         -> QueryInterfaceRequest<ClipboardItemDataRow>
     {
@@ -170,6 +143,6 @@ struct ClipboardItemDataRow: Codable, FetchableRecord, PersistableRecord {
     }
 }
 
-// The full-text search table has no Swift model (it is an index, not data we read back), so it
-// is addressed by name. `Table` gives it the same `filter`/`matching`/`fetchCount` builder.
+// The search index has no Swift model (it is an index, not data read back), so it is addressed
+// by name.
 let clipboardItemSearchIndex = Table("clipboardItemSearchIndex")

@@ -1,5 +1,6 @@
-# Runs scripts/test.sh on GitHub's Mac: the import check, the package tests, then the UI tests,
-# which take over the runner's screen instead of yours. Free on a public repository.
+# Runs Yank's tests on GitHub's Macs, so the UI tests take over a runner's screen instead of yours.
+# Free on a public repository. The package tests and three groups of UI tests run side by side, one
+# Mac each: UI tests cannot share a screen, and each one launches the app, which is most of the time.
 name: Tests
 
 on:
@@ -13,16 +14,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  package:
     runs-on: xcode-27
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
+      # The dependencies' checkouts and the last build; SwiftPM rebuilds only what changed.
+      - uses: actions/cache@v6
+        with:
+          path: Packages/ClipCore/.build
+          key: swiftpm-${{ hashFiles('Packages/ClipCore/Package.resolved') }}
+      - run: scripts/test.sh --package
+      - name: Check every UI test class is in a group below
+        run: |
+          for file in AppUITests/*Tests.swift; do
+              class=$(basename "$file" .swift)
+              grep -q "YankUITests/$class\b" .github/workflows/tests.yml ||
+                  { echo "$class is in no UI test group in tests.yml"; exit 1; }
+          done
+
+  ui:
+    name: ui (${{ matrix.name }})
+    runs-on: xcode-27
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      # Grouped by app launches (20 in all), the slow part, so the groups take about as long.
+      matrix:
+        include:
+          - name: panel, launch
+            tests: -only-testing:YankUITests/PanelTests -only-testing:YankUITests/LaunchTests
+          - name: settings, welcome
+            tests: -only-testing:YankUITests/SettingsTests -only-testing:YankUITests/WelcomeTests
+          - name: editor, actions, pinboards
+            tests: >-
+              -only-testing:YankUITests/EditorTests -only-testing:YankUITests/ActionsTests
+              -only-testing:YankUITests/PinboardTests
+    steps:
+      - uses: actions/checkout@v7
       - run: brew install xcodegen
-      - run: scripts/test.sh
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+      # Xcode's checkouts of the dependencies, so a run does not fetch them again.
+      - uses: actions/cache@v6
+        with:
+          path: build/SourcePackages
+          key: xcode-spm-${{ hashFiles('Packages/ClipCore/Package.resolved') }}
+      - run: scripts/test.sh --ui ${{ matrix.tests }}
       # The result bundle has each failed UI test's screenshots and log.
       - if: failure()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
-          name: test-results
+          name: test-results-${{ strategy.job-index }}
           path: build/Logs/Test/*.xcresult

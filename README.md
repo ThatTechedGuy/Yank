@@ -149,8 +149,9 @@ scripts/test.sh          # everything: slow package tests too, then the UI tests
 
 The full run launches the Debug app and **writes to your clipboard**. It quits a running Release copy of
 Yank first and reopens it afterwards, so test copies do not land in your real history. To keep your own
-screen free, let GitHub run it instead: [tests.yml](.github/workflows/tests.yml) runs the full suite on a
-GitHub Mac for every push to `main` and every pull request.
+screen free, let GitHub run it instead: [tests.yml](.github/workflows/tests.yml) runs the full suite for
+every push to `main` and every pull request, split across four GitHub Macs (`test.sh --package` on one,
+`test.sh --ui` with a group of test classes on each of the others).
 
 Package tests use Swift Testing. A test that seeds 100,000 items or loads a Vision model has a name
 starting with `slow`, which is how `--fast` skips it. UI tests use XCTest, because only XCTest can drive

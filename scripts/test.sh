@@ -13,9 +13,10 @@ if [[ "${1:-}" == "--fast" ]]; then
     (cd Packages/ClipCore && swift test --skip '/slow')
     exit 0
 fi
-# On CI (GitHub sets CI) the search timing test is skipped: its 33 ms budget is for a real Mac, and
-# the shared runner measured 42 ms.
-(cd Packages/ClipCore && swift test ${CI:+--skip slowSearchOverAHundredThousandItems})
+# On CI (GitHub sets CI) two tests that need a real Mac are skipped: the search timing test (its
+# 33 ms budget measured 42 ms on the shared runner) and the one that reads words from an image
+# (Vision found none on the runner's virtual Mac; presumably it has no Neural Engine).
+(cd Packages/ClipCore && swift test ${CI:+--skip 'slowSearchOverAHundredThousandItems|slowWordsInAnImage'})
 
 echo "UI tests launch Yank and may write to your clipboard."
 # The tests run "Yank Debug", which has its own history. The everyday Release copy is quit while

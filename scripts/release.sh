@@ -92,7 +92,8 @@ if [[ "$mode" == "--dmg" ]]; then
     mkdir -p "$staging"
     ditto "$app" "$staging/Yank.app"
     ln -s /Applications "$staging/Applications"
-    hdiutil create -volname Yank -srcfolder "$staging" -format UDZO -quiet "$dmg"
+    # LZMA: a third smaller than the zlib default (2.0 MB, not 3.0), and Sparkle installs from it.
+    hdiutil create -volname Yank -srcfolder "$staging" -format ULMO -quiet "$dmg"
     rm -rf "$staging"
     # The copy inside the image is what users get: check its signature survived.
     mount=$(mktemp -d)

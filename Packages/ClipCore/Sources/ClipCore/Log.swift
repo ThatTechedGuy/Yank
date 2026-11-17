@@ -27,7 +27,7 @@ public enum Log {
     // To list the markers from Terminal:
     //     log show --signpost --predicate 'subsystem == "com.thattechedguy.Yank"'
     /// Timing markers, for measuring the app against its speed limits.
-    public static let timing = TimingSignposter(subsystem: subsystem, category: "timing")
+    public static let timing = OSSignposter(subsystem: subsystem, category: "timing")
 }
 
 // An error's full text can hold what the user copied: a failed link preview's error carries the

@@ -238,9 +238,9 @@ import SwiftUI
     }
 
     /// Pastes the Nth card, 1 to 9, for ⌘1–⌘9. The numbers match the badges on the cards.
-    func paste(shortcutNumber: Int, plainText: Bool) {
+    func paste(shortcutNumber: Int) {
         guard (1...9).contains(shortcutNumber), items.count >= shortcutNumber else { return }
-        paste(items[shortcutNumber - 1], plainText: plainText)
+        paste(items[shortcutNumber - 1], plainText: false)
     }
 
     /// Pastes one card. `plainText` is whether the user asked for it this time (⇧); the
@@ -309,8 +309,9 @@ import SwiftUI
     }
 
     /// The item's whole text, for the large preview: the card only carries the first 200
-    /// characters. Nil when the saved bytes cannot be read.
-    func fullText(for item: ClipboardItem) async -> String? {
+    /// characters. Nil when the saved bytes cannot be read. Off the main thread, because decoding
+    /// a copy of tens of MB takes a moment.
+    @concurrent func fullText(for item: ClipboardItem) async -> String? {
         let data = try? await store.data(for: item.id)
         return data?.first { $0.type == ClipboardType.plainText }?.text
     }

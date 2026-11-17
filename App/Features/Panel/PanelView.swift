@@ -109,13 +109,12 @@ struct PanelView: View {
             model.pasteSelected(plainText: press.modifiers.contains(.shift))
             return .handled
         }
-        // ⌘1–⌘9 paste the card with that number on its badge; with ⇧ as plain text. A digit
-        // without ⌘ still types into the search box.
+        // ⌘1–⌘9 paste the card with that number on its badge. A digit without ⌘ still types
+        // into the search box. No ⇧ variant: ⇧1 types "!", which never reaches this handler.
         .onKeyPress(characters: .decimalDigits) { press in
-            guard press.modifiers.contains(.command), let number = Int(press.characters) else {
-                return .ignored
-            }
-            model.paste(shortcutNumber: number, plainText: press.modifiers.contains(.shift))
+            guard !model.isPrompting, press.modifiers.contains(.command), let number = Int(press.characters)
+            else { return .ignored }
+            model.paste(shortcutNumber: number)
             return .handled
         }
         // Space opens or closes the selected card's preview, unless the search box has focus

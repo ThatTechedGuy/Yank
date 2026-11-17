@@ -70,8 +70,8 @@ expected='    0 => "com.apple.universalaccessAuthWarn"
 bundle_id=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")
 [[ "$bundle_id" == com.thattechedguy.Yank ]] || { echo "Unexpected bundle id: $bundle_id"; exit 1; }
 [[ "$(lipo -archs "$binary")" == arm64 ]] || { echo "Not an arm64-only binary."; exit 1; }
-# None of the `#if DEBUG` code (the Developer window, --seed) made it in.
-debug=$(strings "$binary" | grep -c -E 'StoreInspector|Open Data Folder|--seed' || true)
+# None of the `#if DEBUG` code (--seed, --show-panel, the fake history) made it in.
+debug=$(strings "$binary" | grep -c -E -- '--seed|--show-panel|Yank-seed' || true)
 [[ "$debug" == 0 ]] || { echo "Debug-only code found in the Release binary."; exit 1; }
 echo "Checks passed: $(du -sh "$app" | cut -f1) app, arm64, signed, hardened runtime, sandboxed."
 

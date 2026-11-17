@@ -34,8 +34,10 @@ import Foundation
 
     /// Pastes `item`. `plainText` keeps only its plain-text type; an item with no plain text at
     /// all, such as a bare image, is pasted whole. `destination` says whether to press ⌘V at all.
+    /// Returns false when the item was deleted after it was listed, so nothing was written.
+    @discardableResult
     public func paste(_ item: ClipboardItem, plainText: Bool, destination: PasteDestination)
-        async throws
+        async throws -> Bool
     {
         try await paste([item], plainText: plainText, destination: destination)
     }
@@ -44,9 +46,11 @@ import Foundation
     /// card with three files keeps its three), each with all of the card's types. Apps that take
     /// several items (TextEdit, Finder) paste them all; apps that take one paste the first. Every
     /// card moves to the top of the history, order kept. Nothing is written if a file card's file
-    /// is gone.
+    /// is gone. Returns false when every card was deleted after it was listed, so nothing was
+    /// written.
+    @discardableResult
     public func paste(_ items: [ClipboardItem], plainText: Bool, destination: PasteDestination)
-        async throws
+        async throws -> Bool
     {
         var data: [ClipboardItemData] = []
         for item in items {
@@ -69,7 +73,7 @@ import Foundation
         // been erased, say), so the clipboard keeps what it holds.
         guard !data.isEmpty else {
             Log.paste.notice("paste skipped: the items no longer exist")
-            return
+            return false
         }
         // The marker rides on the first pasteboard item as an empty extra type, the same way
         // password managers mark a copy as concealed; the capture loop sees it and saves nothing.
@@ -89,15 +93,16 @@ import Foundation
         let ids = items.map(\.id)
         guard destination == .activeApp else {
             Log.paste.info("items \(ids, privacy: .public) put on the clipboard")
-            return
+            return true
         }
         guard accessibility.isTrusted else {
             Log.paste.notice("Accessibility is off: items \(ids, privacy: .public) left on the clipboard")
-            return
+            return true
         }
         try keyPresser.pressPaste()
         Log.paste.info(
             "pasted items \(ids, privacy: .public)\(plainText ? " as plain text" : "", privacy: .public)")
+        return true
     }
 }
 

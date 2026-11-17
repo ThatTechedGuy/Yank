@@ -369,20 +369,30 @@ public final class Store: Sendable {
     /// The items `filter` allows that match what the user typed, at most `limit` of them: best
     /// match first when few enough to score (see `rankedMatchLimit`), newest first among equals
     /// and otherwise. Every word must match, as a prefix ("qua" finds "quarterly"), in the item's
-    /// text, title, image text, link page title or source app name.
+    /// text, title, image text, link page title or source app name. A one-letter word is left
+    /// out while a longer one remains ("invoice q" searches for "invoice"), because a one-letter
+    /// prefix is the slow case: the index's prefix tables begin at two letters.
     ///
     /// Returns `nil` when the text is not a search yet: fewer than two letters, or nothing
-    /// searchable in it (only spaces or punctuation). Two letters is where the index's prefix
-    /// tables begin; a single letter would match most of the history, the one slow case.
+    /// searchable in it (only spaces or punctuation).
     public func search(_ query: String, matching filter: ItemFilter = ItemFilter(), limit: Int)
         async throws -> [ClipboardItem]?
     {
+        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2 else { return nil }
+        let filtered = ClipboardItem.matching(filter, now: Date(), calendar: .current)
+        if Self.hasChineseOrJapanese(query) {
+            return try await pool.read { db in
+                try Self.containing(query, in: filtered).limit(limit).fetchAll(db)
+            }
+        }
+        // Split the way the index's tokenizer does, at anything that is not a letter or digit.
+        let longWords: [Substring] = query.split { !$0.isLetter && !$0.isNumber }.filter { $0.count >= 2 }
         // `FTS5Pattern` makes anything typed safe: "don't", "c++" or a stray quote can never
         // break the query or be misread as an operator.
-        guard query.trimmingCharacters(in: .whitespacesAndNewlines).count >= 2,
-            let pattern = FTS5Pattern(matchingAllPrefixesIn: query)
+        guard
+            let pattern = FTS5Pattern(
+                matchingAllPrefixesIn: longWords.isEmpty ? query : longWords.joined(separator: " "))
         else { return nil }
-        let filtered = ClipboardItem.matching(filter, now: Date(), calendar: .current)
         return try await pool.read { db in
             // Counting first is cheap (the index answers without scoring) and decides whether to rank.
             let matches = try clipboardItemSearchIndex.all().matching(pattern).fetchCount(db)
@@ -399,9 +409,34 @@ public final class Store: Sendable {
         }
     }
 
-    /// Deletes an item, its data rows (SQLite does that by cascade) and its files on disk.
-    public func delete(id: Int64) async throws {
-        try await delete(ids: [id])
+    /// Whether the text has Chinese characters or Japanese kana. The index's tokenizer splits
+    /// words only at spaces and punctuation, which these scripts do not write, so a whole
+    /// sentence is one "word" and a word inside it can never match as a prefix.
+    private static func hasChineseOrJapanese(_ text: String) -> Bool {
+        // Hiragana and katakana, then CJK ideographs (extension A and the main block).
+        text.unicodeScalars.contains {
+            (0x3040...0x30FF).contains($0.value) || (0x3400...0x9FFF).contains($0.value)
+        }
+    }
+
+    // shortcut: a scan of every item the filter allows, newest first and unranked, run only for
+    // Chinese or Japanese searches; give the index a CJK-aware tokenizer in a new migration if
+    // these searches get slow on a big history.
+    /// The items in `request` that contain every space-separated word of `query` anywhere in
+    /// their text, title, image text or link page title.
+    private static func containing(_ query: String, in request: QueryInterfaceRequest<ClipboardItem>)
+        -> QueryInterfaceRequest<ClipboardItem>
+    {
+        let columns = [
+            ClipboardItemColumns.searchText, ClipboardItemColumns.title, ClipboardItemColumns.imageText,
+            ClipboardItemColumns.linkPageTitle,
+        ]
+        return query.split(whereSeparator: \.isWhitespace).reduce(request) { request, word in
+            // `\` escapes LIKE's own wildcards, so a typed % or _ means itself.
+            let escaped = word.replacing("\\", with: "\\\\").replacing("%", with: "\\%")
+                .replacing("_", with: "\\_")
+            return request.filter(columns.map { $0.like("%\(escaped)%", escape: "\\") }.joined(operator: .or))
+        }
     }
 
     /// Deletes several items in one transaction, then their files. The live list drops them all

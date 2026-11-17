@@ -49,8 +49,5 @@ struct YankApp: App {
         )
         .restorationBehavior(.disabled)
         .windowResizability(.contentSize)
-        #if DEBUG
-            DeveloperWindow(model: model)
-        #endif
     }
 }

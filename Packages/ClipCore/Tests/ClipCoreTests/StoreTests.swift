@@ -78,7 +78,7 @@ struct StoreTests {
             #expect(try largeFiles().count == 1)
             #expect(try await store.data(for: item.id)[0].data == big)
 
-            try await store.delete(id: item.id)
+            try await store.delete(ids: [item.id])
             #expect(try await store.count() == 0)
             #expect(try largeFiles().isEmpty)
             #expect(try await store.data(for: item.id).isEmpty)
@@ -205,6 +205,34 @@ struct StoreTests {
             // Several words all have to match, across columns: the app's name and the text.
             #expect(try await found("saf head", in: store) == ["a headline"])
             #expect(try await found("saf note", in: store) == [])
+        }
+    }
+
+    // While the last word is one letter, it is left out rather than run as the slow one-letter
+    // prefix; the next letter brings it back.
+    @Test func aOneLetterWordWaitsForItsSecondLetter() async throws {
+        try await withStore { store in
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            try await store.save(copy([.text("invoice for March")], at: t0))
+            try await store.save(copy([.text("invoice quarterly")], at: t0 + 1))
+            #expect(try await found("invoice q", in: store) == ["invoice quarterly", "invoice for March"])
+            #expect(try await found("invoice qu", in: store) == ["invoice quarterly"])
+        }
+    }
+
+    // Chinese and Japanese put no spaces between words, so a word in the middle of a sentence
+    // is found by its characters, not as a word prefix. Every typed word must still match.
+    @Test func chineseAndJapaneseWordsAreFoundInsideASentence() async throws {
+        try await withStore { store in
+            let t0 = Date(timeIntervalSince1970: 1_000_000)
+            try await store.save(copy([.text("北京很大")], at: t0))
+            try await store.save(copy([.text("我今天去北京开会")], at: t0 + 1))
+            try await store.save(copy([.text("東京で会議があります")], at: t0 + 2))
+            #expect(try await found("北京", in: store) == ["我今天去北京开会", "北京很大"])
+            #expect(try await found("北京 开会", in: store) == ["我今天去北京开会"])
+            #expect(try await found("会議", in: store) == ["東京で会議があります"])
+            // A typed % is a percent sign, not SQL's "anything".
+            #expect(try await found("北京%", in: store) == [])
         }
     }
 
@@ -445,7 +473,7 @@ struct StoreTests {
             #expect(again.id == twin.id)
             #expect(try await store.count() == 3)
 
-            try await store.delete(id: twin.id)
+            try await store.delete(ids: [twin.id])
             #expect(try largeFiles().count == 1)
             #expect(try await store.data(for: original.id).count == 2)
         }
@@ -479,7 +507,7 @@ struct StoreTests {
             #expect(repeatCopy.id != original.id)
 
             // A deleted item is left alone, and the file written for the attempt is removed.
-            try await store.delete(id: original.id)
+            try await store.delete(ids: [original.id])
             let gone = try await store.replaceData(
                 for: original.id, with: [ClipboardItemData(type: "public.png", data: big)])
             #expect(gone == nil)
@@ -545,7 +573,7 @@ struct StoreTests {
             #expect(try await store.items(limit: 1).first?.cardDetail == "3 × 2")
             // Deleting the item takes its thumbnail with it, and a preview that arrives for a
             // deleted item (the Enricher finishing late) is dropped, not an error.
-            try await store.delete(id: item.id)
+            try await store.delete(ids: [item.id])
             try await store.setPreview(CardPreview(thumbnail: again), for: item.id)
             #expect(try await store.thumbnail(for: item.id) == nil)
         }
@@ -574,7 +602,7 @@ struct StoreTests {
         try await withStore { store in
             let image = try await store.save(copy([.png([1, 2, 3])]))
             let imageFile = try #require(try await store.quickLookFile(for: image))
-            try await store.delete(id: image.id)
+            try await store.delete(ids: [image.id])
             #expect(!FileManager.default.fileExists(atPath: imageFile.path))
             let text = try await store.save(copy([.text("private")]))
             let textFile = try #require(try await store.quickLookFile(for: text))

@@ -109,8 +109,8 @@ import Testing
         let (service, store, older) = try await makeService()
         clipboard.put([.text("what the user copied")])
         let before = clipboard.changeCount
-        try await store.delete(id: older.id)
-        try await service.paste(older, plainText: false, destination: .activeApp)
+        try await store.delete(ids: [older.id])
+        #expect(try await service.paste(older, plainText: false, destination: .activeApp) == false)
         #expect(clipboard.changeCount == before)
         #expect(clipboard.contents.map(\.text) == ["what the user copied"])
         #expect(keys.presses == 0)
@@ -143,8 +143,8 @@ import Testing
         keys.onPress = { pressedWith.append(clipboard.contents[0].text) }
         let first = Task { try await service.paste(older, plainText: true, destination: .activeApp) }
         let second = Task { try await service.paste(newer, plainText: true, destination: .activeApp) }
-        try await first.value
-        try await second.value
+        _ = try await first.value
+        _ = try await second.value
         #expect(pressedWith.sorted() == ["hi", "newer"])
     }
 

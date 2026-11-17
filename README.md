@@ -163,7 +163,7 @@ an app.
 
 | Path | What lives there |
 | --- | --- |
-| `App/` | The app target: windows, menu bar, panel, settings. `Features/Developer/` is a debug-only window. |
+| `App/` | The app target: windows, menu bar, panel, settings. |
 | `Packages/ClipCore/Sources/ClipCore` | Model, rules, storage, services and ports. No UI code; GRDB only in `Storage/`. |
 | `Packages/ClipCore/Sources/ClipSystem` | Adapters that talk to macOS (clipboard, key presses, thumbnails, Vision). |
 | `AppUITests/` | UI tests that drive the real app. |

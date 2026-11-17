@@ -53,7 +53,11 @@ struct LargePreview: View {
         .accessibilityIdentifier("large-preview")
         .task(id: item.id) {
             text = await model.fullText(for: item)
-            counts = TextCounts(fullText)
+            counts = await Self.counts(of: fullText)
         }
     }
+
+    /// Off the main thread: counting walks the whole text, which for a copied log of tens of MB
+    /// would stall the panel.
+    @concurrent private static func counts(of text: String) async -> TextCounts { TextCounts(text) }
 }

@@ -27,9 +27,6 @@ import SwiftUI
     private(set) var clipboardAccess: ClipboardAccess = .allowed
     /// Set when the store could not open: shown in the menu instead of the count.
     private(set) var startupError: String?
-    /// The folder holding this launch's database and large-data files: the real one, or the
-    /// fake-history one when started with `--seed`.
-    let dataFolder: URL
     /// Whether, and until when, saving is paused from the menu. Kept here (not on disk): a pause
     /// ends when the app quits, which is the safe way round for a privacy switch.
     private(set) var pause: PauseState = .running {
@@ -61,17 +58,12 @@ import SwiftUI
     /// Shows macOS's Accessibility prompt, which adds Yank to the list for the user to switch on.
     func requestAccessibility() { pasteService?.requestAccessibility() }
 
-    /// Whether the panel is on screen right now. Read by the Developer window, which pauses its
-    /// own sampling while the panel is up so it never overlaps a panel-open or search timing.
-    var isPanelVisible: Bool { panel?.isVisible ?? false }
-
     init() {
         let options = LaunchOptions()
-        dataFolder = options.storeFolder
         // The store opens synchronously: it is a local file, and nothing works without it. A
         // failure is kept so the menu can show it.
         do {
-            let store = try Store(folder: dataFolder)
+            let store = try Store(folder: options.storeFolder)
             // One clipboard object for both capture and paste, so the paste service's "that
             // was my own write" marker and the capture loop's change counter stay in step.
             let clipboard = SystemClipboard()
@@ -182,13 +174,19 @@ import SwiftUI
 
     /// ⌃⌥⌘V: pastes the oldest queued item into the app in front and takes it off the queue. The
     /// item leaves before the paste, so a paste that can only reach the clipboard (no Accessibility
-    /// permission) still moves the stack along.
+    /// permission) still moves the stack along. An item deleted since it was queued pastes
+    /// nothing, so the press moves on to the next one instead of doing nothing.
     func pasteNext() {
-        guard let pasteService, let item = stack.popNext() else { return }
+        guard let pasteService, let first = stack.popNext() else { return }
         Task {
             do {
-                try await pasteService.paste(
-                    item, plainText: PasteSettings.alwaysPlainText, destination: PasteSettings.destination)
+                var item = first
+                while try await !pasteService.paste(
+                    item, plainText: PasteSettings.alwaysPlainText, destination: PasteSettings.destination),
+                    let next = stack.popNext()
+                {
+                    item = next
+                }
             } catch {
                 Log.paste.error("paste next failed: \(error.logDescription, privacy: .public)")
             }

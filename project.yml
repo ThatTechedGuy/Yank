@@ -31,6 +31,9 @@ settings:
       # Keep get-task-allow out of Release builds. It lets any process running as the user
       # attach to Yank and read its memory, which holds whatever was copied, passwords included.
       CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+      # Optimise for size; search over 100,000 items is just as fast. This reaches the app target
+      # only: scripts/release.sh passes it on the command line so the Swift packages get it too.
+      SWIFT_OPTIMIZATION_LEVEL: -Osize
 
 packages:
   ClipCore:

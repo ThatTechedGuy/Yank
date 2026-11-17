@@ -31,8 +31,11 @@ signing=()
 
 xcodegen --quiet
 rm -rf "$archive"
+# -Osize here as well as in project.yml: settings in project.yml skip the Swift packages, and
+# GRDB is 60% of the binary. 3.38 MB instead of 4.03; search time unchanged, bulk inserts 26% slower.
 xcodebuild archive -scheme Yank -destination 'generic/platform=macOS' \
-    -derivedDataPath build/release -archivePath "$archive" -quiet ${signing[@]+"${signing[@]}"}
+    -derivedDataPath build/release -archivePath "$archive" -quiet SWIFT_OPTIMIZATION_LEVEL=-Osize \
+    ${signing[@]+"${signing[@]}"}
 
 # Xcode re-signs Sparkle.framework but not the helpers inside it, which ship ad hoc signed. Sparkle
 # wants them signed like the app (its "Code Signing" docs); innermost first, then the framework

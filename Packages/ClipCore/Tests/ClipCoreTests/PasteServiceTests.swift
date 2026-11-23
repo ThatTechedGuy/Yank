@@ -27,6 +27,24 @@ import Testing
         return (service, store, older)
     }
 
+    // ⌥Return pastes the text cleaned and plain; the saved item and a plain Return keep the
+    // bytes exactly as copied.
+    @Test func aCleanedPasteLeavesTheSavedItemAsCopied() async throws {
+        defer { folder.remove() }
+        let (service, store, _) = try await makeService()
+        let copied = "$ echo \u{1B}[1mhi\u{1B}[0m"
+        let item = try await store.save(
+            CapturedCopy(
+                data: [ClipboardItemData(type: "public.rtf", data: Data("{\\rtf1 x}".utf8)), .text(copied)],
+                sourceApp: nil, copiedAt: .now))
+        try await service.paste([item], plainText: false, destination: .clipboardOnly, cleaned: true)
+        #expect(clipboard.contents.map(\.type) == [ClipboardType.plainText, PrivacyRules().ownMarker])
+        #expect(clipboard.contents[0].text == "echo hi")
+        #expect(try await store.data(for: item.id).map(\.text).last == copied)
+        try await service.paste([item], plainText: false, destination: .clipboardOnly)
+        #expect(clipboard.contents.first { $0.type == ClipboardType.plainText }?.text == copied)
+    }
+
     @Test func pastingWritesEveryTypePlusTheMarkerPressesPasteOnceAndMovesTheItemUp() async throws {
         defer { folder.remove() }
         let (service, store, older) = try await makeService()

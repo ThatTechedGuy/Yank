@@ -31,12 +31,23 @@ public struct ClipboardItem: Identifiable, Hashable, Sendable, Codable {
     public var linkPageTitle: String?
     /// The pinboard the item is on, if any.
     public var pinboardId: Int64?
+    /// Its `ItemCategory`: set by the model, by a credential pattern, or by hand. Nil until labelled.
+    public var categoryId: Int64?
+    /// One of `Language.all`, "none" for anything that is not code. Nil until labelled.
+    public var language: String?
+    /// The model's name for a long text or code, at most six words. Never replaces `title`.
+    public var labelTitle: String?
+    /// Set when the user picked the category or language in the actions menu; the model then
+    /// leaves that label alone.
+    public var categorySetByHand = false
+    public var languageSetByHand = false
 
     public init(
         id: Int64, kind: ItemKind, title: String? = nil, cardText: String, cardDetail: String? = nil,
         sourceAppBundleId: String? = nil, sourceAppName: String? = nil, createdAt: Date,
         copiedAt: Date, contentFingerprint: String, imageText: String? = nil,
-        linkPageTitle: String? = nil, pinboardId: Int64? = nil
+        linkPageTitle: String? = nil, pinboardId: Int64? = nil, categoryId: Int64? = nil,
+        language: String? = nil, labelTitle: String? = nil
     ) {
         self.id = id
         self.kind = kind
@@ -51,5 +62,8 @@ public struct ClipboardItem: Identifiable, Hashable, Sendable, Codable {
         self.imageText = imageText
         self.linkPageTitle = linkPageTitle
         self.pinboardId = pinboardId
+        self.categoryId = categoryId
+        self.language = language
+        self.labelTitle = labelTitle
     }
 }

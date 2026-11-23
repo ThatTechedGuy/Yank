@@ -103,10 +103,11 @@ struct PanelView: View {
             model.confirmDelete(of: model.selectedItems)
             return .handled
         }
-        // Return pastes the selected cards; ⇧Return pastes them as plain text.
+        // Return pastes the selected cards; ⇧Return pastes them as plain text, ⌥Return cleaned.
         .onKeyPress(keys: [.return]) { press in
             guard !model.isPrompting else { return .ignored }
-            model.pasteSelected(plainText: press.modifiers.contains(.shift))
+            model.pasteSelected(
+                plainText: press.modifiers.contains(.shift), cleaned: press.modifiers.contains(.option))
             return .handled
         }
         // ⌘1–⌘9 paste the card with that number on its badge. A digit without ⌘ still types

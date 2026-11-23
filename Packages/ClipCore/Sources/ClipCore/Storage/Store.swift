@@ -84,12 +84,19 @@ public final class Store: Sendable {
                 oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
                 try oldRows.deleteAll(db)
             } else {
+                // A text is labelled now if it holds a key, else queued for the model. An image
+                // waits for its words (`setPreview`).
+                let credential =
+                    kind == .text && Credentials.detect(String(searchText.prefix(Labels.inputLength)))
                 item = try NewClipboardItem(
                     kind: kind, cardText: cardText, searchText: searchText, cardDetail: cardDetail,
                     sourceAppBundleId: copy.sourceApp?.bundleId,
                     sourceAppName: copy.sourceApp?.name, createdAt: copy.copiedAt,
-                    copiedAt: copy.copiedAt, contentFingerprint: fingerprint
+                    copiedAt: copy.copiedAt, contentFingerprint: fingerprint,
+                    categoryId: credential ? ItemCategory.credentialId : nil,
+                    language: credential ? Language.none : nil
                 ).insertAndFetch(db, as: ClipboardItem.self)
+                if kind == .text && !credential { try LabelQueueEntry(clipboardItemId: item.id).insert(db) }
             }
             try Self.insertDataRows(db, of: item.id, data: copy.data, fileNames: fileNames)
             let verb = existing == nil ? "saved" : "moved to top"
@@ -118,6 +125,8 @@ public final class Store: Sendable {
             item.contentFingerprint = fingerprint
             item.imageText = nil
             item.linkPageTitle = nil
+            item.labelTitle = nil
+            if kind == .text { try Self.labelOrQueue(db, &item, text: searchText) }
             try item.update(db)
             _ = try ClipboardItem.filter(key: id)
                 .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
@@ -322,6 +331,186 @@ public final class Store: Sendable {
                 _ = try ClipboardItem.filter(key: itemId).updateAll(db, changes)
             }
             try preview.thumbnail?.upsert(db)
+            // Words found in an image make it labelable, as a text is when saved.
+            if let text = preview.imageText, !text.isEmpty,
+                var item = try ClipboardItem.fetchOne(db, key: itemId),
+                item.kind == .image
+            {
+                try Self.labelOrQueue(db, &item, text: text)
+                try item.update(db)
+            }
+        }
+    }
+
+    /// Marks a text that holds a key as a Credential (where not set by hand), or queues it for
+    /// the model. The caller saves `item`.
+    private static func labelOrQueue(_ db: Database, _ item: inout ClipboardItem, text: String) throws {
+        if Credentials.detect(String(text.prefix(Labels.inputLength))) {
+            if !item.categorySetByHand { item.categoryId = ItemCategory.credentialId }
+            if !item.languageSetByHand { item.language = Language.none }
+            // It may have been queued as the text it held before; the model must never read a key.
+            _ = try LabelQueueEntry.deleteOne(db, key: item.id)
+        } else {
+            try LabelQueueEntry(clipboardItemId: item.id).upsert(db)
+        }
+    }
+
+    // MARK: Labels
+
+    /// The categories in list order, delivered now and again whenever one changes.
+    public func observeCategories() -> some AsyncSequence<[ItemCategory], any Error> {
+        ValueObservation
+            .tracking { db in try ItemCategory.inOrder.fetchAll(db) }
+            .removeDuplicates()
+            .values(in: pool)
+    }
+
+    /// The categories in list order, once.
+    public func categories() async throws -> [ItemCategory] {
+        try await pool.read { db in try ItemCategory.inOrder.fetchAll(db) }
+    }
+
+    /// Adds a category at the end of the list, and queues the history to be labelled again.
+    /// Nil when the name is blank or another category has it: the model is handed the names as
+    /// a list of choices, which must be distinct.
+    @discardableResult
+    public func createCategory(named name: String, about: String) async throws -> ItemCategory? {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await pool.write { db in
+            guard try Self.isFreeName(db, name, besides: nil) else { return nil }
+            let last = try ItemCategory.select(max(ItemCategoryColumns.position), as: Int.self).fetchOne(db)
+            let category = try NewItemCategory(
+                name: name, about: about.trimmingCharacters(in: .whitespacesAndNewlines),
+                position: (last ?? -1) + 1
+            ).insertAndFetch(db, as: ItemCategory.self)
+            try Self.queueAllForLabels(db)
+            return category
+        }
+    }
+
+    /// Saves a category's name and description. A blank or taken name is left as it was; the
+    /// description is saved either way. Its items keep it: they point at it by id.
+    public func updateCategory(id: Int64, name: String, about: String) async throws {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await pool.write { db in
+            guard let old = try ItemCategory.fetchOne(db, key: id) else { return }
+            var category = old
+            if try Self.isFreeName(db, name, besides: id) { category.name = name }
+            category.about = about.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard category != old else { return }
+            try category.update(db)
+            try Self.queueAllForLabels(db)
+        }
+    }
+
+    /// Puts the categories in this order, first to last.
+    public func reorderCategories(ids: [Int64]) async throws {
+        try await pool.write { db in
+            for (position, id) in ids.enumerated() {
+                _ = try ItemCategory.filter(key: id).updateAll(
+                    db, [ItemCategoryColumns.position.set(to: position)])
+            }
+            try Self.queueAllForLabels(db)
+        }
+    }
+
+    /// Removes a category; its items move to Other. Other and Credential cannot be removed.
+    public func deleteCategory(id: Int64) async throws {
+        guard id != ItemCategory.otherId, id != ItemCategory.credentialId else { return }
+        try await pool.write { db in
+            _ = try ClipboardItem.filter(ClipboardItemColumns.categoryId == id)
+                .updateAll(db, [ClipboardItemColumns.categoryId.set(to: ItemCategory.otherId)])
+            guard try ItemCategory.deleteOne(db, key: id) else { return }
+            try Self.queueAllForLabels(db)
+        }
+    }
+
+    private static func isFreeName(_ db: Database, _ name: String, besides id: Int64?) throws -> Bool {
+        guard !name.isEmpty else { return false }
+        return try !ItemCategory.fetchAll(db).contains {
+            $0.id != id && $0.name.localizedCaseInsensitiveCompare(name) == .orderedSame
+        }
+    }
+
+    /// Queues every item the model may label again: what the model can read, minus a category
+    /// set by hand and the credentials, which the model never sees. Hand-written SQL because the
+    /// query builder has no INSERT … SELECT, and one statement keeps a 100,000-item history fast.
+    private static func queueAllForLabels(_ db: Database) throws {
+        try db.execute(
+            sql: """
+                INSERT OR IGNORE INTO labelQueue (clipboardItemId)
+                SELECT id FROM clipboardItem
+                WHERE (kind = 'text' OR (kind = 'image' AND imageText <> ''))
+                  AND categorySetByHand = 0 AND (categoryId IS NULL OR categoryId <> ?)
+                """, arguments: [ItemCategory.credentialId])
+    }
+
+    /// The next queued item for the model, pinned items first, then newest, with the text to
+    /// read: a text's start, an image's words. Nil when the queue is empty.
+    // shortcut: this sorts the whole queue for each item (some 50 ms at 100,000, against 0.7 s
+    // for the model); index the queue's order if it ever shows up.
+    public func nextToLabel() async throws -> (item: ClipboardItem, text: String)? {
+        try await pool.read { db in
+            guard
+                let item =
+                    try ClipboardItem
+                    .joining(required: ClipboardItem.labelQueueEntry)
+                    .order(ClipboardItemColumns.pinboardId == nil, ClipboardItemColumns.copiedAt.desc)
+                    .fetchOne(db)
+            else { return nil }
+            let text =
+                item.kind == .image
+                ? item.imageText
+                : try ClipboardItem.filter(key: item.id).select(
+                    ClipboardItemColumns.searchText, as: String.self
+                )
+                .fetchOne(db)
+            return (item, String((text ?? "").prefix(Labels.inputLength)))
+        }
+    }
+
+    /// Saves the model's labels and takes the item off the queue. A category or language set by
+    /// hand stays.
+    public func setLabels(categoryId: Int64, language: String, title: String?, for itemId: Int64) async throws
+    {
+        try await pool.write { db in
+            // One update, not three: each update of the row makes the search index rewrite it.
+            if var item = try ClipboardItem.fetchOne(db, key: itemId) {
+                item.labelTitle = title
+                if !item.categorySetByHand { item.categoryId = categoryId }
+                if !item.languageSetByHand { item.language = language }
+                try item.update(db)
+            }
+            _ = try LabelQueueEntry.deleteOne(db, key: itemId)
+        }
+    }
+
+    /// Takes an item off the queue unlabelled, when the model could not label it.
+    public func dropFromLabelQueue(itemId: Int64) async throws {
+        _ = try await pool.write { db in try LabelQueueEntry.deleteOne(db, key: itemId) }
+    }
+
+    /// The category the user picked in the actions menu. The model never changes it again.
+    public func setCategory(_ categoryId: Int64, for itemId: Int64) async throws {
+        _ = try await pool.write { db in
+            try ClipboardItem.filter(key: itemId).updateAll(
+                db,
+                [
+                    ClipboardItemColumns.categoryId.set(to: categoryId),
+                    ClipboardItemColumns.categorySetByHand.set(to: true),
+                ])
+        }
+    }
+
+    /// The language the user picked in the actions menu. The model never changes it again.
+    public func setLanguage(_ language: String, for itemId: Int64) async throws {
+        _ = try await pool.write { db in
+            try ClipboardItem.filter(key: itemId).updateAll(
+                db,
+                [
+                    ClipboardItemColumns.language.set(to: language),
+                    ClipboardItemColumns.languageSetByHand.set(to: true),
+                ])
         }
     }
 
@@ -482,7 +671,9 @@ public final class Store: Sendable {
                 cardDetail: original.cardDetail, sourceAppBundleId: original.sourceAppBundleId,
                 sourceAppName: original.sourceAppName, createdAt: now, copiedAt: now,
                 contentFingerprint: original.contentFingerprint, imageText: original.imageText,
-                linkPageTitle: original.linkPageTitle, pinboardId: original.pinboardId
+                linkPageTitle: original.linkPageTitle, pinboardId: original.pinboardId,
+                categoryId: original.categoryId, language: original.language, labelTitle: original.labelTitle,
+                categorySetByHand: original.categorySetByHand, languageSetByHand: original.languageSetByHand
             ).insertAndFetch(db, as: ClipboardItem.self)
             for (row, fileName) in zip(rows, copiedFileNames) {
                 var row = row
@@ -490,6 +681,9 @@ public final class Store: Sendable {
                 row.clipboardItemId = copy.id
                 row.largeDataFileName = fileName
                 try row.insert(db)
+            }
+            if try LabelQueueEntry.exists(db, key: id) {
+                try LabelQueueEntry(clipboardItemId: copy.id).insert(db)
             }
             // The thumbnail is keyed by item id, so the copy gets its own row of it.
             if var thumbnail = try CardThumbnail.fetchOne(db, key: id) {

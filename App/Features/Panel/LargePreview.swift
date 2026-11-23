@@ -14,6 +14,8 @@ struct LargePreview: View {
     /// The full text's counts, made once when it lands rather than on every draw (counting a
     /// long text walks all of it). Nil while the text loads; the card's text stands in.
     @State private var counts: TextCounts?
+    /// The text coloured, for code; nil for anything else and while it is made.
+    @State private var code: AttributedString?
 
     /// How much of the text is drawn. Laying out one `Text` of a whole log file (tens of MB)
     /// would stall the panel for seconds. The counts below the text still cover all of it.
@@ -31,10 +33,15 @@ struct LargePreview: View {
                     .font(.title3.monospaced())
             default:
                 ScrollView {
-                    Text(String(fullText.prefix(Self.shownCharacters)))
-                        .font(.body)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                    Group {
+                        if let code {
+                            Text(code).font(.system(size: 12, design: .monospaced))
+                        } else {
+                            Text(String(fullText.prefix(Self.shownCharacters))).font(.body)
+                        }
+                    }
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
                 Divider()
                 // "52 characters · 9 words" for text; the site for a link, as on its card.
@@ -53,6 +60,9 @@ struct LargePreview: View {
         .accessibilityIdentifier("large-preview")
         .task(id: item.id) {
             text = await model.fullText(for: item)
+            if let language = item.language, CodeText.isCode(language) {
+                code = await Self.highlighted(String(fullText.prefix(Self.shownCharacters)), language)
+            }
             counts = await Self.counts(of: fullText)
         }
     }
@@ -60,4 +70,10 @@ struct LargePreview: View {
     /// Off the main thread: counting walks the whole text, which for a copied log of tens of MB
     /// would stall the panel.
     @concurrent private static func counts(of text: String) async -> TextCounts { TextCounts(text) }
+
+    /// Off the main thread too: colouring 200,000 characters takes a moment.
+    @concurrent private static func highlighted(_ text: String, _ language: String) async -> AttributedString
+    {
+        CodeText.attributed(text, language: language)
+    }
 }

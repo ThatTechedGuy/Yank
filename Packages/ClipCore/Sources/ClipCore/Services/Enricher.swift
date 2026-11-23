@@ -11,6 +11,9 @@ public final class Enricher: Sendable {
     public typealias MakePreview = @Sendable (ClipboardItem, [ClipboardItemData]) async -> CardPreview?
     /// The function that reads the words in an image's bytes. Nil means none were found.
     public typealias RecognizeText = @Sendable ([ClipboardItemData]) async -> String?
+    /// The function that asks the model for a copy's labels, choosing the category from the
+    /// list it is given. Throws when the model cannot answer.
+    public typealias Label = @Sendable (_ text: String, _ categories: [ItemCategory]) async throws -> Labels
 
     private let store: Store
     private let makePreview: MakePreview
@@ -18,6 +21,13 @@ public final class Enricher: Sendable {
     private let linkFetcher: (any LinkFetching)?
     /// Asked right before each fetch, so flipping the switch in Settings takes effect at once.
     private let linkPreviewsEnabled: @Sendable () -> Bool
+    private let label: Label?
+    /// Asked right before each model call: false while the switch is off or the model is
+    /// unavailable, and then the model is never called.
+    private let labelsEnabled: @Sendable () -> Bool
+    /// Whether the label queue is being worked through, and whether more was asked for
+    /// meanwhile, so one task runs at a time and a late ask is never lost.
+    private let labelling = OSAllocatedUnfairLock(initialState: (running: false, again: false))
     /// The work in progress, by item id. A copy made while the panel is open is asked for twice
     /// at once, by the capture path and by the card that appears for it; both wait for the one
     /// task instead of decoding the same bytes (or fetching the same page) twice.
@@ -28,13 +38,16 @@ public final class Enricher: Sendable {
     public init(
         store: Store, makePreview: @escaping MakePreview, recognizeText: RecognizeText? = nil,
         linkFetcher: (any LinkFetching)? = nil,
-        linkPreviewsEnabled: @escaping @Sendable () -> Bool = { true }
+        linkPreviewsEnabled: @escaping @Sendable () -> Bool = { true }, label: Label? = nil,
+        labelsEnabled: @escaping @Sendable () -> Bool = { true }
     ) {
         self.store = store
         self.makePreview = makePreview
         self.recognizeText = recognizeText
         self.linkFetcher = linkFetcher
         self.linkPreviewsEnabled = linkPreviewsEnabled
+        self.label = label
+        self.labelsEnabled = labelsEnabled
     }
 
     /// Makes and saves the item's preview, and returns it; nil for text, and for a link without a
@@ -123,6 +136,66 @@ public final class Enricher: Sendable {
                     "could not enrich item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
                 )
             }
+            // The save (or the words just read) put the item on the label queue.
+            await labelInBackground()?.value
         }
+    }
+
+    /// Works through the label queue at background priority, one item at a time, until it is
+    /// empty or labelling is turned off. The app calls it at launch, after each copy, and when
+    /// the switch or the category list changes. Returns nil when a run is already going: that
+    /// run picks up whatever was queued.
+    @discardableResult
+    public func labelInBackground() -> Task<Void, Never>? {
+        guard label != nil else { return nil }
+        let starts = labelling.withLock { state in
+            if state.running { state.again = true }
+            defer { state.running = true }
+            return !state.running
+        }
+        guard starts else { return nil }
+        return Task(priority: .background) { await labelQueue() }
+    }
+
+    private func labelQueue() async {
+        repeat {
+            do {
+                while labelsEnabled(), let label, let (item, text) = try await store.nextToLabel() {
+                    try await self.label(item, text, with: label)
+                }
+            } catch {
+                Log.store.error("labelling stopped: \(error.logDescription, privacy: .public)")
+            }
+        } while labelling.withLock { state in
+            defer { state.again = false }
+            if !state.again { state.running = false }
+            return state.again
+        }
+    }
+
+    /// One model call and its save. Read fresh each time, so an edit to the list counts from the
+    /// next item. Credential is not offered: only its patterns set it.
+    private func label(_ item: ClipboardItem, _ text: String, with label: Label) async throws {
+        let categories = try await store.categories().filter { $0.id != ItemCategory.credentialId }
+        let labels: Labels
+        do {
+            labels = try await label(text, categories)
+        } catch {
+            // shortcut: a refusal and a passing failure are both dropped, so the item stays
+            // unlabelled until the list changes; retry passing failures if they show up.
+            Log.store.error(
+                "could not label item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
+            )
+            try await store.dropFromLabelQueue(itemId: item.id)
+            return
+        }
+        let language = Language.all.contains(labels.language) ? labels.language : Language.none
+        // A title only where the first line says little: code, and text longer than a card.
+        let words = labels.title.split(whereSeparator: \.isWhitespace).prefix(6).joined(separator: " ")
+        let wantsTitle = language != Language.none || text.count > CardText.maxLength
+        try await store.setLabels(
+            categoryId: categories.first { $0.name == labels.category }?.id ?? ItemCategory.otherId,
+            language: language, title: wantsTitle && !words.isEmpty ? words : nil, for: item.id)
+        Log.store.info("labelled item \(item.id, privacy: .public)")
     }
 }

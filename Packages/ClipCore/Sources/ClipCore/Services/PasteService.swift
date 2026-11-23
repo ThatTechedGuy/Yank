@@ -43,22 +43,32 @@ import Foundation
     }
 
     /// Pastes several cards in one clipboard write, in order: one pasteboard item per card (a file
-    /// card with three files keeps its three), each with all of the card's types. Apps that take
+    /// card with three files keeps its three), each with all of the card's types. `cleaned` pastes
+    /// the plain text through `CleanText.clean` instead (⌥Return); the saved item keeps its bytes. Apps that take
     /// several items (TextEdit, Finder) paste them all; apps that take one paste the first. Every
     /// card moves to the top of the history, order kept. Nothing is written if a file card's file
     /// is gone. Returns false when every card was deleted after it was listed, so nothing was
     /// written.
     @discardableResult
-    public func paste(_ items: [ClipboardItem], plainText: Bool, destination: PasteDestination)
-        async throws -> Bool
-    {
+    public func paste(
+        _ items: [ClipboardItem], plainText: Bool, destination: PasteDestination, cleaned: Bool = false
+    ) async throws -> Bool {
         var data: [ClipboardItemData] = []
         for item in items {
             var itemData = try await store.data(for: item.id)
             if await itemData.hasMissingFile() { throw PasteError.fileNoLongerExists }
-            if plainText {
+            // Cleaned is plain text too: the rich text would still hold what was cleaned away.
+            if plainText || cleaned {
                 let textOnly = itemData.filter { $0.type == ClipboardType.plainText }
                 if !textOnly.isEmpty { itemData = textOnly }
+            }
+            if cleaned {
+                itemData = itemData.map { entry in
+                    guard entry.type == ClipboardType.plainText else { return entry }
+                    var entry = entry
+                    entry.data = Data(CleanText.clean(entry.text).utf8)
+                    return entry
+                }
             }
             // Each card's pasteboard items are numbered from 0 when saved; shift them past the
             // cards before it, so the clipboard gets them as separate items in card order.

@@ -20,6 +20,13 @@ struct ItemCard: View {
     /// "200 or more"), for the sentence VoiceOver reads: "Card 1 of 20. …".
     let position: Int
     let listSize: String
+    /// The name of the item's category, once labelled.
+    let categoryName: String?
+    /// Reads the item's full text, for a code card: the card text has its line breaks folded.
+    let loadText: () async -> String?
+
+    /// A code card's first lines, coloured; nil for anything else, and while they load.
+    @State private var code: AttributedString?
 
     @Environment(ThumbnailCache.self) private var thumbnails
     @Environment(\.sourceAppIcons) private var appIcons
@@ -52,6 +59,16 @@ struct ItemCard: View {
         .accessibilityLabel(spokenDescription)
         .accessibilityIdentifier("card-\(item.id)")
         .accessibilityAddTraits(isSelected ? .isSelected : [])
+        // shortcut: each code card reads its item's bytes as it comes on screen; save its first
+        // lines with the item if scrolling a row of code ever stutters.
+        .task(id: [String(item.id), item.language ?? "", item.contentFingerprint]) {
+            guard item.kind == .text, let language = item.language, CodeText.isCode(language) else {
+                code = nil
+                return
+            }
+            // More than twelve card lines can hold, so the card is always full.
+            code = await loadText().map { CodeText.attributed(String($0.prefix(800)), language: language) }
+        }
     }
 
     private var outlineColor: Color {
@@ -65,7 +82,9 @@ struct ItemCard: View {
     private var spokenDescription: String {
         let source = item.sourceAppName.map { " from \($0)" } ?? ""
         let age = item.copiedAt.formatted(.relative(presentation: .named))
-        return "Card \(position) of \(listSize). \(item.kind.displayName)\(source), \(age): \(spokenContent)"
+        let category = categoryName.map { ", \($0)" } ?? ""
+        return
+            "Card \(position) of \(listSize). \(item.kind.displayName)\(category)\(source), \(age): \(spokenContent)"
     }
 
     /// The preview in words: a missing file's notice or a renamed card's own name first, then
@@ -74,6 +93,7 @@ struct ItemCard: View {
     private var spokenContent: String {
         if fileIsMissing { return "File no longer exists" }
         if let title = item.title { return title }
+        if let title = item.labelTitle { return "\(title). \(item.cardText)" }
         switch item.kind {
         case .image, .color: return item.cardDetail ?? item.cardText
         case .link: return [item.linkPageTitle, item.cardText].compactMap { $0 }.joined(separator: ", ")
@@ -85,7 +105,7 @@ struct ItemCard: View {
     private var header: some View {
         let tint = appIcons.tint(for: item.sourceAppBundleId)
         return HStack(spacing: 6) {
-            Text(item.kind.displayName)
+            Text([item.kind.displayName, categoryName].compactMap { $0 }.joined(separator: " · "))
                 .font(.caption.weight(.semibold))
             Spacer()
             // Re-rendered once a minute, so a card left on screen keeps its age right.
@@ -134,6 +154,20 @@ struct ItemCard: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(10)
+        } else if item.kind == .text {
+            // The model's title (or your own name) over the text; code keeps its lines, coloured.
+            VStack(alignment: .leading, spacing: 4) {
+                if let heading = item.title ?? item.labelTitle {
+                    Text(heading).font(.body.weight(.semibold)).lineLimit(2)
+                }
+                if let code {
+                    Text(code).font(.system(size: 11, design: .monospaced)).lineLimit(12)
+                } else if item.title == nil {
+                    Text(item.cardText).font(.body).lineLimit(8)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .padding(10)
         } else if let image = thumbnails.image(for: item) {
             // A photo fills the card; a file's preview (a page, an icon) is shown whole. The
             // picture is an overlay on an empty box so that a filling picture, which is bigger
@@ -154,9 +188,10 @@ struct ItemCard: View {
         }
     }
 
-    /// "⌘1 · 52 characters": the shortcut, when there is one, and the detail, when known.
+    /// "⌘1 · Swift · 52 characters": the shortcut, the language of code, and the detail, when known.
     private var footer: some View {
-        let parts = [shortcutNumber.map { "⌘\($0)" }, item.cardDetail].compactMap { $0 }
+        let language = CodeText.isCode(item.language) ? item.language : nil
+        let parts = [shortcutNumber.map { "⌘\($0)" }, language, item.cardDetail].compactMap { $0 }
         // A space keeps the footer's height when both parts are missing.
         return Text(parts.isEmpty ? " " : parts.joined(separator: " · "))
             .font(.caption.monospacedDigit())

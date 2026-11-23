@@ -18,6 +18,9 @@ enum SettingsKey {
     /// unless the user turns that off. Read with `linkPreviewsEnabled`, not `bool(forKey:)`,
     /// which would read a missing key as off.
     nonisolated static let linkPreviews = "linkPreviews"
+    /// "Label copies": a Bool, on when missing. Read with `labelsEnabled`, for the same reason
+    /// as link previews.
+    nonisolated static let labels = "labels"
     /// "Keep history": how many days unpinned items are kept, as an Int. 0 means forever, which
     /// is also what a missing key reads as, so nothing is ever deleted until the user chooses.
     static let keepHistoryDays = "keepHistoryDays"
@@ -33,6 +36,12 @@ enum SettingsKey {
         // string that `as? Bool` would miss; only a missing key needs the "on" default.
         let defaults = UserDefaults.standard
         return defaults.object(forKey: linkPreviews) == nil || defaults.bool(forKey: linkPreviews)
+    }
+
+    /// Whether labelling is on right now. The Enricher asks before each model call.
+    nonisolated static var labelsEnabled: Bool {
+        let defaults = UserDefaults.standard
+        return defaults.object(forKey: labels) == nil || defaults.bool(forKey: labels)
     }
 }
 

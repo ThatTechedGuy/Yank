@@ -26,6 +26,12 @@ extension ClipboardItem: FetchableRecord, PersistableRecord {
         if let kind = filter.kind {
             request = request.filter(ClipboardItemColumns.kind == kind.rawValue)
         }
+        if let categoryId = filter.categoryId {
+            request = request.filter(ClipboardItemColumns.categoryId == categoryId)
+        }
+        if let language = filter.language {
+            request = request.filter(ClipboardItemColumns.language == language)
+        }
         if let start = filter.dateRange.start(now: now, calendar: calendar) {
             request = request.filter(ClipboardItemColumns.copiedAt >= start)
         }
@@ -35,6 +41,9 @@ extension ClipboardItem: FetchableRecord, PersistableRecord {
     /// An item's row in the search index. The index has no id column of its own: the sync
     /// triggers keep its `rowid` equal to the item's `id`, so that is the link.
     static let searchIndex = hasOne(clipboardItemSearchIndex, using: ForeignKey(["rowid"], to: ["id"]))
+
+    /// The item's place in the label queue, if it is waiting for the model.
+    static let labelQueueEntry = hasOne(LabelQueueEntry.self, using: ForeignKey(["clipboardItemId"]))
 }
 
 // Spelled out because a public type's synthesised `CodingKeys` are private to its own file; they
@@ -51,6 +60,33 @@ enum ClipboardItemColumns {
     static let contentFingerprint = Column("contentFingerprint")
     static let pinboardId = Column("pinboardId")
     static let searchText = Column("searchText")
+    static let categoryId = Column("categoryId")
+    static let language = Column("language")
+    static let labelTitle = Column("labelTitle")
+    static let categorySetByHand = Column("categorySetByHand")
+    static let languageSetByHand = Column("languageSetByHand")
+}
+
+// Inserts go through `NewItemCategory`.
+extension ItemCategory: FetchableRecord, PersistableRecord {
+    static var inOrder: QueryInterfaceRequest<ItemCategory> {
+        order(ItemCategoryColumns.position, ItemCategoryColumns.id)
+    }
+}
+
+enum ItemCategoryColumns {
+    static let id = Column("id")
+    static let name = Column("name")
+    static let about = Column("about")
+    static let position = Column("position")
+}
+
+struct NewItemCategory: Encodable, PersistableRecord {
+    static let databaseTableName = ItemCategory.databaseTableName
+
+    var name: String
+    var about: String
+    var position: Int
 }
 
 // Inserts go through `NewPinboard` below, for the same reason as `NewClipboardItem`.
@@ -99,6 +135,18 @@ struct NewClipboardItem: Encodable, PersistableRecord {
     var imageText: String? = nil
     var linkPageTitle: String? = nil
     var pinboardId: Int64? = nil
+    var categoryId: Int64? = nil
+    var language: String? = nil
+    var labelTitle: String? = nil
+    var categorySetByHand = false
+    var languageSetByHand = false
+}
+
+// One item the Enricher still has to label. The item's id is the key, so queueing twice is a no-op.
+struct LabelQueueEntry: Codable, FetchableRecord, PersistableRecord {
+    static let databaseTableName = "labelQueue"
+
+    var clipboardItemId: Int64
 }
 
 // One row of `clipboardItemData`, with the storage-only columns the public `ClipboardItemData`

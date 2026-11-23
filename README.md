@@ -28,8 +28,10 @@ in never loses focus.
   titles of copied links.
 - 🔒 **Private by design.** No account, no sync, no analytics. Your history is a file on your Mac.
   Copies that a password manager marks as private are never read.
-- 📌 **Organised when you want it.** Pinboards for the things you paste every week, filters by type and
-  date, and a paste stack for moving several things at once.
+- 📌 **Organised when you want it.** Pinboards for the things you paste every week, filters by type,
+  date, category and language, and a paste stack for moving several things at once.
+- 🏷 **Labelled for you.** Apple's on-device model gives every copy a category, a language and a short
+  title, and code is syntax highlighted. Nothing leaves your Mac.
 - 🪶 **Small and native.** A 7 MB menu-bar app written in Swift and SwiftUI. No Electron; the only helper
   is Sparkle's installer, which runs during an update.
 - 🧑‍💻 **Open.** MIT licensed, about 7,000 lines of Swift plus tests, four small dependencies. Read it,
@@ -43,7 +45,8 @@ in never loses focus.
   to load Sparkle (see [Yank.entitlements](App/Resources/Yank.entitlements)).
 - **Fast at scale.** History lives in SQLite with FTS5 full-text search. A test holds search to 33 ms
   (95th percentile) over 100,000 items, and the panel is built once and kept hidden so it opens instantly.
-- **On-device intelligence.** Text in images is read with Apple's Vision framework. Nothing is uploaded.
+- **On-device intelligence.** Text in images is read with Apple's Vision framework, and copies are
+  labelled by Apple's on-device language model. Nothing is uploaded.
 - **Two network uses, both with a switch.** A copied web address is loaded once for its title and
   icon (local addresses never are), and Yank checks GitHub once a day for a new version.
 - **Swift 6, strict concurrency.** The compiler checks for data races, warnings are errors, and a script
@@ -77,15 +80,27 @@ certificate.
 - **History panel.** A row of cards along the bottom of the screen, each with a preview.
 - **Paste.** Return pastes the selected card, ⇧Return pastes it as plain text, ⌘1–⌘9 paste by number. You
   can also drag cards into other apps, or select several and paste them together.
+- **Clean on paste.** ⌥Return (or Paste Cleaned in ⌘K) pastes text without ANSI colour codes and
+  leading shell prompts such as `$ `, and pretty-prints JSON. The saved item is never changed.
 - **Search.** Type to filter. Search also covers text inside images and link titles.
-- **Pinboards and filters.** Keep items on named pinboards (⌘P), and narrow the row by type and date.
-- **Actions.** ⌘K on a card: copy, rename, duplicate, share, open with, show in Finder, delete.
+- **Pinboards and filters.** Keep items on named pinboards (⌘P), and narrow the row by type, date,
+  category and language. A pinboard is a snippet collection: open it over any app with ⇧⌘V.
+- **Labels.** Each text copy, and each image with words in it, gets a category from your list, a
+  language, and for code and long text a title of up to six words. Code cards and their Space preview
+  are syntax highlighted (display only: a paste gives the bytes you copied). API keys, tokens and
+  private keys are spotted by pattern and filed under Credential without the model. Correct a card's
+  category or language in ⌘K; the model never overwrites what you set, or a name you gave with
+  Rename. Needs Apple Intelligence; without it, or with Settings › Labels switched off, nothing is sent
+  to the model.
+- **Actions.** ⌘K on a card: copy, paste cleaned, category, language, rename, duplicate, share, open
+  with, show in Finder, delete.
   Space opens a large preview.
 - **Editor.** ⌘E edits a text card as rich text, or rotates an image and removes its background. ⌘N
   writes a new text item.
 - **Paste stack.** Turn it on in the menu bar, copy several things, then press ⌃⌥⌘V to paste them one by
   one, oldest first.
-- **Settings.** Open at login, where pastes go, the panel shortcut, ignored apps, how long history is
+- **Settings.** Open at login, where pastes go, the panel shortcut, labelling and your category list
+  (add, rename, reorder, remove; Other and Credential are built in), ignored apps, how long history is
   kept, update checks, and Erase History.
 
 ## 🔐 Privacy
@@ -99,6 +114,10 @@ certificate.
   number. Settings › Privacy turns off either. Addresses written as local (`localhost`, `192.168.…`, `.local` and
   so on) are never loaded.
 - Text in images is read on your Mac with Apple's Vision framework. Nothing is uploaded.
+- Labels come from Apple's on-device model (Apple Intelligence), on your Mac. Yank sends it the first
+  1,500 characters of a copy, never a copy that matches a key or token pattern, and never anything
+  while Settings › Labels is off. A password with no recognisable pattern is not spotted and does
+  reach the on-device model. Titles and copied text are never written to the log.
 - By default the panel is hidden from screen recordings and shared screens.
 - The history is not encrypted by Yank. It is as safe as your user account and your disk (turn on
   FileVault). It lives in `~/Library/Containers/com.thattechedguy.Yank/Data/Library/Application Support/Yank/`.

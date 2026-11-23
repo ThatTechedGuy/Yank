@@ -23,10 +23,25 @@ struct FilterMenu: View {
                 }
             }
             .pickerStyle(.inline)
+            // Submenus: inline, twenty languages would make the menu taller than the screen.
+            Picker("Category", selection: $model.filter.categoryId) {
+                Text("Any Category").tag(Int64?.none)
+                ForEach(model.categories) { Text($0.name).tag(Optional($0.id)) }
+            }
+            .pickerStyle(.menu)
+            Picker("Language", selection: $model.filter.language) {
+                Text("Any Language").tag(String?.none)
+                ForEach(Language.all.filter { $0 != Language.none }, id: \.self) {
+                    Text($0).tag(Optional($0))
+                }
+            }
+            .pickerStyle(.menu)
             Divider()
             Button("Clear Filters") {
                 model.filter.kind = nil
                 model.filter.dateRange = .anyTime
+                model.filter.categoryId = nil
+                model.filter.language = nil
             }
             .disabled(!model.filter.isNarrowed)
         } label: {
@@ -39,7 +54,7 @@ struct FilterMenu: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Filter by type and date")
+        .help("Filter by type, date, category and language")
         .accessibilityIdentifier("filter")
     }
 }

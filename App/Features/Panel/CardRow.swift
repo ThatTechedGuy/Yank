@@ -25,7 +25,9 @@ struct CardRow: View {
                             item: item, shortcutNumber: index < 9 ? index + 1 : nil,
                             isSelected: model.selection.contains(item.id), isLead: isLead,
                             fileIsMissing: model.missingFileIds.contains(item.id), width: cardWidth,
-                            position: index + 1, listSize: model.listSizeDescription
+                            position: index + 1, listSize: model.listSizeDescription,
+                            categoryName: model.categories.first { $0.id == item.categoryId }?.name,
+                            loadText: { await model.fullText(for: item) }
                         )
                         // The double-click must come before the single click, or the single
                         // click wins and it never fires. SwiftUI's tap gives no modifier keys,

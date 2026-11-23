@@ -52,6 +52,11 @@ struct ActionsPopover: View {
     }
 }
 
+/// A picker's selection that shows the saved value and reports a pick, never a nil one.
+private func hand<T>(_ value: T?, set: @escaping (T) -> Void) -> Binding<T?> {
+    Binding(get: { value }, set: { $0.map(set) })
+}
+
 /// One row, by action. Delete is red.
 private struct ItemActionRow: View {
     let action: ItemAction
@@ -65,6 +70,22 @@ private struct ItemActionRow: View {
                 Button("Unpin") { model.unpin(item.id) }
             } else {
                 Menu(action.title) { PinChoices(item: item, model: model) }
+            }
+        case .category:
+            Menu(action.title) {
+                Picker(action.title, selection: hand(item.categoryId) { model.setCategory($0, for: item) }) {
+                    ForEach(model.categories) { Text($0.name).tag(Optional($0.id)) }
+                }
+                .pickerStyle(.inline)
+            }
+        case .language:
+            Menu(action.title) {
+                Picker(action.title, selection: hand(item.language) { model.setLanguage($0, for: item) }) {
+                    ForEach(Language.all, id: \.self) {
+                        Text($0 == Language.none ? "Not Code" : $0).tag(Optional($0))
+                    }
+                }
+                .pickerStyle(.inline)
             }
         case .share:
             ShareLink(

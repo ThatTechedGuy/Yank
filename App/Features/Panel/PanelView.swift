@@ -25,33 +25,39 @@ struct PanelView: View {
 
     var body: some View {
         @Bindable var model = model
+        // Laid out like Paste's panel: a glass slab inset 8 points from the screen's sides and
+        // bottom with 24-point corners, one 64-point bar on top (search and tabs in the middle,
+        // the filter on the right), and the cards below.
         GeometryReader { geometry in
-            VStack(spacing: 8) {
-                resizeHandle(panelHeight: geometry.size.height)
-                HStack(spacing: 12) {
-                    TextField(model.searchPrompt, text: $model.searchText)
-                        .textFieldStyle(.roundedBorder)
-                        .focused($focus, equals: .search)
-                        // The grey prompt inside the box is not a name VoiceOver can use.
-                        .accessibilityLabel("Search")
-                        .accessibilityIdentifier("search")
-                    // One line next to search, only while Return cannot paste for the user.
-                    // The button opens macOS's own permission dialog; nothing else in the app
-                    // ever prompts. It sits in the top bar rather than above the cards so the
-                    // panel keeps its height and the cards their size.
-                    if model.needsAccessibility {
-                        Text(
-                            "Allow Yank in System Settings › Accessibility to paste for you. Until then, press ⌘V yourself."
-                        )
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        Button("Allow…") { model.requestAccessibility() }
-                            .accessibilityIdentifier("allow-accessibility")
+            VStack(spacing: 0) {
+                ZStack {
+                    HStack(spacing: 8) {
+                        // One line on the left, only while Return cannot paste for the user.
+                        // The button opens macOS's own permission dialog; nothing else in the
+                        // app ever prompts. It sits in the top bar rather than above the cards
+                        // so the panel keeps its height and the cards their size.
+                        if model.needsAccessibility {
+                            Text(
+                                "Allow Yank in System Settings › Accessibility to paste for you. Until then, press ⌘V yourself."
+                            )
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .frame(maxWidth: 360, alignment: .leading)
+                            Button("Allow…") { model.requestAccessibility() }
+                                .accessibilityIdentifier("allow-accessibility")
+                        }
+                        Spacer()
+                        FilterMenu(model: model)
                     }
+                    HStack(spacing: 8) {
+                        searchField
+                        PanelTabs(model: model)
+                    }
+                    .frame(maxWidth: geometry.size.width * 0.5)
                 }
-                .padding(.horizontal, 12)
-                PanelTabs(model: model)
+                .padding(.horizontal, 24)
+                .frame(height: 64)
                 // Focusable so Tab can land on the row and typing stops going into the search
                 // box. No focus ring: the selected card's outline already shows where the keys
                 // go, and a ring around the whole row looked like a stray outline.
@@ -60,9 +66,12 @@ struct PanelView: View {
                     .focusEffectDisabled()
                     .focused($focus, equals: .cards)
             }
+            .overlay(alignment: .top) { resizeHandle(panelHeight: geometry.size.height + 8) }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.regularMaterial)
+        .glassEffect(.regular, in: .rect(cornerRadius: 24, style: .continuous))
+        .shadow(color: .black.opacity(0.12), radius: 6, y: 1)
+        .padding([.horizontal, .bottom], 8)
         .quickLookPreview($model.quickLookURL)
         // Every time the panel opens, the cursor goes to search so the user can type at once.
         .onChange(of: model.isVisible, initial: true) { _, visible in
@@ -184,14 +193,36 @@ struct PanelView: View {
         }
     }
 
+    /// Search as a grey capsule like Paste's tab pills, the cursor in it whenever the panel opens.
+    private var searchField: some View {
+        @Bindable var model = model
+        return HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
+            TextField(model.searchPrompt, text: $model.searchText)
+                .textFieldStyle(.plain)
+                .focused($focus, equals: .search)
+                // The grey prompt inside the box is not a name VoiceOver can use.
+                .accessibilityLabel("Search")
+                .accessibilityIdentifier("search")
+        }
+        .font(.system(size: 13))
+        .padding(.horizontal, 10)
+        .frame(width: 200, height: 26)
+        .background(.primary.opacity(0.1), in: Capsule())
+    }
+
     /// The strip along the top edge the user drags to make the panel taller or shorter. It is
-    /// drawn as a short bar in the middle, but the whole strip takes the drag.
+    /// drawn as a faint short bar in the middle, but the whole strip takes the drag. It lies
+    /// over the top bar, so it costs the panel no height. `panelHeight` is the window's height:
+    /// the view's own plus the 8-point inset below it.
     private func resizeHandle(panelHeight: CGFloat) -> some View {
         Capsule()
-            .fill(.secondary.opacity(0.5))
-            .frame(width: 48, height: 5)
+            .fill(.secondary.opacity(0.35))
+            .frame(width: 36, height: 4)
             .frame(maxWidth: .infinity)
-            .frame(height: 14)
+            .frame(height: 10)
             .contentShape(Rectangle())
             .pointerStyle(.frameResize(position: .top))
             // The pointer is read in screen coordinates (y upwards) rather than from the

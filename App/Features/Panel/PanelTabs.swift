@@ -1,4 +1,4 @@
-// The row under the search box: a tab for History, one per pinboard, a "+" and the filter button.
+// The tabs next to the search box, centred in the panel's top bar: History, one per pinboard, and a "+".
 // Its prompts are popovers, not alert sheets: on the non-activating panel (see PanelWindow) a
 // popover is the one kind of dialog proven to take typing without making Yank the active app.
 import ClipCore
@@ -13,49 +13,21 @@ struct PanelTabs: View {
     @State private var newName = ""
 
     var body: some View {
-        @Bindable var model = model
         HStack(spacing: 4) {
-            // The tabs scroll sideways when there are more than fit, instead of pushing the
-            // filter button off the panel.
-            ScrollView(.horizontal) {
-                HStack(spacing: 4) {
-                    tab("History", list: .history)
-                        .accessibilityIdentifier("tab-history")
-                    ForEach(model.pinboards) { pinboard in
-                        tab(pinboard.name, list: .pinboard(id: pinboard.id))
-                            .contextMenu {
-                                Button("Rename…") {
-                                    renameText = pinboard.name
-                                    model.renamingPinboard = pinboard
-                                }
-                                Button("Delete…") { model.deletingPinboard = pinboard }
-                            }
-                            .popover(
-                                isPresented: isPresenting($model.renamingPinboard, pinboard),
-                                arrowEdge: .bottom
-                            ) {
-                                namePrompt("Rename Pinboard", button: "Rename", text: $renameText) {
-                                    model.renamePinboard(pinboard, to: renameText)
-                                    model.renamingPinboard = nil
-                                }
-                            }
-                            .popover(
-                                isPresented: isPresenting($model.deletingPinboard, pinboard),
-                                arrowEdge: .bottom
-                            ) {
-                                deletePrompt(pinboard)
-                            }
-                            .accessibilityIdentifier("tab-\(pinboard.id)")
-                    }
-                }
+            // The tabs sit at their own width so the bar can centre them, and scroll sideways
+            // only when there are more than fit.
+            ViewThatFits(in: .horizontal) {
+                tabs
+                ScrollView(.horizontal) { tabs }
+                    .scrollIndicators(.hidden)
             }
-            .scrollIndicators(.hidden)
             Button {
                 model.newPinboardPrompt = NewPinboardPrompt()
             } label: {
                 // A `Label`, not an `Image`, so VoiceOver still gets the title.
                 Label("New Pinboard", systemImage: "plus")
                     .labelStyle(.iconOnly)
+                    .font(.system(size: 15))
             }
             .buttonStyle(.borderless)
             .help("New Pinboard")
@@ -74,23 +46,61 @@ struct PanelTabs: View {
                 }
                 .onAppear { newName = "" }
             }
-            Spacer()
-            FilterMenu(model: model)
         }
-        .padding(.horizontal, 12)
     }
 
-    /// One tab: bold with a tinted capsule behind it when it is the current list.
-    private func tab(_ title: String, list: ItemList) -> some View {
+    /// History, then one tab per pinboard.
+    private var tabs: some View {
+        @Bindable var model = model
+        return HStack(spacing: 4) {
+            tab("History", systemImage: "clock.arrow.circlepath", list: .history)
+                .accessibilityIdentifier("tab-history")
+            ForEach(model.pinboards) { pinboard in
+                tab(pinboard.name, list: .pinboard(id: pinboard.id))
+                    .contextMenu {
+                        Button("Rename…") {
+                            renameText = pinboard.name
+                            model.renamingPinboard = pinboard
+                        }
+                        Button("Delete…") { model.deletingPinboard = pinboard }
+                    }
+                    .popover(
+                        isPresented: isPresenting($model.renamingPinboard, pinboard),
+                        arrowEdge: .bottom
+                    ) {
+                        namePrompt("Rename Pinboard", button: "Rename", text: $renameText) {
+                            model.renamePinboard(pinboard, to: renameText)
+                            model.renamingPinboard = nil
+                        }
+                    }
+                    .popover(
+                        isPresented: isPresenting($model.deletingPinboard, pinboard),
+                        arrowEdge: .bottom
+                    ) {
+                        deletePrompt(pinboard)
+                    }
+                    .accessibilityIdentifier("tab-\(pinboard.id)")
+            }
+        }
+    }
+
+    /// One tab, as in Paste: a grey capsule behind the current one, medium weight, in the
+    /// label colour either way.
+    private func tab(_ title: String, systemImage: String? = nil, list: ItemList) -> some View {
         let isCurrent = model.filter.list == list
-        return Button(title) { model.filter.list = list }
-            .buttonStyle(.borderless)
-            .font(.callout.weight(isCurrent ? .semibold : .regular))
-            .foregroundStyle(isCurrent ? Color.accentColor : .secondary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 3)
-            .background(isCurrent ? Color.accentColor.opacity(0.15) : .clear, in: Capsule())
-            .accessibilityAddTraits(isCurrent ? .isSelected : [])
+        return Button { model.filter.list = list } label: {
+            HStack(spacing: 5) {
+                if let systemImage { Image(systemName: systemImage).accessibilityHidden(true) }
+                Text(title)
+            }
+        }
+        .buttonStyle(.borderless)
+        .font(.system(size: 13, weight: .medium))
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 10)
+        .frame(height: 26)
+        .background(isCurrent ? Color.primary.opacity(0.1) : .clear, in: Capsule())
+        .accessibilityAddTraits(isCurrent ? .isSelected : [])
     }
 
     /// A binding that is true while `state` holds this pinboard; setting it false (the popover

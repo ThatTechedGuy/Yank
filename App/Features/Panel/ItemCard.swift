@@ -1,5 +1,6 @@
-// One card in the row: a header tinted with the source app's icon colour, a preview of the
-// content, and a footer with the ⌘1–⌘9 hint and one detail (length, size, site or hex value).
+// One card in the row, laid out like Paste's: a 48-point header tinted with the source app's icon
+// colour (the kind, the age, and the big app icon clipped at the corner), a preview of the content
+// that fades out at the bottom, and a centred footer with the ⌘1–⌘9 hint and one detail.
 import AppKit
 import ClipCore
 import ClipSystem
@@ -22,37 +23,58 @@ struct ItemCard: View {
     let listSize: String
     /// The name of the item's category, once labelled.
     let categoryName: String?
-    /// Reads the item's full text, for a code card: the card text has its line breaks folded.
-    let loadText: () async -> String?
+    /// Reads the item's saved types, for a code card: the card text has its line breaks folded,
+    /// and the source app's RTF carries its own colours.
+    let loadData: () async -> [ClipboardItemData]?
 
-    /// A code card's first lines, coloured; nil for anything else, and while they load.
-    @State private var code: AttributedString?
+    /// A code card's first lines, coloured, and whether the colours are the source app's own
+    /// (from its RTF) rather than ours; nil for anything else, and while they load.
+    @State private var code: (text: AttributedString, isRich: Bool)?
 
     @Environment(ThumbnailCache.self) private var thumbnails
     @Environment(\.sourceAppIcons) private var appIcons
     /// With Increase Contrast on, every card gets a visible edge, not only the selected ones,
-    /// so cards stand apart from the frosted background behind them.
+    /// so cards stand apart from the glass behind them.
     @Environment(\.colorSchemeContrast) private var contrast
 
-    static let cornerRadius: CGFloat = 10
+    static let cornerRadius: CGFloat = 14
+    /// Paste's card body: white, or near black in dark mode. Text on it is `.primary` and
+    /// `.secondary`, which land on Paste's #262626/#DCDCDC and #7F7F7F/#959595.
+    private static let bodyColor = Color(light: 0xFFFFFF, dark: 0x141414)
 
     var body: some View {
+        // Source RTF assumes a white page, so a card showing it stays white in dark mode too,
+        // with dark text where the RTF names no colour. Paste does the same.
+        let isRich = code?.isRich == true
+        // Text runs out in a fade above the footer; a swatch or picture fills the body whole.
+        let fades = item.kind == .text || item.kind == .link
         VStack(spacing: 0) {
             header
             content
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
+                .mask {
+                    VStack(spacing: 0) {
+                        Color.black
+                        LinearGradient(
+                            colors: [.black, fades ? .clear : .black], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 32)
+                    }
+                }
             footer
         }
         .frame(width: width)
         .frame(maxHeight: .infinity)
-        .background(.background.opacity(0.7))
-        .clipShape(RoundedRectangle(cornerRadius: Self.cornerRadius))
-        // The outline is an overlay, so the card keeps its size selected or not.
-        .overlay(
-            RoundedRectangle(cornerRadius: Self.cornerRadius)
-                .stroke(outlineColor, lineWidth: isSelected ? 3 : 1)
-        )
+        .background(isRich ? Color.white : Self.bodyColor)
+        .environment(\.colorScheme, isRich ? .light : colorScheme)
+        .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
+        // The outline sits outside the card with no gap, so the card keeps its size selected or
+        // not.
+        .overlay {
+            RoundedRectangle(cornerRadius: Self.cornerRadius + 4, style: .continuous)
+                .strokeBorder(outlineColor, lineWidth: isSelected ? 4 : 1)
+                .padding(isSelected ? -4 : -1)
+        }
         // To VoiceOver the card is one element that reads as one sentence, the label replacing
         // the pieces' own words. The id is for the UI tests.
         .accessibilityElement(children: .combine)
@@ -62,13 +84,26 @@ struct ItemCard: View {
         // shortcut: each code card reads its item's bytes as it comes on screen; save its first
         // lines with the item if scrolling a row of code ever stutters.
         .task(id: [String(item.id), item.language ?? "", item.contentFingerprint]) {
-            guard item.kind == .text, let language = item.language, CodeText.isCode(language) else {
-                code = nil
-                return
-            }
-            // More than twelve card lines can hold, so the card is always full.
-            code = await loadText().map { CodeText.attributed(String($0.prefix(800)), language: language) }
+            code = await loadCode()
         }
+    }
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// The source app's RTF when it sent one, else the plain text with our own colours. More
+    /// than twelve card lines can hold, so the card is always full.
+    private func loadCode() async -> (text: AttributedString, isRich: Bool)? {
+        guard item.kind == .text, let language = item.language, CodeText.isCode(language),
+            let data = await loadData()
+        else { return nil }
+        if data.contains(where: { $0.type == RichText.rtfType }),
+            let rich = try? await RichText.attributedString(from: data)
+        {
+            let end = rich.index(rich.startIndex, offsetByCharacters: min(800, rich.characters.count))
+            return (AttributedString(rich[rich.startIndex..<end]), true)
+        }
+        guard let text = data.first(where: { $0.type == ClipboardType.plainText })?.text else { return nil }
+        return (CodeText.attributed(String(text.prefix(800)), language: language), false)
     }
 
     private var outlineColor: Color {
@@ -101,38 +136,50 @@ struct ItemCard: View {
         }
     }
 
-    /// The tinted band: kind on the left, age and app icon on the right.
+    /// The tinted band: the kind over the age on the left, and the app's icon drawn large at the
+    /// top right, cut off by the card's corner.
     private var header: some View {
         let tint = appIcons.tint(for: item.sourceAppBundleId)
-        return HStack(spacing: 6) {
+        return VStack(alignment: .leading, spacing: 1) {
             Text([item.kind.displayName, categoryName].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption.weight(.semibold))
-            Spacer()
+                .font(.system(size: 15, weight: .semibold))
             // Re-rendered once a minute, so a card left on screen keeps its age right.
             TimelineView(.everyMinute) { _ in
                 Text(item.copiedAt, format: .relative(presentation: .named))
-                    .font(.caption)
+                    .font(.system(size: 12))
+                    .opacity(0.9)
             }
-            Image(nsImage: appIcons.icon(for: item.sourceAppBundleId))
-                .resizable()
-                .frame(width: 16, height: 16)
         }
         .lineLimit(1)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.leading, 12)
+        .padding(.trailing, 64)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: 48)
         .foregroundStyle(Self.readableText(on: tint))
+        .background(alignment: .topTrailing) {
+            Image(nsImage: appIcons.icon(for: item.sourceAppBundleId))
+                .resizable()
+                .frame(width: 64, height: 64)
+                .offset(x: 4, y: -4)
+        }
         .background(Color(nsColor: tint))
+        .clipped()
     }
 
     /// The preview: picture, swatch or text, by kind.
     @ViewBuilder private var content: some View {
         if fileIsMissing {
             Text("File no longer exists")
-                .font(.body)
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if item.kind == .color, let color = Self.color(hex: item.cardDetail ?? "") {
-            color
+            // The swatch fills the body, its hex value large in the middle.
+            color.overlay {
+                Text(item.cardDetail ?? "")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Self.readableText(on: NSColor(color)))
+            }
         } else if item.kind == .link {
             // Once the page has been fetched: the site's icon, the page's title and the address
             // underneath; until then (or with previews off) just the address. The renamed title
@@ -146,28 +193,29 @@ struct ItemCard: View {
                         .clipShape(RoundedRectangle(cornerRadius: 6))
                 }
                 if let heading = item.title ?? item.linkPageTitle {
-                    Text(heading).font(.body.weight(.semibold)).lineLimit(3)
-                    Text(item.cardText).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    Text(heading).font(.system(size: 13, weight: .semibold)).lineLimit(3)
+                    Text(item.cardText).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
                 } else {
-                    Text(item.cardText).font(.body).lineLimit(8)
+                    Text(item.cardText).font(.system(size: 13)).lineLimit(8)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(10)
+            .padding(12)
         } else if item.kind == .text {
             // The model's title (or your own name) over the text; code keeps its lines, coloured.
             VStack(alignment: .leading, spacing: 4) {
                 if let heading = item.title ?? item.labelTitle {
-                    Text(heading).font(.body.weight(.semibold)).lineLimit(2)
+                    Text(heading).font(.system(size: 13, weight: .semibold)).lineLimit(2)
                 }
                 if let code {
-                    Text(code).font(.system(size: 11, design: .monospaced)).lineLimit(12)
+                    // RTF runs keep their own font; the size here is for our own colouring.
+                    Text(code.text).font(.system(size: 11, design: .monospaced)).lineLimit(14)
                 } else if item.title == nil {
-                    Text(item.cardText).font(.body).lineLimit(8)
+                    Text(item.cardText).font(.system(size: 13)).lineSpacing(3).lineLimit(12)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(10)
+            .padding(12)
         } else if let image = thumbnails.image(for: item) {
             // A photo fills the card; a file's preview (a page, an icon) is shown whole. The
             // picture is an overlay on an empty box so that a filling picture, which is bigger
@@ -181,25 +229,30 @@ struct ItemCard: View {
         } else {
             // An image whose thumbnail has not arrived yet lands here and fills in a moment later.
             Text(item.title ?? item.cardText)
-                .font(.body)
+                .font(.system(size: 13))
                 .lineLimit(8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(10)
+                .padding(12)
         }
     }
 
-    /// "⌘1 · Swift · 52 characters": the shortcut, the language of code, and the detail, when known.
+    /// "⌘1 · Swift · 52 characters", centred: the shortcut, the language of code, and the
+    /// detail, when known. An image's size sits in a grey capsule, as in Paste.
     private var footer: some View {
         let language = CodeText.isCode(item.language) ? item.language : nil
         let parts = [shortcutNumber.map { "⌘\($0)" }, language, item.cardDetail].compactMap { $0 }
+        let isImage = item.kind == .image && !fileIsMissing
         // A space keeps the footer's height when both parts are missing.
         return Text(parts.isEmpty ? " " : parts.joined(separator: " · "))
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
+            .font(.system(size: 12).monospacedDigit())
+            .foregroundStyle(isImage ? Color(light: 0x727272, dark: 0xF2F2F2) : .secondary)
             .lineLimit(1)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .padding(.horizontal, isImage ? 8 : 0)
+            .padding(.vertical, isImage ? 2 : 0)
+            .background(isImage ? Color(light: 0xE5E5E5, dark: 0x646464) : .clear, in: Capsule())
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
     }
 
     /// White on a dark tint, black on a light one (a yellow icon, say), by the W3C's formula
@@ -215,9 +268,24 @@ struct ItemCard: View {
         guard hex.count == 7, hex.hasPrefix("#"), let value = UInt32(hex.dropFirst(), radix: 16) else {
             return nil
         }
-        return Color(
+        return Color(rgb: value)
+    }
+}
+
+extension Color {
+    /// 0x2B59D6 as an sRGB colour.
+    init(rgb value: UInt32) {
+        self.init(
             red: Double(value >> 16 & 0xFF) / 255, green: Double(value >> 8 & 0xFF) / 255,
             blue: Double(value & 0xFF) / 255)
+    }
+
+    /// One colour in light mode and another in dark, switching with the view's appearance.
+    init(light: UInt32, dark: UInt32) {
+        self.init(
+            nsColor: NSColor(name: nil) { appearance in
+                NSColor(Color(rgb: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light))
+            })
     }
 }
 

@@ -11,14 +11,14 @@ struct CardRow: View {
 
     var body: some View {
         @Bindable var model = model
-        // The width follows the height, so a taller panel gets bigger cards, not just taller
-        // ones. 12 is the bottom padding.
-        let cardWidth = max(120, (height - 12) * 0.82)
+        // Square cards, as in Paste: the width is the row's height less its 4 top and 24 bottom
+        // padding, so a taller panel gets bigger cards, not just taller ones.
+        let cardWidth = max(120, height - 28)
         // Scrolling follows the selection one way only: the wheel or trackpad never changes
         // what is selected.
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 10) {
+                LazyHStack(spacing: 24) {
                     ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
                         let isLead = item.id == model.selectedId
                         ItemCard(
@@ -27,7 +27,7 @@ struct CardRow: View {
                             fileIsMissing: model.missingFileIds.contains(item.id), width: cardWidth,
                             position: index + 1, listSize: model.listSizeDescription,
                             categoryName: model.categories.first { $0.id == item.categoryId }?.name,
-                            loadText: { await model.fullText(for: item) }
+                            loadData: { await model.data(for: item) }
                         )
                         // The double-click must come before the single click, or the single
                         // click wins and it never fires. SwiftUI's tap gives no modifier keys,
@@ -85,8 +85,11 @@ struct CardRow: View {
                         .onAppear { model.cardDidAppear(at: index) }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+                // The 4 points on top leave room for the selected card's outline, which is
+                // drawn outside the card.
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
                 // One named group, so VoiceOver announces "Cards" on the way in; each card
                 // stays its own element inside it.
                 .accessibilityElement(children: .contain)

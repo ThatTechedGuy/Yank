@@ -331,8 +331,13 @@ import SwiftUI
     /// characters. Nil when the saved bytes cannot be read. Off the main thread, because decoding
     /// a copy of tens of MB takes a moment.
     @concurrent func fullText(for item: ClipboardItem) async -> String? {
-        let data = try? await store.data(for: item.id)
-        return data?.first { $0.type == ClipboardType.plainText }?.text
+        await data(for: item)?.first { $0.type == ClipboardType.plainText }?.text
+    }
+
+    /// Every saved type of the item, for a code card that shows the source app's RTF. Nil when
+    /// the saved bytes cannot be read.
+    @concurrent func data(for item: ClipboardItem) async -> [ClipboardItemData]? {
+        try? await store.data(for: item.id)
     }
 
     /// Called by the window when the panel comes on screen: the newest card is selected and

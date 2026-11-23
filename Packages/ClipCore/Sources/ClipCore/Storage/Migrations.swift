@@ -159,8 +159,9 @@ enum Migrations {
         // existing text item and image with words joins the queue, except the credentials found
         // here, which the model never sees. The starting list goes in by hand-written SQL with
         // fixed ids, because `ItemCategory.otherId` and `.credentialId` name rows 8 and 4.
-        // Credentials are spotted with `Credentials.detect` as it is today; a later change to it
-        // reaches only new copies, which is fine for a label.
+        // Credentials are spotted with `Credentials.detect` as it is today, in the first 1,500
+        // characters, as a save does (`Labels.inputLength`, spelled out like v4's 20000); a later
+        // change to it reaches only new copies, which is fine for a label.
         migrator.registerMigration("v6") { db in
             try db.create(table: "itemCategory") { t in
                 t.autoIncrementedPrimaryKey("id")
@@ -197,22 +198,30 @@ enum Migrations {
             try db.create(table: "labelQueue") { t in
                 t.primaryKey { t.belongsTo("clipboardItem", onDelete: .cascade) }
             }
-            let rows = try Row.fetchAll(
+            // Everything labelable joins the queue in one statement, then the keys leave it.
+            // The rows are read through a cursor, one at a time, so a big history is never all
+            // in memory; it only collects ids, because nothing may be written mid-cursor.
+            let labelable = "kind = 'text' OR (kind = 'image' AND imageText <> '')"
+            try db.execute(
+                sql:
+                    "INSERT INTO labelQueue (clipboardItemId) SELECT id FROM clipboardItem WHERE \(labelable)"
+            )
+            var credentialIds: [Int64] = []
+            let rows = try Row.fetchCursor(
                 db,
                 sql: """
-                    SELECT id, CASE WHEN kind = 'text' THEN searchText ELSE imageText END AS text
-                    FROM clipboardItem WHERE kind = 'text' OR (kind = 'image' AND imageText <> '')
+                    SELECT id, substr(CASE WHEN kind = 'text' THEN searchText ELSE imageText END, 1, 1500)
+                        AS text
+                    FROM clipboardItem WHERE \(labelable)
                     """)
-            for row in rows {
-                let id: Int64 = row["id"]
-                if Credentials.detect(row["text"]) {
-                    try db.execute(
-                        sql: "UPDATE clipboardItem SET categoryId = 4, language = 'none' WHERE id = ?",
-                        arguments: [id])
-                } else {
-                    try db.execute(
-                        sql: "INSERT INTO labelQueue (clipboardItemId) VALUES (?)", arguments: [id])
-                }
+            while let row = try rows.next() {
+                if Credentials.detect(row["text"]) { credentialIds.append(row["id"]) }
+            }
+            for id in credentialIds {
+                try db.execute(
+                    sql: "UPDATE clipboardItem SET categoryId = 4, language = 'none' WHERE id = ?",
+                    arguments: [id])
+                try db.execute(sql: "DELETE FROM labelQueue WHERE clipboardItemId = ?", arguments: [id])
             }
         }
         return migrator

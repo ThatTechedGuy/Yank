@@ -81,14 +81,9 @@ private struct LabelSettings: View {
                 }
             }
             Section {
+                // Arrow buttons, not `.onMove`, which does nothing in a grouped Form.
                 ForEach(model.categories) { category in
-                    CategoryRow(category: category)
-                }
-                .onMove { from, to in
-                    var order = model.categories.map(\.id)
-                    order.move(fromOffsets: from, toOffset: to)
-                    let ids = order
-                    model.changeCategories { try await $0.reorderCategories(ids: ids) }
+                    CategoryRow(category: category, move: { move(category, by: $0) })
                 }
                 Button("Add Category") {
                     let name = Self.freeName(among: model.categories)
@@ -99,14 +94,23 @@ private struct LabelSettings: View {
                 Text("Categories")
             } footer: {
                 Text(
-                    "The model picks one of these for each copy, by its description. Drag to reorder. "
-                        + "Removing a category moves its items to Other. After a change, items whose "
-                        + "category you did not set by hand are labelled again.")
+                    "The model picks one of these for each copy, by its description; a new category is "
+                        + "used once it has one. Removing a category moves its items to Other. After a "
+                        + "change, items whose category you did not set by hand are labelled again.")
             }
         }
         .formStyle(.grouped)
         // Tall enough for the starting list, which the window would otherwise cut in half.
         .frame(minHeight: 760)
+    }
+
+    /// Swaps a category with the one above (-1) or below (1) it.
+    private func move(_ category: ItemCategory, by step: Int) {
+        var ids = model.categories.map(\.id)
+        guard let index = ids.firstIndex(of: category.id), ids.indices.contains(index + step) else { return }
+        ids.swapAt(index, index + step)
+        let order = ids
+        model.changeCategories { try await $0.reorderCategories(ids: order) }
     }
 
     /// "New Category", or "New Category 2" and so on when that is taken.
@@ -123,13 +127,16 @@ private struct LabelSettings: View {
 private struct CategoryRow: View {
     @Environment(AppModel.self) private var model
     let category: ItemCategory
+    /// Moves the row up (-1) or down (1).
+    let move: (Int) -> Void
 
     @State private var name: String
     @State private var about: String
     @FocusState private var focused: Bool
 
-    init(category: ItemCategory) {
+    init(category: ItemCategory, move: @escaping (Int) -> Void) {
         self.category = category
+        self.move = move
         _name = State(initialValue: category.name)
         _about = State(initialValue: category.about)
     }
@@ -150,16 +157,21 @@ private struct CategoryRow: View {
             .focused($focused)
             .onSubmit(save)
             .onChange(of: focused) { _, isFocused in if !isFocused { save() } }
-            Button("Remove", systemImage: "minus.circle") {
-                let id = category.id
-                model.changeCategories { try await $0.deleteCategory(id: id) }
+            let isFirst = model.categories.first?.id == category.id
+            let isLast = model.categories.last?.id == category.id
+            Group {
+                Button("Move Up", systemImage: "chevron.up") { move(-1) }.disabled(isFirst)
+                Button("Move Down", systemImage: "chevron.down") { move(1) }.disabled(isLast)
+                Button("Remove", systemImage: "minus.circle") {
+                    let id = category.id
+                    model.changeCategories { try await $0.deleteCategory(id: id) }
+                }
+                .disabled(category.isBuiltIn)
+                .help(category.isBuiltIn ? "\(category.name) is built in and cannot be removed" : "Remove")
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderless)
-            .disabled(category.isBuiltIn)
-            .help(category.isBuiltIn ? "\(category.name) is built in and cannot be removed" : "Remove")
         }
-        // A blank or taken name is refused by the Store; the field then shows the saved one.
         .onChange(of: category) { _, saved in
             name = saved.name
             about = saved.about
@@ -169,7 +181,13 @@ private struct CategoryRow: View {
     private func save() {
         guard name != category.name || about != category.about else { return }
         let (id, name, about) = (category.id, name, about)
-        if name.trimmingCharacters(in: .whitespaces).isEmpty { self.name = category.name }
+        // The Store refuses a blank name or another category's, and saves nothing that would
+        // tell this row, so the field puts the saved name back itself.
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let taken = model.categories.contains {
+            $0.id != id && $0.name.localizedCaseInsensitiveCompare(trimmed) == .orderedSame
+        }
+        if trimmed.isEmpty || taken { self.name = category.name }
         model.changeCategories { try await $0.updateCategory(id: id, name: name, about: about) }
     }
 }

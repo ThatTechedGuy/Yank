@@ -72,6 +72,11 @@ extension ItemKind {
     }
 }
 
+extension Language {
+    /// A language as the menus show it: "Not Code" for none.
+    static func displayName(_ language: String) -> String { language == none ? "Not Code" : language }
+}
+
 extension DateRange {
     /// The range as the filter menu shows it.
     var displayName: String {

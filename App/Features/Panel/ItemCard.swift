@@ -23,13 +23,12 @@ struct ItemCard: View {
     let listSize: String
     /// The name of the item's category, once labelled.
     let categoryName: String?
-    /// Reads the item's saved types, for a code card: the card text has its line breaks folded,
-    /// and the source app's RTF carries its own colours.
-    let loadData: () async -> [ClipboardItemData]?
+    /// Reads the item's full text, for a code card: the card text has its line breaks folded.
+    let loadText: () async -> String?
 
-    /// A code card's first lines, coloured, and whether the colours are the source app's own
-    /// (from its RTF) rather than ours; nil for anything else, and while they load.
-    @State private var code: (text: AttributedString, isRich: Bool)?
+    /// A code card's first lines, coloured; nil for anything else, and while they load.
+    @State private var code: AttributedString?
+    @Environment(\.colorScheme) private var colorScheme
 
     @Environment(ThumbnailCache.self) private var thumbnails
     @Environment(\.sourceAppIcons) private var appIcons
@@ -43,9 +42,6 @@ struct ItemCard: View {
     private static let bodyColor = Color(light: 0xFFFFFF, dark: 0x141414)
 
     var body: some View {
-        // Source RTF assumes a white page, so a card showing it stays white in dark mode too,
-        // with dark text where the RTF names no colour. Paste does the same.
-        let isRich = code?.isRich == true
         // Text runs out in a fade above the footer; a swatch or picture fills the body whole.
         let fades = item.kind == .text || item.kind == .link
         VStack(spacing: 0) {
@@ -57,16 +53,16 @@ struct ItemCard: View {
                     VStack(spacing: 0) {
                         Color.black
                         LinearGradient(
-                            colors: [.black, fades ? .clear : .black], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 32)
+                            colors: [.black, fades ? .clear : .black], startPoint: .top, endPoint: .bottom
+                        )
+                        .frame(height: 32)
                     }
                 }
             footer
         }
         .frame(width: width)
         .frame(maxHeight: .infinity)
-        .background(isRich ? Color.white : Self.bodyColor)
-        .environment(\.colorScheme, isRich ? .light : colorScheme)
+        .background(Self.bodyColor)
         .clipShape(.rect(cornerRadius: Self.cornerRadius, style: .continuous))
         // The outline sits outside the card with no gap, so the card keeps its size selected or
         // not.
@@ -83,27 +79,20 @@ struct ItemCard: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         // shortcut: each code card reads its item's bytes as it comes on screen; save its first
         // lines with the item if scrolling a row of code ever stutters.
-        .task(id: [String(item.id), item.language ?? "", item.contentFingerprint]) {
+        // The source app's RTF is not used: an editor in a dark theme copies near-white text,
+        // which vanished on the card. Our own colours follow the panel's appearance instead.
+        .task(id: "\(item.id) \(item.language ?? "") \(item.contentFingerprint) \(colorScheme)") {
             code = await loadCode()
         }
     }
 
-    @Environment(\.colorScheme) private var colorScheme
-
-    /// The source app's RTF when it sent one, else the plain text with our own colours. More
-    /// than twelve card lines can hold, so the card is always full.
-    private func loadCode() async -> (text: AttributedString, isRich: Bool)? {
-        guard item.kind == .text, let language = item.language, CodeText.isCode(language),
-            let data = await loadData()
+    /// The first 800 characters coloured, more than the card's lines can hold.
+    private func loadCode() async -> AttributedString? {
+        guard item.kind == .text, let language = item.language, Language.isCode(language),
+            let text = await loadText()
         else { return nil }
-        if data.contains(where: { $0.type == RichText.rtfType }),
-            let rich = try? await RichText.attributedString(from: data)
-        {
-            let end = rich.index(rich.startIndex, offsetByCharacters: min(800, rich.characters.count))
-            return (AttributedString(rich[rich.startIndex..<end]), true)
-        }
-        guard let text = data.first(where: { $0.type == ClipboardType.plainText })?.text else { return nil }
-        return (CodeText.attributed(String(text.prefix(800)), language: language), false)
+        return await CodeHighlighter.shared.highlight(
+            String(text.prefix(800)), language: language, scheme: colorScheme)
     }
 
     private var outlineColor: Color {
@@ -208,8 +197,7 @@ struct ItemCard: View {
                     Text(heading).font(.system(size: 13, weight: .semibold)).lineLimit(2)
                 }
                 if let code {
-                    // RTF runs keep their own font; the size here is for our own colouring.
-                    Text(code.text).font(.system(size: 11, design: .monospaced)).lineLimit(14)
+                    Text(code).font(.system(size: 11, design: .monospaced)).lineLimit(14)
                 } else if item.title == nil {
                     Text(item.cardText).font(.system(size: 13)).lineSpacing(3).lineLimit(12)
                 }
@@ -239,7 +227,7 @@ struct ItemCard: View {
     /// "⌘1 · Swift · 52 characters", centred: the shortcut, the language of code, and the
     /// detail, when known. An image's size sits in a grey capsule, as in Paste.
     private var footer: some View {
-        let language = CodeText.isCode(item.language) ? item.language : nil
+        let language = item.language.flatMap { Language.isCode($0) ? $0 : nil }
         let parts = [shortcutNumber.map { "⌘\($0)" }, language, item.cardDetail].compactMap { $0 }
         let isImage = item.kind == .image && !fileIsMissing
         // A space keeps the footer's height when both parts are missing.
@@ -284,7 +272,8 @@ extension Color {
     init(light: UInt32, dark: UInt32) {
         self.init(
             nsColor: NSColor(name: nil) { appearance in
-                NSColor(Color(rgb: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light))
+                NSColor(
+                    Color(rgb: appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light))
             })
     }
 }

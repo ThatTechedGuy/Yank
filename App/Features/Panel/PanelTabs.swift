@@ -88,7 +88,9 @@ struct PanelTabs: View {
     /// label colour either way.
     private func tab(_ title: String, systemImage: String? = nil, list: ItemList) -> some View {
         let isCurrent = model.filter.list == list
-        return Button { model.filter.list = list } label: {
+        return Button {
+            model.filter.list = list
+        } label: {
             HStack(spacing: 5) {
                 if let systemImage { Image(systemName: systemImage).accessibilityHidden(true) }
                 Text(title)

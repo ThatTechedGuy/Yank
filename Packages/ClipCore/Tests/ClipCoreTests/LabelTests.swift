@@ -64,25 +64,6 @@ struct CredentialsTests {
     }
 }
 
-struct HighlightTests {
-    // The pieces must join back to the exact text, multi-byte characters included: a paste
-    // never goes through them, but the card would show a garbled copy.
-    @Test func piecesJoinBackToTheText() {
-        let code = "let s = \"héllo // not a comment\" // ünïcode 🙂\n/* block */ x = 42"
-        let pieces = Highlight.pieces(of: code, language: "Swift")
-        #expect(pieces.map(\.text).joined() == code)
-        let kinds = pieces.compactMap { piece in piece.kind.map { (String(piece.text), $0) } }
-        #expect(kinds.map(\.0) == ["let", "\"héllo // not a comment\"", "// ünïcode 🙂", "/* block */", "42"])
-        #expect(kinds.map(\.1) == [.keyword, .string, .comment, .comment, .number])
-    }
-
-    // A word that only contains a keyword, or a digit inside a name, stays plain.
-    @Test func keywordsAndNumbersAreWholeWords() {
-        let pieces = Highlight.pieces(of: "letter v2 # x", language: "Swift")
-        #expect(pieces.allSatisfy { $0.kind == nil })
-    }
-}
-
 struct CategoryTests {
     let folder = TemporaryFolder()
 
@@ -155,6 +136,27 @@ struct CategoryTests {
         #expect(items.first { $0.id == byHand.id }?.categoryId == 6)
     }
 
+    // The model must never read a key: a queued text edited into one leaves the queue. An image
+    // joins it once its words are read, unless the words are a key too.
+    @Test func editsAndImageWordsKeepTheQueueRight() async throws {
+        defer { folder.remove() }
+        let store = try Store(folder: folder.url)
+        let note = try await store.save(copy("draft note"))
+        _ = try await store.replaceData(for: note.id, with: [.text("key AKIAIOSFODNN7EXAMPLE")])
+        #expect(try await store.nextToLabel() == nil)
+        #expect(try await store.items(limit: 1).first?.categoryId == ItemCategory.credentialId)
+        let picture = try await store.save(CapturedCopy(data: [.png([1])], sourceApp: nil, copiedAt: .now))
+        let secret = try await store.save(CapturedCopy(data: [.png([2])], sourceApp: nil, copiedAt: .now))
+        #expect(try await store.nextToLabel() == nil)
+        try await store.setPreview(CardPreview(imageText: "Quarterly revenue"), for: picture.id)
+        try await store.setPreview(
+            CardPreview(imageText: "ghp_" + String(repeating: "c", count: 36)), for: secret.id)
+        let next = try await store.nextToLabel()
+        #expect(next?.item.id == picture.id && next?.text == "Quarterly revenue")
+        try await store.dropFromLabelQueue(itemId: picture.id)
+        #expect(try await store.nextToLabel() == nil)
+    }
+
     // A database from before labels: its texts are queued, pinned first, and its keys are
     // marked Credential without ever being queued.
     @Test func migrationSixQueuesTheHistory() async throws {
@@ -201,7 +203,7 @@ struct LabellingTests {
         let seen = Mutex<[String]>([])
         let enricher = Enricher(
             store: store, makePreview: { _, _ in nil },
-            label: { text, categories in
+            askModel: { text, categories in
                 seen.withLock { $0.append(text) }
                 #expect(!categories.contains { $0.id == ItemCategory.credentialId })
                 return Labels(
@@ -233,7 +235,7 @@ struct LabellingTests {
         let calls = Mutex(0)
         let enricher = Enricher(
             store: store, makePreview: { _, _ in nil },
-            label: { _, _ in
+            askModel: { _, _ in
                 calls.withLock { $0 += 1 }
                 return Labels(category: "Prose", language: "none", title: "")
             }, labelsEnabled: { on.withLock { $0 } })

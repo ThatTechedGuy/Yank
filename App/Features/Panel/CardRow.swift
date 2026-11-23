@@ -27,7 +27,7 @@ struct CardRow: View {
                             fileIsMissing: model.missingFileIds.contains(item.id), width: cardWidth,
                             position: index + 1, listSize: model.listSizeDescription,
                             categoryName: model.categories.first { $0.id == item.categoryId }?.name,
-                            loadData: { await model.data(for: item) }
+                            loadText: { await model.fullText(for: item) }
                         )
                         // The double-click must come before the single click, or the single
                         // click wins and it never fires. SwiftUI's tap gives no modifier keys,
@@ -62,6 +62,17 @@ struct CardRow: View {
                             case .actions: ActionsPopover(item: item, model: model)
                             case .rename: RenamePrompt(item: item, model: model)
                             case .delete(let ids, _): DeletePrompt(ids: ids, model: model)
+                            case .category:
+                                ChoiceList(
+                                    choices: model.categories.map(\.id), current: item.categoryId,
+                                    title: { id in model.categories.first { $0.id == id }?.name ?? "" }
+                                ) { model.setCategory($0, for: item) }
+                            case .language:
+                                ChoiceList(
+                                    choices: Language.all, current: item.language, title: Language.displayName
+                                ) {
+                                    model.setLanguage($0, for: item)
+                                }
                             case nil: EmptyView()
                             }
                         }

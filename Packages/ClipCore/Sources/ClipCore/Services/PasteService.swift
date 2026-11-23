@@ -58,16 +58,15 @@ import Foundation
             var itemData = try await store.data(for: item.id)
             if await itemData.hasMissingFile() { throw PasteError.fileNoLongerExists }
             // Cleaned is plain text too: the rich text would still hold what was cleaned away.
-            if plainText || cleaned {
+            // Only a text card is cleaned; a file's or an image's plain text is a name or a URL.
+            let cleans = cleaned && item.kind == .text
+            if plainText || cleans {
                 let textOnly = itemData.filter { $0.type == ClipboardType.plainText }
                 if !textOnly.isEmpty { itemData = textOnly }
             }
-            if cleaned {
-                itemData = itemData.map { entry in
-                    guard entry.type == ClipboardType.plainText else { return entry }
-                    var entry = entry
-                    entry.data = Data(CleanText.clean(entry.text).utf8)
-                    return entry
+            if cleans {
+                for index in itemData.indices where itemData[index].type == ClipboardType.plainText {
+                    itemData[index].data = await Self.clean(itemData[index].data)
                 }
             }
             // Each card's pasteboard items are numbered from 0 when saved; shift them past the
@@ -113,6 +112,13 @@ import Foundation
         Log.paste.info(
             "pasted items \(ids, privacy: .public)\(plainText ? " as plain text" : "", privacy: .public)")
         return true
+    }
+}
+
+extension PasteService {
+    /// Off the main thread: a 10 MB log takes 0.7 s to clean.
+    @concurrent nonisolated static func clean(_ text: Data) async -> Data {
+        Data(CleanText.clean(String(decoding: text, as: UTF8.self)).utf8)
     }
 }
 

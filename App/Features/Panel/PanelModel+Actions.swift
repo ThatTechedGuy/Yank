@@ -13,10 +13,13 @@ enum CardPrompt: Equatable {
     case rename(anchorId: Int64)
     /// "Delete N items?" for the selected cards; the lead card anchors it.
     case delete(ids: [Int64], anchorId: Int64)
+    /// The category or language list, from Return on that ⌘K row.
+    case category(anchorId: Int64)
+    case language(anchorId: Int64)
 
     var anchorId: Int64 {
         switch self {
-        case .actions(let id), .rename(let id), .delete(_, let id): id
+        case .actions(let id), .rename(let id), .delete(_, let id), .category(let id), .language(let id): id
         }
     }
 }
@@ -98,7 +101,11 @@ extension PanelModel {
         case .showInFinder: showInFinder(item)
         case .delete: confirmDelete(of: targets)
         case .edit: openEditor(item)
-        case .share, .category, .language: break
+        // A list takes the keyboard only in a popover that opens with it, so ⌘K's popover closes
+        // first and the choices open in a new one.
+        case .category: Task { prompt = .category(anchorId: item.id) }
+        case .language: Task { prompt = .language(anchorId: item.id) }
+        case .share: break
         }
     }
 

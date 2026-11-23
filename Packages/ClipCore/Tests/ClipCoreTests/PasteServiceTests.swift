@@ -43,6 +43,13 @@ import Testing
         #expect(try await store.data(for: item.id).map(\.text).last == copied)
         try await service.paste([item], plainText: false, destination: .clipboardOnly)
         #expect(clipboard.contents.first { $0.type == ClipboardType.plainText }?.text == copied)
+        // An image is not cleaned: its plain text is only its address, and ⌥Return pastes the picture.
+        let image = try await store.save(
+            CapturedCopy(
+                data: [.png([1, 2]), .text("$ https://a.example/p.png")], sourceApp: nil, copiedAt: .now))
+        try await service.paste([image], plainText: false, destination: .clipboardOnly, cleaned: true)
+        #expect(clipboard.contents.map(\.type).prefix(2) == ["public.png", ClipboardType.plainText])
+        #expect(clipboard.contents[1].text == "$ https://a.example/p.png")
     }
 
     @Test func pastingWritesEveryTypePlusTheMarkerPressesPasteOnceAndMovesTheItemUp() async throws {

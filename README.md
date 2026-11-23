@@ -32,9 +32,9 @@ in never loses focus.
   date, category and language, and a paste stack for moving several things at once.
 - 🏷 **Labelled for you.** Apple's on-device model gives every copy a category, a language and a short
   title, and code is syntax highlighted. Nothing leaves your Mac.
-- 🪶 **Small and native.** A 7 MB menu-bar app written in Swift and SwiftUI. No Electron; the only helper
+- 🪶 **Small and native.** A 9 MB menu-bar app written in Swift and SwiftUI. No Electron; the only helper
   is Sparkle's installer, which runs during an update.
-- 🧑‍💻 **Open.** MIT licensed, about 7,000 lines of Swift plus tests, four small dependencies. Read it,
+- 🧑‍💻 **Open.** MIT licensed, about 7,000 lines of Swift plus tests, five small dependencies. Read it,
   build it, change it.
 
 ## 🛠 Under the hood
@@ -190,7 +190,9 @@ an app.
 
 Dependencies, all MIT: [GRDB](https://github.com/groue/GRDB.swift) (SQLite),
 [KeyboardShortcuts](https://github.com/sindresorhus/KeyboardShortcuts) (the global shortcuts),
-[Sauce](https://github.com/Clipy/Sauce) (finding the V key on any keyboard layout) and
+[Sauce](https://github.com/Clipy/Sauce) (finding the V key on any keyboard layout),
+[HighlighterSwift](https://github.com/smittytone/HighlighterSwift) (syntax highlighting; it bundles
+highlight.js, under BSD) and
 [Sparkle](https://github.com/sparkle-project/Sparkle) (updates; it bundles a few parts under BSD-style
 licences). Sparkle runs in Release builds only, so a debug run never offers to replace "Yank Debug".
 
@@ -208,7 +210,7 @@ Issues and pull requests are welcome.
 - Never edit a database migration that has shipped; add a new one.
 - Log errors with `\(error.logDescription, privacy: .public)`, never the error itself: its text can hold
   what the user copied.
-- **The lockfile** is `Packages/ClipCore/Package.resolved`. It pins all four dependencies, the app's
+- **The lockfile** is `Packages/ClipCore/Package.resolved`. It pins all five dependencies, the app's
   too, because Xcode writes the app's pins there. Any edit to `Package.swift`, even a comment, changes
   its `originHash`: run `scripts/test.sh --fast` and commit the new hash. Avoid `swift package resolve`
   and `swift package update`; they drop the app's pin.

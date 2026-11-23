@@ -75,7 +75,7 @@ import SwiftUI
             self.capture = capture
             self.store = store
             clipboardAccess = capture.clipboardAccess
-            watchIgnoredApps()
+            watchSettings()
             // The service's system pieces (key presser, permission check) come from ClipSystem, so
             // ClipCore and its tests never touch real keys.
             let pasteService = PasteService(
@@ -88,7 +88,7 @@ import SwiftUI
             let enricher = Enricher(
                 store: store, makePreview: Thumbnailer.preview, recognizeText: TextRecognizer.text(in:),
                 linkFetcher: LinkFetcher(), linkPreviewsEnabled: { SettingsKey.linkPreviewsEnabled },
-                label: { try await Labeller.labels(for: $0, categories: $1) },
+                askModel: { try await Labeller.labels(for: $0, categories: $1) },
                 labelsEnabled: { SettingsKey.labelsEnabled && Labeller.unavailableReason == nil })
             self.enricher = enricher
             // Built now, while nothing is urgent, so the first ⇧⌘V only shows an existing window.
@@ -329,12 +329,13 @@ import SwiftUI
         }
     }
 
-    /// Keeps the capture rules' ignored apps equal to the list in Settings. The list lives in
+    /// Acts on the settings ClipCore cannot read itself. Keeps the capture rules' ignored apps
+    /// equal to the list in Settings, and restarts labelling when its switch comes on. The list lives in
     /// UserDefaults (a preference, so it survives "Erase History") and ClipCore knows nothing about
     /// UserDefaults, so the app copies it across: once now, and again on every defaults change. Not
     /// narrowed to `UserDefaults.standard` (the compiler will not pass it between threads); Yank
     /// has no other defaults, so every such notification is from it anyway.
-    private func watchIgnoredApps() {
+    private func watchSettings() {
         capture?.rules.ignoredApps = Set(IgnoredApps.current.bundleIds)
         Task { [weak self] in
             let changes = NotificationCenter.default.notifications(named: UserDefaults.didChangeNotification)

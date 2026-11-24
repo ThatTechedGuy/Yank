@@ -12,7 +12,8 @@ public final class Enricher: Sendable {
     /// The function that reads the words in an image's bytes. Nil means none were found.
     public typealias RecognizeText = @Sendable ([ClipboardItemData]) async -> String?
     /// The function that asks the model for a copy's labels, choosing the category from the
-    /// list it is given. Throws when the model cannot answer.
+    /// list it is given. Throws `ModelNotReady` when the model cannot answer for now, any other
+    /// error when it cannot answer for this text.
     public typealias AskModel =
         @Sendable (_ text: String, _ categories: [ItemCategory]) async throws -> Labels
 
@@ -26,6 +27,8 @@ public final class Enricher: Sendable {
     /// Asked right before each model call: false while the switch is off or the model is
     /// unavailable, and then the model is never called.
     private let labelsEnabled: @Sendable () -> Bool
+    /// How long the label run waits before asking again when the model is not ready.
+    private let retryDelay: Duration
     /// Whether a run is working through the label queue, and whether it was asked to go round
     /// again (something was queued while it ran), so one run goes at a time and no ask is lost.
     private let labelling = OSAllocatedUnfairLock(initialState: (running: false, again: false))
@@ -40,7 +43,7 @@ public final class Enricher: Sendable {
         store: Store, makePreview: @escaping MakePreview, recognizeText: RecognizeText? = nil,
         linkFetcher: (any LinkFetching)? = nil,
         linkPreviewsEnabled: @escaping @Sendable () -> Bool = { true }, askModel: AskModel? = nil,
-        labelsEnabled: @escaping @Sendable () -> Bool = { true }
+        labelsEnabled: @escaping @Sendable () -> Bool = { true }, retryDelay: Duration = .seconds(60)
     ) {
         self.store = store
         self.makePreview = makePreview
@@ -49,6 +52,7 @@ public final class Enricher: Sendable {
         self.linkPreviewsEnabled = linkPreviewsEnabled
         self.askModel = askModel
         self.labelsEnabled = labelsEnabled
+        self.retryDelay = retryDelay
     }
 
     /// Makes and saves the item's preview, and returns it; nil for text, and for a link without a
@@ -192,9 +196,16 @@ public final class Enricher: Sendable {
         let labels: Labels
         do {
             labels = try await askModel(text, categories)
+        } catch is ModelNotReady {
+            // The item stays first in the queue, so the run asks for it again after the wait.
+            // shortcut: a fixed wait however long the model stays away; back off if the retries
+            // ever show up in energy use.
+            Log.store.notice("model not ready for item \(item.id, privacy: .public), asking again later")
+            try await Task.sleep(for: retryDelay)
+            return
         } catch {
-            // shortcut: a refusal and a passing failure are both dropped, so the item stays
-            // unlabelled until the list changes; retry passing failures if they show up.
+            // About this text (a refusal, say): asking again would get the same answer. It is
+            // tried again when a category change queues it.
             Log.store.error(
                 "could not label item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
             )

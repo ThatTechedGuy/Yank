@@ -113,25 +113,40 @@ struct CategoryTests {
         #expect(try await store.items(limit: 1).first?.categoryId == ItemCategory.otherId)
     }
 
-    // A changed list queues again everything not set by hand, and never a credential.
-    @Test func aListChangeQueuesItemsNotSetByHand() async throws {
+    // Only the delta is labelled again: a reorder queues nothing; an edit queues that category
+    // and Other; a removal queues its own items. Never an item set by hand, never a credential.
+    @Test func aListChangeQueuesOnlyTheItemsItConcerns() async throws {
         defer { folder.remove() }
         let store = try Store(folder: folder.url)
+        let prose = try await store.save(copy("a note for the team"))
+        let data = try await store.save(copy("1, 2, 3"))
+        let other = try await store.save(copy("something odd"))
         let byHand = try await store.save(copy("set by hand"))
-        try await store.setCategory(6, for: byHand.id)
-        let byModel = try await store.save(copy("labelled by the model"))
-        let key = try await store.save(copy("sk-ant-abcdefghijklmnopqrstuvwxyz"))
+        let key = try await store.save(copy("sk-" + String(repeating: "k", count: 24)))
+        let labels: [Int64: Int64] = [prose.id: 6, data.id: 7, other.id: ItemCategory.otherId]
         while let (item, _) = try await store.nextToLabel() {
-            try await store.setLabels(categoryId: 7, language: "none", title: nil, for: item.id)
+            try await store.setLabels(
+                categoryId: labels[item.id] ?? 6, language: "none", title: nil, for: item.id)
+        }
+        try await store.setCategory(6, for: byHand.id)
+        func queued() async throws -> Set<Int64> {
+            var ids: Set<Int64> = []
+            while let (item, _) = try await store.nextToLabel() {
+                ids.insert(item.id)
+                try await store.dropFromLabelQueue(itemId: item.id)
+            }
+            return ids
         }
         try await store.reorderCategories(ids: [2, 1, 3, 4, 5, 6, 7, 8])
-        var queued: [Int64] = []
-        while let (item, _) = try await store.nextToLabel() {
-            queued.append(item.id)
-            try await store.dropFromLabelQueue(itemId: item.id)
-        }
-        #expect(queued == [byModel.id])
+        #expect(try await queued() == [])
+        try await store.updateCategory(id: 6, name: "Prose", about: "Notes and messages.")
+        #expect(try await queued() == [prose.id, other.id])
+        try await store.createCategory(named: "Odd", about: "Strange things.")
+        #expect(try await queued() == [other.id])
+        try await store.deleteCategory(id: 7)
+        #expect(try await queued() == [data.id])
         let items = try await store.items(limit: 10)
+        #expect(items.first { $0.id == data.id }?.categoryId == ItemCategory.otherId)
         #expect(items.first { $0.id == key.id }?.categoryId == ItemCategory.credentialId)
         #expect(items.first { $0.id == byHand.id }?.categoryId == 6)
     }
@@ -225,6 +240,33 @@ struct LabellingTests {
         // Six words at most, and only for code or long text.
         #expect(labelled.labelTitle == "a function that adds two whole")
         #expect(items.first { $0.id == mine.id }?.language == "Python")
+    }
+
+    // A model that is not ready keeps the item queued and is asked again; any other error
+    // drops the item.
+    @Test func aModelThatIsNotReadyIsAskedAgain() async throws {
+        defer { folder.remove() }
+        let store = try Store(folder: folder.url)
+        let calls = Mutex(0)
+        let enricher = Enricher(
+            store: store, makePreview: { _, _ in nil },
+            askModel: { text, _ in
+                let call = calls.withLock {
+                    $0 += 1
+                    return $0
+                }
+                if call == 1 { throw ModelNotReady() }
+                if text == "refused" { throw CancellationError() }
+                return Labels(category: "Prose", language: "none", title: "")
+            }, retryDelay: .zero)
+        let note = try await store.save(CapturedCopy(data: [.text("hello")], sourceApp: nil, copiedAt: .now))
+        await enricher.labelInBackground()?.value
+        #expect(calls.withLock { $0 } == 2)
+        #expect(try await store.items(limit: 1).first { $0.id == note.id }?.categoryId == 6)
+        try await store.save(CapturedCopy(data: [.text("refused")], sourceApp: nil, copiedAt: .now))
+        await enricher.labelInBackground()?.value
+        #expect(calls.withLock { $0 } == 3)
+        #expect(try await store.nextToLabel() == nil)
     }
 
     // Off means no model call at all; the queue waits for the switch to come back on.

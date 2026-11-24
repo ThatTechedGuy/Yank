@@ -95,8 +95,9 @@ private struct LabelSettings: View {
             } footer: {
                 Text(
                     "The model picks one of these for each copy, by its description; a new category is "
-                        + "used once it has one. Removing a category moves its items to Other. After a "
-                        + "change, items whose category you did not set by hand are labelled again.")
+                        + "used once it has one. Removing a category labels its items again. Adding one, "
+                        + "or editing one, labels its items and the Other items again. Items whose "
+                        + "category you set by hand are never relabelled.")
             }
         }
         .formStyle(.grouped)

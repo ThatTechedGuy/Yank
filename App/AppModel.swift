@@ -347,7 +347,7 @@ import SwiftUI
         }
     }
 
-    /// Runs one change to the category list from Settings, then labels the history again.
+    /// Runs one change to the category list from Settings, then labels whatever it queued.
     func changeCategories(_ change: @escaping @Sendable (Store) async throws -> Void) {
         guard let store else { return }
         Task { [weak self] in

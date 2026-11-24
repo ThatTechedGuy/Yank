@@ -17,7 +17,7 @@ public enum Labeller {
         }
     }
 
-    /// The labels for `text`. `anyOf:` limits the category and language to the given lists, so
+    /// The labels for `text`. Throws `ModelNotReady` when the model cannot answer for now. `anyOf:` limits the category and language to the given lists, so
     /// the model cannot invent one. A new session per call, so one copy never colours the next.
     public static func labels(for text: String, categories: [ItemCategory]) async throws -> Labels {
         let category = DynamicGenerationSchema(name: "category", anyOf: categories.map(\.name))
@@ -42,7 +42,16 @@ public enum Labeller {
                 Choose the programming or markup language, or none if it is not code. Give a short \
                 title of at most six words that says what the text is.
                 """)
-        let content = try await session.respond(to: text, schema: schema).content
+        let content: GeneratedContent
+        do {
+            content = try await session.respond(to: text, schema: schema).content
+        } catch let error as LanguageModelSession.GenerationError {
+            switch error {
+            // Passing states: asked again later. A refusal or a guardrail is about this text and stays.
+            case .assetsUnavailable, .rateLimited, .concurrentRequests: throw ModelNotReady()
+            default: throw error
+            }
+        }
         return Labels(
             category: try content.value(String.self, forProperty: "category"),
             language: try content.value(String.self, forProperty: "language"),

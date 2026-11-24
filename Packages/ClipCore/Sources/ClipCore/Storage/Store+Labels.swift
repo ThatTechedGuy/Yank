@@ -30,8 +30,8 @@ extension Store {
         try await pool.read { db in try ItemCategory.inOrder.fetchAll(db) }
     }
 
-    /// Adds a category at the end of the list, and queues the history to be labelled again when
-    /// it has a description.
+    /// Adds a category at the end of the list. With a description, the items labelled Other
+    /// are labelled again: they are the ones that fitted no category before.
     /// Nil when the name is blank or another category has it: the model is handed the names as
     /// a list of choices, which must be distinct.
     @discardableResult
@@ -44,15 +44,16 @@ extension Store {
                 name: name, about: about.trimmingCharacters(in: .whitespacesAndNewlines),
                 position: (last ?? -1) + 1
             ).insertAndFetch(db, as: ItemCategory.self)
-            // The model is not offered a category without a description (see Enricher), so the
-            // history is labelled again once it has one.
-            if !category.about.isEmpty { try Self.queueAllForLabels(db) }
+            // The model is not offered a category without a description (see Enricher), so a
+            // blank one queues nothing; `updateCategory` queues once it gets one.
+            if !category.about.isEmpty { try Self.queueForLabels(db, inCategories: [ItemCategory.otherId]) }
             return category
         }
     }
 
     /// Saves a category's name and description. A blank or taken name is left as it was; the
-    /// description is saved either way. Its items keep it: they point at it by id.
+    /// description is saved either way. Its items keep it: they point at it by id. Its items
+    /// and the Other items are labelled again, as the change may push items out or pull them in.
     public func updateCategory(id: Int64, name: String, about: String) async throws {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         try await pool.write { db in
@@ -62,29 +63,32 @@ extension Store {
             category.about = about.trimmingCharacters(in: .whitespacesAndNewlines)
             guard category != old else { return }
             try category.update(db)
-            try Self.queueAllForLabels(db)
+            try Self.queueForLabels(db, inCategories: [id, ItemCategory.otherId])
         }
     }
 
-    /// Puts the categories in this order, first to last.
+    /// Puts the categories in this order, first to last. Nothing is labelled again: the order
+    /// changes no category's meaning.
     public func reorderCategories(ids: [Int64]) async throws {
         try await pool.write { db in
             for (position, id) in ids.enumerated() {
                 _ = try ItemCategory.filter(key: id).updateAll(
                     db, [ItemCategoryColumns.position.set(to: position)])
             }
-            try Self.queueAllForLabels(db)
         }
     }
 
-    /// Removes a category; its items move to Other. Other and Credential cannot be removed.
+    /// Removes a category; its items move to Other and are labelled again, so they find their
+    /// best remaining category. Other and Credential cannot be removed.
     public func deleteCategory(id: Int64) async throws {
         guard id != ItemCategory.otherId, id != ItemCategory.credentialId else { return }
         try await pool.write { db in
+            guard try ItemCategory.exists(db, key: id) else { return }
+            // Queued first: once moved they cannot be told from the items already in Other.
+            try Self.queueForLabels(db, inCategories: [id])
             _ = try ClipboardItem.filter(ClipboardItemColumns.categoryId == id)
                 .updateAll(db, [ClipboardItemColumns.categoryId.set(to: ItemCategory.otherId)])
-            guard try ItemCategory.deleteOne(db, key: id) else { return }
-            try Self.queueAllForLabels(db)
+            _ = try ItemCategory.deleteOne(db, key: id)
         }
     }
 
@@ -95,17 +99,21 @@ extension Store {
         }
     }
 
-    /// Queues every item the model may label again: what the model can read, minus a category
-    /// set by hand and the credentials, which the model never sees. Hand-written SQL because the
-    /// query builder has no INSERT … SELECT, and one statement keeps a 100,000-item history fast.
-    private static func queueAllForLabels(_ db: Database) throws {
+    /// Queues the items in these categories that the model may label again: what the model can
+    /// read, minus a category set by hand and the credentials, which the model never sees.
+    /// Hand-written SQL because the query builder has no INSERT … SELECT, and one statement keeps
+    /// a 100,000-item history fast.
+    private static func queueForLabels(_ db: Database, inCategories ids: [Int64]) throws {
+        let ids = ids.filter { $0 != ItemCategory.credentialId }
+        guard !ids.isEmpty else { return }
         try db.execute(
             sql: """
                 INSERT OR IGNORE INTO labelQueue (clipboardItemId)
                 SELECT id FROM clipboardItem
                 WHERE (kind = 'text' OR (kind = 'image' AND imageText <> ''))
-                  AND categorySetByHand = 0 AND (categoryId IS NULL OR categoryId <> ?)
-                """, arguments: [ItemCategory.credentialId])
+                  AND categorySetByHand = 0
+                  AND categoryId IN (\(ids.map { _ in "?" }.joined(separator: ", ")))
+                """, arguments: StatementArguments(ids))
     }
 
     /// The next queued item for the model, pinned items first, then newest, with the text to

@@ -18,6 +18,13 @@ public struct Labels: Hashable, Sendable {
     }
 }
 
+/// What `Enricher.AskModel` throws when the model cannot answer for now (still loading its
+/// assets, or busy with other requests). The item stays queued and is asked again after a wait;
+/// any other error drops it from the queue.
+public struct ModelNotReady: Error {
+    public init() {}
+}
+
 /// The languages the model may pick from, and the highlighter knows.
 public enum Language {
     /// Not code.

@@ -64,6 +64,19 @@ struct ThumbnailerTests {
         #expect(Thumbnailer.imageThumbnail(Data("not an image".utf8)) == nil)
     }
 
+    // A link's page image: an opaque one is saved as JPEG, several times smaller for a photo;
+    // one with see-through parts stays PNG, since JPEG would fill them in black.
+    @Test func lossyThumbnailsAreJPEGUnlessTheImageIsSeeThrough() throws {
+        let photo = try #require(
+            Thumbnailer.jpegData(
+                try image(width: 800, height: 400, color: CGColor(red: 1, green: 0, blue: 0, alpha: 1))))
+        let opaque = try #require(Thumbnailer.imageThumbnail(photo, lossy: true))
+        #expect(opaque.png.starts(with: [0xFF, 0xD8]))
+        let logo = try png(width: 800, height: 400, color: CGColor(red: 1, green: 0, blue: 0, alpha: 0.5))
+        let seeThrough = try #require(Thumbnailer.imageThumbnail(logo, lossy: true))
+        #expect(seeThrough.png.starts(with: [0x89, 0x50]))
+    }
+
     @Test func anImageItemGetsAThumbnailAndItsPixelSize() async throws {
         let item = item(id: 7, kind: .image)
         let data = [

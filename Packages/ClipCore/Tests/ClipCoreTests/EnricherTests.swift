@@ -115,7 +115,23 @@ struct EnricherTests {
         let found = try await store.search("Example Domain", limit: 10)
         #expect(found?.map(\.id) == [item.id])
         #expect(found?.first?.linkPageTitle == "Example Domain")
-        #expect(try await store.thumbnail(for: item.id)?.width == 32)
+        let thumbnail = try await store.thumbnail(for: item.id)
+        #expect(thumbnail?.width == 32)
+        #expect(thumbnail?.isPageImage == false)
+    }
+
+    // As in Paste, a page's preview image (og:image) wins over its icon, and is marked so the
+    // card fills its picture area with it instead of drawing it small.
+    @MainActor @Test func aPagesPreviewImageIsSavedInsteadOfItsIcon() async throws {
+        defer { folder.remove() }
+        let store = try Store(folder: folder.url)
+        let web = FakeLinkFetcher()
+        web.preview.image = LinkPreview.PNG(png: Data([0x89, 0x50, 0x4E, 0x47, 1]), width: 512, height: 256)
+        let item = try await store.save(linkCopy("https://example.com/article"))
+        _ = try await enricher(store, web: web).enrich(item)
+        let thumbnail = try await store.thumbnail(for: item.id)
+        #expect(thumbnail?.width == 512)
+        #expect(thumbnail?.isPageImage == true)
     }
 
     // Opening a page can use up a one-time link, so copying the same link again must not open

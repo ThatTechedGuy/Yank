@@ -92,7 +92,7 @@ extension Tag {
     var fetched: [URL] = []
     var preview = LinkPreview(
         title: "Example Domain",
-        icon: LinkPreview.Icon(png: Data([0x89, 0x50, 0x4E, 0x47]), width: 32, height: 32))
+        icon: LinkPreview.PNG(png: Data([0x89, 0x50, 0x4E, 0x47]), width: 32, height: 32))
 
     func fetch(_ url: URL) async throws -> LinkPreview {
         fetched.append(url)

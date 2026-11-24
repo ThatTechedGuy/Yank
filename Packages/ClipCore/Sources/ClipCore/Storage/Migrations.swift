@@ -224,6 +224,15 @@ enum Migrations {
                 try db.execute(sql: "DELETE FROM labelQueue WHERE clipboardItemId = ?", arguments: [id])
             }
         }
+
+        // v7: a link's thumbnail can be its page's preview image (og:image), which the card draws
+        // filling its picture area, as Paste does. Links saved before were fetched for their icon
+        // only, so false, the default, is right for every existing row.
+        migrator.registerMigration("v7") { db in
+            try db.alter(table: "cardThumbnail") { t in
+                t.add(column: "isPageImage", .boolean).notNull().defaults(to: false)
+            }
+        }
         return migrator
     }
 }

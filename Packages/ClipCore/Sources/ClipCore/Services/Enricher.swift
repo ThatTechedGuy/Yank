@@ -213,9 +213,10 @@ public final class Enricher: Sendable {
             return
         }
         let language = Language.all.contains(labels.language) ? labels.language : Language.none
-        // A title only where the first line says little: code, and text longer than a card.
+        // A title only where the first line says little: code, and text longer than about what a
+        // card shows (200 characters).
         let words = labels.title.split(whereSeparator: \.isWhitespace).prefix(6).joined(separator: " ")
-        let wantsTitle = language != Language.none || text.count > CardText.maxLength
+        let wantsTitle = language != Language.none || text.count > 200
         try await store.setLabels(
             categoryId: categories.first { $0.name == labels.category }?.id ?? ItemCategory.otherId,
             language: language, title: wantsTitle && !words.isEmpty ? words : nil, for: item.id)

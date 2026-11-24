@@ -206,7 +206,7 @@ extension PanelModel {
         Task { [store] in
             let url: URL?
             if item.kind == .link {
-                // The saved address, not the card's text, which stops at 200 characters.
+                // The saved address, not the card's text, which stops at 400 characters.
                 url = (try? await store.data(for: item.id)).flatMap { URL(string: $0.linkAddress) }
             } else {
                 url = try? await store.quickLookFile(for: item)

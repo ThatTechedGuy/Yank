@@ -92,7 +92,7 @@ struct KindDetectionTests {
 
 struct CardTextTests {
     @Test func whitespaceIsCollapsedAndTextIsCut() {
-        let text = "  line one\n\n\t  line two  " + String(repeating: "x", count: 300)
+        let text = "  line one\n\n\t  line two  " + String(repeating: "x", count: CardText.maxLength)
         let card = CardText.make(kind: .text, data: [.text(text)])
         #expect(card.hasPrefix("line one line two x"))
         #expect(card.count == CardText.maxLength)
@@ -115,7 +115,7 @@ struct CardTextTests {
 
     @Test func aHugeTextStillGetsACardQuickly() {
         // A copied log file of many megabytes must not be split into words in full just to show
-        // 200 characters.
+        // 400 characters.
         let text = "start here " + String(repeating: "word ", count: 2_000_000)
         let card = CardText.make(kind: .text, data: [.text(text)])
         #expect(card.hasPrefix("start here word"))

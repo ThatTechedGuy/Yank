@@ -323,7 +323,7 @@ import SwiftUI
         quickLookURL = nil
     }
 
-    /// The item's whole text, for the large preview: the card only carries the first 200
+    /// The item's whole text, for the large preview: the card only carries the first 400
     /// characters. Nil when the saved bytes cannot be read. Off the main thread, because decoding
     /// a copy of tens of MB takes a moment.
     @concurrent func fullText(for item: ClipboardItem) async -> String? {

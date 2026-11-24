@@ -9,7 +9,7 @@ struct LargePreview: View {
     let item: ClipboardItem
     let model: PanelModel
 
-    /// The item's full text once read; nil while it loads. The card only has the first 200
+    /// The item's full text once read; nil while it loads. The card only has the first 400
     /// characters.
     @State private var text: String?
     /// The full text's counts, made once when it lands rather than on every draw (counting a

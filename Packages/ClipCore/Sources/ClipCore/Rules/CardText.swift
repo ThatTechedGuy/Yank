@@ -4,7 +4,8 @@ import Foundation
 // list never touches the item's bytes.
 /// Builds the card text for a copy.
 public enum CardText {
-    public static let maxLength = 200
+    /// About twice what a card shows under a title, so the text runs into the card's fade.
+    public static let maxLength = 400
 
     /// The card text for a copy of the given kind.
     public static func make(kind: ItemKind, data: [ClipboardItemData]) -> String {
@@ -42,7 +43,7 @@ public enum CardText {
     // or two of real words instead of indentation.
     private static func condense(_ text: String) -> String {
         // Only the start of the text can end up on the card, so only look at that much. Without
-        // this, a 50 MB copied log file would be split into words just to keep 200 characters.
+        // this, a 50 MB copied log file would be split into words just to keep 400 characters.
         // shortcut: a 4 KB prefix that is all whitespace gives an empty card; raise the limit if
         // that ever shows up in practice.
         let words = text.prefix(4096).split(whereSeparator: \.isWhitespace)

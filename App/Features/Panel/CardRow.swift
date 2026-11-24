@@ -106,8 +106,9 @@ struct CardRow: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Cards")
             }
-            // No scroll bar: it would sit on top of the cards.
-            .scrollIndicators(.hidden)
+            // No scroll bar: it would sit on top of the cards. `.never`, not `.hidden`: with a
+            // mouse connected macOS shows full scroll bars, and `.hidden` lets it.
+            .scrollIndicators(.never)
             // Keeps the selected card in view. `anchor: nil` is the smallest move that shows it
             // fully, so a card already on screen does not shift.
             .onChange(of: model.selectedId, initial: true) { _, id in

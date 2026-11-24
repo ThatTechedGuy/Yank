@@ -19,7 +19,7 @@ struct PanelTabs: View {
             ViewThatFits(in: .horizontal) {
                 tabs
                 ScrollView(.horizontal) { tabs }
-                    .scrollIndicators(.hidden)
+                    .scrollIndicators(.never)
             }
             Button {
                 model.newPinboardPrompt = NewPinboardPrompt()

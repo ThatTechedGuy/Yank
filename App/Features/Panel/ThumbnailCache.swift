@@ -22,6 +22,9 @@ import SwiftUI
     /// are not asked for again on every scroll. Not observed: `image(for:)` changes it while a
     /// card is being drawn, and `version` is what tells the card to draw again.
     @ObservationIgnored private var loading: Set<Int64> = []
+    /// Links whose cached picture is the page's preview image rather than the site's icon. Set
+    /// before `version` changes, so the card that redraws for the picture also reads this.
+    @ObservationIgnored private var pageImages: Set<Int64> = []
 
     init(store: Store, enricher: Enricher) {
         self.store = store
@@ -31,7 +34,8 @@ import SwiftUI
     }
 
     /// The item's thumbnail if it is in memory. Otherwise nil, and a background read starts
-    /// that re-draws the caller when it lands. A link's thumbnail is its site's icon.
+    /// that re-draws the caller when it lands. A link's thumbnail is its page's preview image,
+    /// or its site's icon when the page has none (see `isPageImage`).
     func image(for item: ClipboardItem) -> NSImage? {
         if let image = images.object(forKey: item.id as NSNumber) { return image }
         guard item.kind == .image || item.kind == .file || item.kind == .link, !loading.contains(item.id)
@@ -44,11 +48,16 @@ import SwiftUI
         return nil
     }
 
+    /// Whether a link's cached picture is its page's preview image, which fills the picture
+    /// area, rather than its site's icon.
+    func isPageImage(_ id: Int64) -> Bool { pageImages.contains(id) }
+
     /// Drops the item's picture, for when its bytes were replaced in the editor: the next draw
     /// reads the new thumbnail, or makes one, instead of showing the old picture.
     func forget(_ id: Int64) {
         images.removeObject(forKey: id as NSNumber)
         loading.remove(id)
+        pageImages.remove(id)
         version += 1
     }
 
@@ -78,6 +87,7 @@ import SwiftUI
             // The cost is the decoded pixels, four bytes each, not the PNG they came from.
             images.setObject(
                 image, forKey: item.id as NSNumber, cost: thumbnail.width * thumbnail.height * 4)
+            if thumbnail.isPageImage { pageImages.insert(item.id) }
             loading.remove(item.id)
             version += 1
         } catch {

@@ -47,8 +47,9 @@ public enum Thumbnailer {
 
     /// A PNG of at most `maxPixelSize` on its long side, plus the image's real pixel size.
     /// Never scaled up: a tiny image stays tiny. Nil when the bytes are not an image ImageIO
-    /// can read.
-    static func imageThumbnail(_ data: Data) -> (
+    /// can read. `lossy` makes an opaque picture a JPEG instead, several times smaller for a
+    /// photo; one with see-through parts stays PNG, which JPEG would fill in black.
+    static func imageThumbnail(_ data: Data, lossy: Bool = false) -> (
         png: Data, width: Int, height: Int, originalWidth: Int, originalHeight: Int
     )? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
@@ -67,9 +68,11 @@ public enum Thumbnailer {
             kCGImageSourceCreateThumbnailWithTransform: true,
             kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
         ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary),
-            let png = pngData(image)
-        else { return nil }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
+            return nil
+        }
+        let opaque = [.none, .noneSkipFirst, .noneSkipLast].contains(image.alphaInfo)
+        guard let png = lossy && opaque ? jpegData(image) : pngData(image) else { return nil }
         return (png, image.width, image.height, originalWidth, originalHeight)
     }
 
@@ -91,13 +94,20 @@ public enum Thumbnailer {
         return icon.cgImage(forProposedRect: &rect, context: nil, hints: nil)
     }
 
-    static func pngData(_ image: CGImage) -> Data? {
+    static func pngData(_ image: CGImage) -> Data? { encode(image, as: .png) }
+
+    /// Quality 0.8: no loss the eye sees at card size.
+    static func jpegData(_ image: CGImage) -> Data? {
+        encode(image, as: .jpeg, [kCGImageDestinationLossyCompressionQuality: 0.8])
+    }
+
+    private static func encode(_ image: CGImage, as type: UTType, _ properties: [CFString: Any] = [:])
+        -> Data?
+    {
         let data = NSMutableData()
-        guard
-            let destination = CGImageDestinationCreateWithData(
-                data, UTType.png.identifier as CFString, 1, nil)
+        guard let destination = CGImageDestinationCreateWithData(data, type.identifier as CFString, 1, nil)
         else { return nil }
-        CGImageDestinationAddImage(destination, image, nil)
+        CGImageDestinationAddImage(destination, image, properties as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { return nil }
         return data as Data
     }

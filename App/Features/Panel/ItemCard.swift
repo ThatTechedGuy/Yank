@@ -1,6 +1,7 @@
 // One card in the row, laid out like Paste's: a 48-point header tinted with the source app's icon
 // colour (the kind, the age, and the big app icon clipped at the corner), a preview of the content
-// that fades out at the bottom, and a centred footer with the ⌘1–⌘9 hint and one detail.
+// that fades out at the bottom, and a centred footer with the ⌘1–⌘9 hint and one detail. A link
+// card is Paste's too: the page's preview image (or the site's icon) over its title and address.
 import AppKit
 import ClipCore
 import ClipSystem
@@ -43,7 +44,7 @@ struct ItemCard: View {
 
     var body: some View {
         // Text runs out in a fade above the footer; a swatch or picture fills the body whole.
-        let fades = item.kind == .text || item.kind == .link
+        let fades = item.kind == .text
         VStack(spacing: 0) {
             header
             content
@@ -170,26 +171,7 @@ struct ItemCard: View {
                     .foregroundStyle(Self.readableText(on: NSColor(color)))
             }
         } else if item.kind == .link {
-            // Once the page has been fetched: the site's icon, the page's title and the address
-            // underneath; until then (or with previews off) just the address. The renamed title
-            // wins over the page's.
-            VStack(alignment: .leading, spacing: 8) {
-                if let icon = thumbnails.image(for: item) {
-                    Image(nsImage: icon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 32, height: 32)
-                        .clipShape(RoundedRectangle(cornerRadius: 6))
-                }
-                if let heading = item.title ?? item.linkPageTitle {
-                    Text(heading).font(.system(size: 13, weight: .semibold)).lineLimit(3)
-                    Text(item.cardText).font(.system(size: 12)).foregroundStyle(.secondary).lineLimit(2)
-                } else {
-                    Text(item.cardText).font(.system(size: 13)).lineLimit(8)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(12)
+            linkPicture
         } else if item.kind == .text {
             // The model's title (or your own name) over the text; code keeps its lines, coloured.
             VStack(alignment: .leading, spacing: 4) {
@@ -224,9 +206,70 @@ struct ItemCard: View {
         }
     }
 
+    /// A link's picture area, as in Paste: the page's preview image filling it, else the site's
+    /// icon (or a globe, before the page is fetched or when it has none) in the middle of a
+    /// faint gradient.
+    private var linkPicture: some View {
+        let picture = thumbnails.image(for: item)
+        return LinearGradient(
+            colors: [Color(light: 0xFFFFFF, dark: 0x1E1E1E), Color(light: 0xF2F3F7, dark: 0x1C1C1E)],
+            startPoint: .top, endPoint: .bottom
+        )
+        .overlay {
+            if let picture, thumbnails.isPageImage(item.id) {
+                // An overlay on the box, as for photos, so the filling picture cannot push the
+                // footer out of place.
+                Image(nsImage: picture).resizable().aspectRatio(contentMode: .fill)
+            } else if let picture {
+                // shortcut: 48 points is a guess, Paste's lock overlay hid its icon; measure it
+                // on an unlocked Paste if the size ever matters.
+                Image(nsImage: picture)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(width: 48, height: 48)
+                    .clipShape(.rect(cornerRadius: 10, style: .continuous))
+            } else {
+                Image(systemName: "globe")
+                    .font(.system(size: 40, weight: .light))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .clipped()
+    }
+
+    /// The bottom of the card. A link gets Paste's two lines, the page's title (or the renamed
+    /// card's name, or the site) over the address without its scheme, with the ⌘ hint at the end
+    /// of the address; everything else gets the centred line below.
+    @ViewBuilder private var footer: some View {
+        if item.kind == .link {
+            let address = item.cardText.replacing(/^https?:\/\//, with: "")
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title ?? item.linkPageTitle ?? item.cardDetail ?? address)
+                    .font(.system(size: 15, weight: .semibold))
+                HStack(spacing: 4) {
+                    Text(address)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    if let shortcutNumber {
+                        Text("⌘\(shortcutNumber)")
+                            .font(.system(size: 12).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .lineLimit(1)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+        } else {
+            detailLine
+        }
+    }
+
     /// "⌘1 · Swift · 52 characters", centred: the shortcut, the language of code, and the
     /// detail, when known. An image's size sits in a grey capsule, as in Paste.
-    private var footer: some View {
+    private var detailLine: some View {
         let language = item.language.flatMap { Language.isCode($0) ? $0 : nil }
         let parts = [shortcutNumber.map { "⌘\($0)" }, language, item.cardDetail].compactMap { $0 }
         let isImage = item.kind == .image && !fileIsMissing

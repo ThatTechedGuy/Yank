@@ -89,8 +89,9 @@ public final class Enricher: Sendable {
         return preview
     }
 
-    /// The title and icon of the page a link points at, or nil when previews are off, the
-    /// address is local, or the copy holds no usable address.
+    /// The title and picture of the page a link points at, or nil when previews are off, the
+    /// address is local, or the copy holds no usable address. The picture is the page's preview
+    /// image when it has one, as Paste shows, else the site's icon.
     private func linkPreview(_ item: ClipboardItem, _ data: [ClipboardItemData]) async throws -> CardPreview?
     {
         guard let linkFetcher, linkPreviewsEnabled() else { return nil }
@@ -100,9 +101,12 @@ public final class Enricher: Sendable {
             return nil
         }
         let page = try await linkFetcher.fetch(url)
+        let picture = page.image ?? page.icon
         return CardPreview(
-            thumbnail: page.icon.map {
-                CardThumbnail(clipboardItemId: item.id, png: $0.png, width: $0.width, height: $0.height)
+            thumbnail: picture.map {
+                CardThumbnail(
+                    clipboardItemId: item.id, png: $0.png, width: $0.width, height: $0.height,
+                    isPageImage: page.image != nil)
             },
             linkPageTitle: page.title)
     }

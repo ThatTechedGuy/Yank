@@ -7,17 +7,21 @@ import Foundation
 public struct CardThumbnail: Hashable, Sendable, Codable {
     /// The item it belongs to; also the row's primary key, so an item has one thumbnail at most.
     public var clipboardItemId: Int64
-    /// The PNG bytes.
+    /// The PNG bytes; a JPEG for a link's page image without transparency (see `isPageImage`).
     public var png: Data
     /// The PNG's size in pixels. Stored so a card can reserve the right space before decoding.
     public var width: Int
     public var height: Int
+    /// For a link: true when this is the page's preview image, which fills the card's picture
+    /// area; false when it is the site's icon, drawn small in the middle. False for other kinds.
+    public var isPageImage: Bool
 
-    public init(clipboardItemId: Int64, png: Data, width: Int, height: Int) {
+    public init(clipboardItemId: Int64, png: Data, width: Int, height: Int, isPageImage: Bool = false) {
         self.clipboardItemId = clipboardItemId
         self.png = png
         self.width = width
         self.height = height
+        self.isPageImage = isPageImage
     }
 }
 

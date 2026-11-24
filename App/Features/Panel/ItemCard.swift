@@ -254,7 +254,7 @@ struct ItemCard: View {
                     if let shortcutNumber {
                         Text("⌘\(shortcutNumber)")
                             .font(.system(size: 12).monospacedDigit())
-                            .foregroundStyle(.tertiary)
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

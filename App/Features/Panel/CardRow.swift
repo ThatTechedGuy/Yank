@@ -33,7 +33,7 @@ struct CardRow: View {
                         // click wins and it never fires. SwiftUI's tap gives no modifier keys,
                         // so they are read from AppKit's current keyboard state.
                         .onTapGesture(count: 2) {
-                            model.paste(item, plainText: NSEvent.modifierFlags.contains(.shift))
+                            model.paste([item], plainText: NSEvent.modifierFlags.contains(.shift))
                         }
                         .onTapGesture {
                             if NSEvent.modifierFlags.contains(.command) {

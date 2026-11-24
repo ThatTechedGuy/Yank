@@ -198,7 +198,7 @@ import SwiftUI
             do {
                 var item = first
                 while try await !pasteService.paste(
-                    item, plainText: PasteSettings.alwaysPlainText, destination: PasteSettings.destination),
+                    [item], plainText: PasteSettings.alwaysPlainText, destination: PasteSettings.destination),
                     let next = stack.popNext()
                 {
                     item = next

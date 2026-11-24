@@ -32,18 +32,10 @@ import Foundation
     /// Shows macOS's own dialog for granting the Accessibility permission.
     public func requestAccessibility() { accessibility.requestAccess() }
 
-    /// Pastes `item`. `plainText` keeps only its plain-text type; an item with no plain text at
-    /// all, such as a bare image, is pasted whole. `destination` says whether to press ⌘V at all.
-    /// Returns false when the item was deleted after it was listed, so nothing was written.
-    @discardableResult
-    public func paste(_ item: ClipboardItem, plainText: Bool, destination: PasteDestination)
-        async throws -> Bool
-    {
-        try await paste([item], plainText: plainText, destination: destination)
-    }
-
-    /// Pastes several cards in one clipboard write, in order: one pasteboard item per card (a file
-    /// card with three files keeps its three), each with all of the card's types. `cleaned` pastes
+    /// Pastes cards in one clipboard write, in order: one pasteboard item per card (a file card
+    /// with three files keeps its three), each with all of the card's types. `plainText` keeps
+    /// only the plain-text type; a card with no plain text at all, such as a bare image, is
+    /// pasted whole. `destination` says whether to press ⌘V at all. `cleaned` pastes
     /// the plain text through `CleanText.clean` instead (⌥Return); the saved item keeps its bytes. Apps that take
     /// several items (TextEdit, Finder) paste them all; apps that take one paste the first. Every
     /// card moves to the top of the history, order kept. Nothing is written if a file card's file

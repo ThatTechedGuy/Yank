@@ -13,6 +13,7 @@ cd "$(dirname "$0")/.."
 mode=${1:-}
 if [[ "$mode" != --ui ]]; then
     scripts/check-imports.sh
+    swift format lint --strict --recursive App AppUITests Packages/ClipCore
     # --fast skips the tests whose names start with "slow" (they seed 100,000 items).
     if [[ "$mode" == --fast ]]; then
         (cd Packages/ClipCore && swift test --skip '/slow')

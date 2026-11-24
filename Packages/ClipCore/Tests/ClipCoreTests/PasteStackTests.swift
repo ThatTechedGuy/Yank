@@ -87,7 +87,7 @@ import Testing
 
         let popped = stack.popNext()
         let next = try #require(popped)
-        try await service.paste(next, plainText: false, destination: .activeApp)
+        try await service.paste([next], plainText: false, destination: .activeApp)
         #expect(clipboard.contents.first?.text == "a")
         #expect(keys.presses == 0)
         #expect(stack.queue.map(\.id) == [b.id])

@@ -112,30 +112,16 @@ extension PanelModel {
     /// The category picked by hand in the card's menu; the model leaves it alone from then on.
     func setCategory(_ categoryId: Int64, for item: ClipboardItem) {
         prompt = nil
-        Task { [store] in
-            do {
-                try await store.setCategory(categoryId, for: item.id)
-                refreshSearch()
-            } catch {
-                Log.ui.error(
-                    "could not set the category of \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
-            }
+        change("set the category of \(item.id)") { [store] in
+            try await store.setCategory(categoryId, for: item.id)
         }
     }
 
     /// The language picked by hand in the card's menu; the model leaves it alone from then on.
     func setLanguage(_ language: String, for item: ClipboardItem) {
         prompt = nil
-        Task { [store] in
-            do {
-                try await store.setLanguage(language, for: item.id)
-                refreshSearch()
-            } catch {
-                Log.ui.error(
-                    "could not set the language of \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
-            }
+        change("set the language of \(item.id)") { [store] in
+            try await store.setLanguage(language, for: item.id)
         }
     }
 
@@ -154,46 +140,33 @@ extension PanelModel {
     /// Deletes the cards the prompt named, after "Delete". The live list drops them in one go.
     func delete(ids: [Int64]) {
         prompt = nil
-        Task { [store] in
-            do {
-                try await store.delete(ids: ids)
-                refreshSearch()
-            } catch {
-                Log.ui.error(
-                    "could not delete \(ids.count, privacy: .public) items: \(error.logDescription, privacy: .public)"
-                )
-            }
-        }
+        change("delete \(ids.count) items") { [store] in try await store.delete(ids: ids) }
     }
 
     /// Gives a card a name of the user's own, shown instead of its first line and found by
     /// search; a blank name takes it away again (the Store does the trimming).
     func rename(_ item: ClipboardItem, to title: String) {
         prompt = nil
-        Task { [store] in
-            do {
-                try await store.rename(id: item.id, to: title)
-                refreshSearch()
-            } catch {
-                Log.ui.error(
-                    "could not rename item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
-            }
-        }
+        change("rename item \(item.id)") { [store] in try await store.rename(id: item.id, to: title) }
     }
 
     /// Makes a separate copy of the card at the top of the list and selects it.
     func duplicate(_ item: ClipboardItem) {
-        Task { [store] in
+        change("duplicate item \(item.id)") { [store] in
+            if let copy = try await store.duplicate(id: item.id) { self.selectedId = copy.id }
+        }
+    }
+
+    /// Runs one Store change in the background; the live lists show its result. `refresh`
+    /// re-reads the search results, which are a snapshot. A failure is logged as "could not
+    /// <what>", and the panel stays as it was.
+    func change(_ what: String, refresh: Bool = true, _ work: @escaping @MainActor () async throws -> Void) {
+        Task {
             do {
-                if let copy = try await store.duplicate(id: item.id) {
-                    selectedId = copy.id
-                    refreshSearch()
-                }
+                try await work()
+                if refresh { refreshSearch() }
             } catch {
-                Log.ui.error(
-                    "could not duplicate item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
+                Log.ui.error("could not \(what, privacy: .public): \(error.logDescription, privacy: .public)")
             }
         }
     }

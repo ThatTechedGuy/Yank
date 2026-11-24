@@ -61,30 +61,12 @@ extension PanelModel {
     /// tab it appears, both through the live list.
     func pin(_ itemId: Int64, to pinboardId: Int64) {
         pinChooserItemId = nil
-        Task { [store] in
-            do {
-                try await store.pin(itemId: itemId, to: pinboardId)
-                refreshSearch()
-            } catch {
-                Log.ui.error(
-                    "could not pin item \(itemId, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
-            }
-        }
+        change("pin item \(itemId)") { [store] in try await store.pin(itemId: itemId, to: pinboardId) }
     }
 
     /// Moves a card back to History.
     func unpin(_ itemId: Int64) {
-        Task { [store] in
-            do {
-                try await store.unpin(itemId: itemId)
-                refreshSearch()
-            } catch {
-                Log.ui.error(
-                    "could not unpin item \(itemId, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
-            }
-        }
+        change("unpin item \(itemId)") { [store] in try await store.unpin(itemId: itemId) }
     }
 
     /// Creates a pinboard from the prompt's name, pins the prompt's card to it if there is one,
@@ -94,16 +76,12 @@ extension PanelModel {
         newPinboardPrompt = nil
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return }
-        Task { [store] in
-            do {
-                let pinboard = try await store.createPinboard(named: name)
-                if let itemId = prompt.itemIdToPin {
-                    try await store.pin(itemId: itemId, to: pinboard.id)
-                }
-                filter.list = .pinboard(id: pinboard.id)
-            } catch {
-                Log.ui.error("could not create a pinboard: \(error.logDescription, privacy: .public)")
+        change("create a pinboard", refresh: false) { [store] in
+            let pinboard = try await store.createPinboard(named: name)
+            if let itemId = prompt.itemIdToPin {
+                try await store.pin(itemId: itemId, to: pinboard.id)
             }
+            self.filter.list = .pinboard(id: pinboard.id)
         }
     }
 
@@ -112,28 +90,16 @@ extension PanelModel {
     func renamePinboard(_ pinboard: Pinboard, to name: String) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, name != pinboard.name else { return }
-        Task { [store] in
-            do {
-                try await store.renamePinboard(id: pinboard.id, to: name)
-            } catch {
-                Log.ui.error(
-                    "could not rename pinboard \(pinboard.id, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
-            }
+        change("rename pinboard \(pinboard.id)", refresh: false) { [store] in
+            try await store.renamePinboard(id: pinboard.id, to: name)
         }
     }
 
     /// Deletes a pinboard; its items go back to History (the Store does that). The tab row's
     /// live query drops the tab, and the model moves to History if that tab was showing.
     func deletePinboard(_ pinboard: Pinboard) {
-        Task { [store] in
-            do {
-                try await store.deletePinboard(id: pinboard.id)
-            } catch {
-                Log.ui.error(
-                    "could not delete pinboard \(pinboard.id, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
-            }
+        change("delete pinboard \(pinboard.id)", refresh: false) { [store] in
+            try await store.deletePinboard(id: pinboard.id)
         }
     }
 }

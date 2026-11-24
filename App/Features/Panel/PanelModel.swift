@@ -256,19 +256,15 @@ import SwiftUI
     /// Pastes the Nth card, 1 to 9, for ⌘1–⌘9. The numbers match the badges on the cards.
     func paste(shortcutNumber: Int) {
         guard (1...9).contains(shortcutNumber), items.count >= shortcutNumber else { return }
-        paste(items[shortcutNumber - 1], plainText: false)
-    }
-
-    /// Pastes one card. `plainText` is whether the user asked for it this time (⇧); the
-    /// "always plain text" setting makes every paste plain.
-    func paste(_ item: ClipboardItem, plainText: Bool) {
-        paste([item], plainText: plainText)
+        paste([items[shortcutNumber - 1]], plainText: false)
     }
 
     /// Pastes the cards left to right, to where the "Paste items" setting says unless
     /// `destination` says otherwise ("Copy" in the menu: clipboard only). A file card whose
     /// file is gone stops the whole paste before anything is written. A failure is logged, not
     /// shown: by then the item is on the clipboard either way, so the user can still press ⌘V.
+    /// `plainText` is whether the user asked for it this time (⇧); the "always plain text"
+    /// setting makes every paste plain.
     func paste(
         _ items: [ClipboardItem], plainText: Bool, destination: PasteDestination? = nil, cleaned: Bool = false
     ) {

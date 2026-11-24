@@ -78,9 +78,7 @@ public final class Store: Sendable {
                 existing.cardDetail = cardDetail ?? existing.cardDetail
                 existing.sourceAppBundleId = copy.sourceApp?.bundleId
                 existing.sourceAppName = copy.sourceApp?.name
-                try existing.update(db)
-                _ = try ClipboardItem.filter(key: existing.id)
-                    .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
+                try Self.update(db, existing, searchText: searchText)
                 item = existing
                 let oldRows = ClipboardItemDataRow.ofItem(item.id)
                 oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
@@ -128,9 +126,7 @@ public final class Store: Sendable {
             item.linkPageTitle = nil
             item.labelTitle = nil
             if kind == .text { try Self.labelOrQueue(db, &item, text: searchText) }
-            try item.update(db)
-            _ = try ClipboardItem.filter(key: id)
-                .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
+            try Self.update(db, item, searchText: searchText)
             let oldRows = ClipboardItemDataRow.ofItem(id)
             let oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
             try oldRows.deleteAll(db)
@@ -152,6 +148,14 @@ public final class Store: Sendable {
             kind, DuplicateKey.make(kind: kind, data: data), CardText.make(kind: kind, data: data),
             CardDetail.make(kind: kind, data: data), CardText.searchText(kind: kind, data: data)
         )
+    }
+
+    /// Writes an item's row and its `searchText`, which `ClipboardItem` does not carry, in one
+    /// statement: each update of the row makes the search index rewrite that row's entry.
+    private static func update(_ db: Database, _ item: ClipboardItem, searchText: String) throws {
+        var values = try item.databaseDictionary
+        values[ClipboardItemColumns.searchText.name] = searchText.databaseValue
+        _ = try ClipboardItem.filter(key: item.id).updateAll(db, values.map { Column($0).set(to: $1) })
     }
 
     /// Writes each piece of data that is too big for its row to a file, and returns one file name
@@ -208,8 +212,8 @@ public final class Store: Sendable {
         }
     }
 
-    /// The newest `limit` items, once. The panel uses the live form, `observeItems`.
-    public func items(limit: Int) async throws -> [ClipboardItem] {
+    /// The newest `limit` items, once. Only the tests read it this way; the panel uses `observeItems`.
+    func items(limit: Int) async throws -> [ClipboardItem] {
         try await pool.read { db in try ClipboardItem.newestFirst.limit(limit).fetchAll(db) }
     }
 
@@ -290,8 +294,8 @@ public final class Store: Sendable {
         }
     }
 
-    /// How many items are saved, once. The tests check it; the menu watches `observeCount`.
-    public func count() async throws -> Int {
+    /// How many items are saved, once. Only the tests read it; the menu watches `observeCount`.
+    func count() async throws -> Int {
         try await pool.read { db in try ClipboardItem.fetchCount(db) }
     }
 

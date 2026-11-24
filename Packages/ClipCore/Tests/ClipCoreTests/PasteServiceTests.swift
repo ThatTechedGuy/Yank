@@ -59,7 +59,7 @@ import Testing
         // keystroke lands in our own search box.
         var hiddenBeforePress = false
         service.hidePanel = { hiddenBeforePress = keys.presses == 0 }
-        try await service.paste(older, plainText: false, destination: .activeApp)
+        try await service.paste([older], plainText: false, destination: .activeApp)
         #expect(
             clipboard.contents.map(\.type) == [
                 "public.rtf", ClipboardType.plainText, PrivacyRules().ownMarker,
@@ -80,7 +80,7 @@ import Testing
     @Test func plainTextKeepsOnlyThePlainTextType() async throws {
         defer { folder.remove() }
         let (service, _, older) = try await makeService()
-        try await service.paste(older, plainText: true, destination: .activeApp)
+        try await service.paste([older], plainText: true, destination: .activeApp)
         #expect(clipboard.contents.map(\.type) == [ClipboardType.plainText, PrivacyRules().ownMarker])
         #expect(clipboard.contents[0].text == "hi")
     }
@@ -91,7 +91,7 @@ import Testing
         let image = try await store.save(
             CapturedCopy(data: [.png([1, 2, 3])], sourceApp: nil, copiedAt: Date()))
         // A bare image has no plain text to keep, so it is pasted as it is rather than not at all.
-        try await service.paste(image, plainText: true, destination: .activeApp)
+        try await service.paste([image], plainText: true, destination: .activeApp)
         #expect(clipboard.contents.map(\.type) == ["public.png", PrivacyRules().ownMarker])
     }
 
@@ -135,7 +135,7 @@ import Testing
         clipboard.put([.text("what the user copied")])
         let before = clipboard.changeCount
         try await store.delete(ids: [older.id])
-        #expect(try await service.paste(older, plainText: false, destination: .activeApp) == false)
+        #expect(try await service.paste([older], plainText: false, destination: .activeApp) == false)
         #expect(clipboard.changeCount == before)
         #expect(clipboard.contents.map(\.text) == ["what the user copied"])
         #expect(keys.presses == 0)
@@ -166,8 +166,8 @@ import Testing
         service.hidePanel = { try? await Task.sleep(for: .milliseconds(50)) }
         var pressedWith: [String] = []
         keys.onPress = { pressedWith.append(clipboard.contents[0].text) }
-        let first = Task { try await service.paste(older, plainText: true, destination: .activeApp) }
-        let second = Task { try await service.paste(newer, plainText: true, destination: .activeApp) }
+        let first = Task { try await service.paste([older], plainText: true, destination: .activeApp) }
+        let second = Task { try await service.paste([newer], plainText: true, destination: .activeApp) }
         _ = try await first.value
         _ = try await second.value
         #expect(pressedWith.sorted() == ["hi", "newer"])
@@ -179,11 +179,11 @@ import Testing
         // Without the Accessibility permission the item still goes on the clipboard, and the
         // user presses ⌘V themselves.
         accessibility.isTrusted = false
-        try await service.paste(older, plainText: false, destination: .activeApp)
+        try await service.paste([older], plainText: false, destination: .activeApp)
         #expect(keys.presses == 0)
         #expect(clipboard.contents.last?.type == PrivacyRules().ownMarker)
         accessibility.isTrusted = true
-        try await service.paste(older, plainText: false, destination: .clipboardOnly)
+        try await service.paste([older], plainText: false, destination: .clipboardOnly)
         #expect(keys.presses == 0)
         #expect(clipboard.changeCount == 2)
         // Nothing in a paste shows the macOS permission prompt; only the hint's button does.

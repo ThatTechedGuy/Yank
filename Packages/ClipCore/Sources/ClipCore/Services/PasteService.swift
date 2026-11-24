@@ -32,33 +32,34 @@ import Foundation
     /// Shows macOS's own dialog for granting the Accessibility permission.
     public func requestAccessibility() { accessibility.requestAccess() }
 
-    /// Pastes `item`. `plainText` keeps only its plain-text type; an item with no plain text at
-    /// all, such as a bare image, is pasted whole. `destination` says whether to press ⌘V at all.
-    /// Returns false when the item was deleted after it was listed, so nothing was written.
-    @discardableResult
-    public func paste(_ item: ClipboardItem, plainText: Bool, destination: PasteDestination)
-        async throws -> Bool
-    {
-        try await paste([item], plainText: plainText, destination: destination)
-    }
-
-    /// Pastes several cards in one clipboard write, in order: one pasteboard item per card (a file
-    /// card with three files keeps its three), each with all of the card's types. Apps that take
+    /// Pastes cards in one clipboard write, in order: one pasteboard item per card (a file card
+    /// with three files keeps its three), each with all of the card's types. `plainText` keeps
+    /// only the plain-text type; a card with no plain text at all, such as a bare image, is
+    /// pasted whole. `destination` says whether to press ⌘V at all. `cleaned` pastes
+    /// the plain text through `CleanText.clean` instead (⌥Return); the saved item keeps its bytes. Apps that take
     /// several items (TextEdit, Finder) paste them all; apps that take one paste the first. Every
     /// card moves to the top of the history, order kept. Nothing is written if a file card's file
     /// is gone. Returns false when every card was deleted after it was listed, so nothing was
     /// written.
     @discardableResult
-    public func paste(_ items: [ClipboardItem], plainText: Bool, destination: PasteDestination)
-        async throws -> Bool
-    {
+    public func paste(
+        _ items: [ClipboardItem], plainText: Bool, destination: PasteDestination, cleaned: Bool = false
+    ) async throws -> Bool {
         var data: [ClipboardItemData] = []
         for item in items {
             var itemData = try await store.data(for: item.id)
             if await itemData.hasMissingFile() { throw PasteError.fileNoLongerExists }
-            if plainText {
+            // Cleaned is plain text too: the rich text would still hold what was cleaned away.
+            // Only a text card is cleaned; a file's or an image's plain text is a name or a URL.
+            let cleans = cleaned && item.kind == .text
+            if plainText || cleans {
                 let textOnly = itemData.filter { $0.type == ClipboardType.plainText }
                 if !textOnly.isEmpty { itemData = textOnly }
+            }
+            if cleans {
+                for index in itemData.indices where itemData[index].type == ClipboardType.plainText {
+                    itemData[index].data = await Self.clean(itemData[index].data)
+                }
             }
             // Each card's pasteboard items are numbered from 0 when saved; shift them past the
             // cards before it, so the clipboard gets them as separate items in card order.
@@ -103,6 +104,13 @@ import Foundation
         Log.paste.info(
             "pasted items \(ids, privacy: .public)\(plainText ? " as plain text" : "", privacy: .public)")
         return true
+    }
+}
+
+extension PasteService {
+    /// Off the main thread: a 10 MB log takes 0.7 s to clean.
+    @concurrent nonisolated static func clean(_ text: Data) async -> Data {
+        Data(CleanText.clean(String(decoding: text, as: UTF8.self)).utf8)
     }
 }
 

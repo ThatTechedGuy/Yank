@@ -68,6 +68,8 @@ import SwiftUI
     }
     /// The pinboards, in tab order, kept fresh by a live query like the items.
     private(set) var pinboards: [Pinboard] = []
+    /// The label categories in list order, for the filter and the actions menu. Live too.
+    private(set) var categories: [ItemCategory] = []
     /// The card the pinboard chooser (⌘P or "Pin to") is open on, or nil. Only used when
     /// there is more than one pinboard to choose from.
     var pinChooserItemId: Int64?
@@ -112,6 +114,19 @@ import SwiftUI
         self.pasteService = pasteService
         startLiveList()
         startPinboardList()
+        Task { [store] in
+            do {
+                for try await categories in store.observeCategories() {
+                    self.categories = categories
+                    // A removed category's filter would show nothing, with no way to see why.
+                    if let id = filter.categoryId, !categories.contains(where: { $0.id == id }) {
+                        filter.categoryId = nil
+                    }
+                }
+            } catch {
+                Log.ui.error("the panel's category list stopped: \(error.logDescription, privacy: .public)")
+            }
+        }
     }
 
     /// Starts (or restarts, with the current limit and filter) the live query that keeps
@@ -232,34 +247,34 @@ import SwiftUI
     /// The selected cards, left to right: the order a paste or a drag of several uses.
     var selectedItems: [ClipboardItem] { items.filter { selection.contains($0.id) } }
 
-    /// Return: pastes the selected cards, in order. `plainText` is whether ⇧ was held.
-    func pasteSelected(plainText: Bool) {
-        paste(selectedItems, plainText: plainText)
+    /// Return: pastes the selected cards, in order. `plainText` is whether ⇧ was held,
+    /// `cleaned` whether ⌥ was (see `CleanText`).
+    func pasteSelected(plainText: Bool, cleaned: Bool = false) {
+        paste(selectedItems, plainText: plainText, cleaned: cleaned)
     }
 
     /// Pastes the Nth card, 1 to 9, for ⌘1–⌘9. The numbers match the badges on the cards.
     func paste(shortcutNumber: Int) {
         guard (1...9).contains(shortcutNumber), items.count >= shortcutNumber else { return }
-        paste(items[shortcutNumber - 1], plainText: false)
-    }
-
-    /// Pastes one card. `plainText` is whether the user asked for it this time (⇧); the
-    /// "always plain text" setting makes every paste plain.
-    func paste(_ item: ClipboardItem, plainText: Bool) {
-        paste([item], plainText: plainText)
+        paste([items[shortcutNumber - 1]], plainText: false)
     }
 
     /// Pastes the cards left to right, to where the "Paste items" setting says unless
     /// `destination` says otherwise ("Copy" in the menu: clipboard only). A file card whose
     /// file is gone stops the whole paste before anything is written. A failure is logged, not
     /// shown: by then the item is on the clipboard either way, so the user can still press ⌘V.
-    func paste(_ items: [ClipboardItem], plainText: Bool, destination: PasteDestination? = nil) {
+    /// `plainText` is whether the user asked for it this time (⇧); the "always plain text"
+    /// setting makes every paste plain.
+    func paste(
+        _ items: [ClipboardItem], plainText: Bool, destination: PasteDestination? = nil, cleaned: Bool = false
+    ) {
         guard !items.isEmpty else { return }
         let plain = plainText || PasteSettings.alwaysPlainText
         let destination = destination ?? PasteSettings.destination
         Task {
             do {
-                try await pasteService.paste(items, plainText: plain, destination: destination)
+                try await pasteService.paste(
+                    items, plainText: plain, destination: destination, cleaned: cleaned)
             } catch PasteError.fileNoLongerExists {
                 // A card that was never on screen has not had its file checked, so mark it now.
                 for item in items where item.kind == .file { await checkFile(of: item) }

@@ -149,6 +149,81 @@ enum Migrations {
         migrator.registerMigration("v5") { db in
             try db.create(indexOn: "clipboardItem", columns: ["pinboardId", "copiedAt", "id"])
         }
+
+        // Labels: the user's categories, and on each item a category, a language and the model's
+        // short title (`labelTitle`, kept apart from `title`, which only Rename sets). The two
+        // `…SetByHand` flags keep a hand correction from the model. `labelQueue` holds the items
+        // the Enricher still has to label; it is a table of its own because any update of a
+        // clipboardItem row makes the search index's triggers rewrite that row's entry, so
+        // queueing the whole history on a list change would rewrite the whole index. Every
+        // existing text item and image with words joins the queue, except the credentials found
+        // here, which the model never sees. The starting list goes in by hand-written SQL with
+        // fixed ids, because `ItemCategory.otherId` and `.credentialId` name rows 8 and 4.
+        // Credentials are spotted with `Credentials.detect` as it is today, in the first 1,500
+        // characters, as a save does (`Labels.inputLength`, spelled out like v4's 20000); a later
+        // change to it reaches only new copies, which is fine for a label.
+        migrator.registerMigration("v6") { db in
+            try db.create(table: "itemCategory") { t in
+                t.autoIncrementedPrimaryKey("id")
+                t.column("name", .text).notNull()
+                t.column("about", .text).notNull()
+                t.column("position", .integer).notNull()
+            }
+            let starting = [
+                ("Code", "Source code in a programming language: a function, a class, a snippet."),
+                ("Command", "A command to run in a terminal, such as git, npm or brew with its arguments."),
+                ("Error or log", "An error message, a stack trace, or lines from a log file."),
+                ("Credential", "A password, an API key, a token or a private key."),
+                (
+                    "Address or contact",
+                    "A postal address, an email address, a phone number or someone's details."
+                ),
+                ("Prose", "Sentences written for people: a message, an email, notes, an article."),
+                ("Data", "Structured data: JSON, CSV, a table, a list of values or numbers."),
+                ("Other", "Anything that fits none of the other categories."),
+            ]
+            for (index, (name, about)) in starting.enumerated() {
+                try db.execute(
+                    sql: "INSERT INTO itemCategory (id, name, about, position) VALUES (?, ?, ?, ?)",
+                    arguments: [index + 1, name, about, index])
+            }
+            try db.alter(table: "clipboardItem") { t in
+                // Removing a category moves its items to Other first (Store.deleteCategory).
+                t.add(column: "categoryId", .integer).references("itemCategory", onDelete: .setNull)
+                t.add(column: "language", .text)
+                t.add(column: "labelTitle", .text)
+                t.add(column: "categorySetByHand", .boolean).notNull().defaults(to: false)
+                t.add(column: "languageSetByHand", .boolean).notNull().defaults(to: false)
+            }
+            try db.create(table: "labelQueue") { t in
+                t.primaryKey { t.belongsTo("clipboardItem", onDelete: .cascade) }
+            }
+            // Everything labelable joins the queue in one statement, then the keys leave it.
+            // The rows are read through a cursor, one at a time, so a big history is never all
+            // in memory; it only collects ids, because nothing may be written mid-cursor.
+            let labelable = "kind = 'text' OR (kind = 'image' AND imageText <> '')"
+            try db.execute(
+                sql:
+                    "INSERT INTO labelQueue (clipboardItemId) SELECT id FROM clipboardItem WHERE \(labelable)"
+            )
+            var credentialIds: [Int64] = []
+            let rows = try Row.fetchCursor(
+                db,
+                sql: """
+                    SELECT id, substr(CASE WHEN kind = 'text' THEN searchText ELSE imageText END, 1, 1500)
+                        AS text
+                    FROM clipboardItem WHERE \(labelable)
+                    """)
+            while let row = try rows.next() {
+                if Credentials.detect(row["text"]) { credentialIds.append(row["id"]) }
+            }
+            for id in credentialIds {
+                try db.execute(
+                    sql: "UPDATE clipboardItem SET categoryId = 4, language = 'none' WHERE id = ?",
+                    arguments: [id])
+                try db.execute(sql: "DELETE FROM labelQueue WHERE clipboardItemId = ?", arguments: [id])
+            }
+        }
         return migrator
     }
 }

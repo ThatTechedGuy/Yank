@@ -52,6 +52,53 @@ struct ActionsPopover: View {
     }
 }
 
+/// A ⌘K row's list of choices, for Category and Language: the arrow keys move the highlight and
+/// Return picks it, as in `ActionsPopover`; a click picks too. The current value is ticked.
+struct ChoiceList<Choice: Hashable>: View {
+    let choices: [Choice]
+    let current: Choice?
+    let title: (Choice) -> String
+    let pick: (Choice) -> Void
+
+    @State private var highlighted: Choice?
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        List(choices, id: \.self, selection: $highlighted) { choice in
+            Button {
+                pick(choice)
+            } label: {
+                HStack {
+                    Text(title(choice))
+                    Spacer()
+                    if choice == current { Image(systemName: "checkmark").accessibilityLabel("Current") }
+                }
+            }
+            .buttonStyle(.plain)
+            .tag(choice)
+        }
+        .focused($isFocused)
+        .onAppear {
+            highlighted = current ?? choices.first
+            isFocused = true
+        }
+        .onKeyPress(.return) {
+            guard let highlighted else { return .ignored }
+            pick(highlighted)
+            return .handled
+        }
+        .scrollContentBackground(.hidden)
+        // Twenty languages would be taller than the panel, so the list scrolls past 400 points.
+        .frame(width: 220, height: min(CGFloat(choices.count) * 26 + 16, 400))
+        .accessibilityIdentifier("choices")
+    }
+}
+
+/// A picker's selection that shows the saved value and reports a pick, never a nil one.
+private func hand<T>(_ value: T?, set: @escaping (T) -> Void) -> Binding<T?> {
+    Binding(get: { value }, set: { $0.map(set) })
+}
+
 /// One row, by action. Delete is red.
 private struct ItemActionRow: View {
     let action: ItemAction
@@ -65,6 +112,22 @@ private struct ItemActionRow: View {
                 Button("Unpin") { model.unpin(item.id) }
             } else {
                 Menu(action.title) { PinChoices(item: item, model: model) }
+            }
+        case .category:
+            Menu(action.title) {
+                Picker(action.title, selection: hand(item.categoryId) { model.setCategory($0, for: item) }) {
+                    ForEach(model.categories) { Text($0.name).tag(Optional($0.id)) }
+                }
+                .pickerStyle(.inline)
+            }
+        case .language:
+            Menu(action.title) {
+                Picker(action.title, selection: hand(item.language) { model.setLanguage($0, for: item) }) {
+                    ForEach(Language.all, id: \.self) {
+                        Text(Language.displayName($0)).tag(Optional($0))
+                    }
+                }
+                .pickerStyle(.inline)
             }
         case .share:
             ShareLink(

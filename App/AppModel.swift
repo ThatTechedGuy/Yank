@@ -38,10 +38,13 @@ import SwiftUI
     /// The paste stack: off, or on with the copies made since it was turned on waiting in
     /// order. The menu bar shows its count and its items; ⌃⌥⌘V pastes the oldest.
     private(set) var stack = PasteStack.off
+    /// The label categories in list order, for Settings. Follows the database.
+    private(set) var categories: [ItemCategory] = []
 
     private var capture: CaptureService?
     private var store: Store?
     private var pasteService: PasteService?
+    private var enricher: Enricher?
     /// The cards' picture cache, kept for the editor: a saved edit gets its preview like a
     /// fresh copy, and a replaced card's old picture is dropped.
     private var thumbnails: ThumbnailCache?
@@ -72,18 +75,22 @@ import SwiftUI
             self.capture = capture
             self.store = store
             clipboardAccess = capture.clipboardAccess
-            watchIgnoredApps()
+            watchSettings()
             // The service's system pieces (key presser, permission check) come from ClipSystem, so
             // ClipCore and its tests never touch real keys.
             let pasteService = PasteService(
                 store: store, clipboard: clipboard, keyPresser: KeyPresser(),
                 accessibility: SystemAccessibilityStatus())
             self.pasteService = pasteService
-            // The link switch is read on every fetch, so a change in Settings counts from the next
-            // copy; ClipCore itself never reads UserDefaults.
+            // The link and label switches are read before every fetch and every model call, so a
+            // change in Settings counts at once; ClipCore itself never reads UserDefaults. Without
+            // Apple Intelligence labelling behaves as if switched off.
             let enricher = Enricher(
                 store: store, makePreview: Thumbnailer.preview, recognizeText: TextRecognizer.text(in:),
-                linkFetcher: LinkFetcher(), linkPreviewsEnabled: { SettingsKey.linkPreviewsEnabled })
+                linkFetcher: LinkFetcher(), linkPreviewsEnabled: { SettingsKey.linkPreviewsEnabled },
+                askModel: { try await Labeller.labels(for: $0, categories: $1) },
+                labelsEnabled: { SettingsKey.labelsEnabled && Labeller.unavailableReason == nil })
+            self.enricher = enricher
             // Built now, while nothing is urgent, so the first ⇧⌘V only shows an existing window.
             let panelModel = PanelModel(store: store, pasteService: pasteService)
             let thumbnails = ThumbnailCache(store: store, enricher: enricher)
@@ -130,6 +137,15 @@ import SwiftUI
                 await self?.poll()
             }
             Task { [weak self] in await self?.expireOldItems(in: store) }
+            Task { [weak self] in
+                do {
+                    for try await categories in store.observeCategories() { self?.categories = categories }
+                } catch {
+                    Log.store.error("categories stopped: \(error.logDescription, privacy: .public)")
+                }
+            }
+            // Items saved before labelling existed, or while it was off, wait in the queue.
+            enricher.labelInBackground()
         } catch {
             Log.store.error("could not open the store: \(error.logDescription, privacy: .public)")
             startupError = "Could not open the database: \(error.localizedDescription)"
@@ -182,7 +198,7 @@ import SwiftUI
             do {
                 var item = first
                 while try await !pasteService.paste(
-                    item, plainText: PasteSettings.alwaysPlainText, destination: PasteSettings.destination),
+                    [item], plainText: PasteSettings.alwaysPlainText, destination: PasteSettings.destination),
                     let next = stack.popNext()
                 {
                     item = next
@@ -313,17 +329,33 @@ import SwiftUI
         }
     }
 
-    /// Keeps the capture rules' ignored apps equal to the list in Settings. The list lives in
+    /// Acts on the settings ClipCore cannot read itself. Keeps the capture rules' ignored apps
+    /// equal to the list in Settings, and restarts labelling when its switch comes on. The list lives in
     /// UserDefaults (a preference, so it survives "Erase History") and ClipCore knows nothing about
     /// UserDefaults, so the app copies it across: once now, and again on every defaults change. Not
     /// narrowed to `UserDefaults.standard` (the compiler will not pass it between threads); Yank
     /// has no other defaults, so every such notification is from it anyway.
-    private func watchIgnoredApps() {
+    private func watchSettings() {
         capture?.rules.ignoredApps = Set(IgnoredApps.current.bundleIds)
         Task { [weak self] in
             let changes = NotificationCenter.default.notifications(named: UserDefaults.didChangeNotification)
             for await _ in changes {
                 self?.capture?.rules.ignoredApps = Set(IgnoredApps.current.bundleIds)
+                // The label switch may have just come on; with nothing queued this is one read.
+                self?.enricher?.labelInBackground()
+            }
+        }
+    }
+
+    /// Runs one change to the category list from Settings, then labels whatever it queued.
+    func changeCategories(_ change: @escaping @Sendable (Store) async throws -> Void) {
+        guard let store else { return }
+        Task { [weak self] in
+            do {
+                try await change(store)
+                self?.enricher?.labelInBackground()
+            } catch {
+                Log.store.error("could not change categories: \(error.logDescription, privacy: .public)")
             }
         }
     }

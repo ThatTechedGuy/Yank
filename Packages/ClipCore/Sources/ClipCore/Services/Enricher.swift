@@ -11,6 +11,11 @@ public final class Enricher: Sendable {
     public typealias MakePreview = @Sendable (ClipboardItem, [ClipboardItemData]) async -> CardPreview?
     /// The function that reads the words in an image's bytes. Nil means none were found.
     public typealias RecognizeText = @Sendable ([ClipboardItemData]) async -> String?
+    /// The function that asks the model for a copy's labels, choosing the category from the
+    /// list it is given. Throws `ModelNotReady` when the model cannot answer for now, any other
+    /// error when it cannot answer for this text.
+    public typealias AskModel =
+        @Sendable (_ text: String, _ categories: [ItemCategory]) async throws -> Labels
 
     private let store: Store
     private let makePreview: MakePreview
@@ -18,6 +23,15 @@ public final class Enricher: Sendable {
     private let linkFetcher: (any LinkFetching)?
     /// Asked right before each fetch, so flipping the switch in Settings takes effect at once.
     private let linkPreviewsEnabled: @Sendable () -> Bool
+    private let askModel: AskModel?
+    /// Asked right before each model call: false while the switch is off or the model is
+    /// unavailable, and then the model is never called.
+    private let labelsEnabled: @Sendable () -> Bool
+    /// How long the label run waits before asking again when the model is not ready.
+    private let retryDelay: Duration
+    /// Whether a run is working through the label queue, and whether it was asked to go round
+    /// again (something was queued while it ran), so one run goes at a time and no ask is lost.
+    private let labelling = OSAllocatedUnfairLock(initialState: (running: false, again: false))
     /// The work in progress, by item id. A copy made while the panel is open is asked for twice
     /// at once, by the capture path and by the card that appears for it; both wait for the one
     /// task instead of decoding the same bytes (or fetching the same page) twice.
@@ -28,13 +42,17 @@ public final class Enricher: Sendable {
     public init(
         store: Store, makePreview: @escaping MakePreview, recognizeText: RecognizeText? = nil,
         linkFetcher: (any LinkFetching)? = nil,
-        linkPreviewsEnabled: @escaping @Sendable () -> Bool = { true }
+        linkPreviewsEnabled: @escaping @Sendable () -> Bool = { true }, askModel: AskModel? = nil,
+        labelsEnabled: @escaping @Sendable () -> Bool = { true }, retryDelay: Duration = .seconds(60)
     ) {
         self.store = store
         self.makePreview = makePreview
         self.recognizeText = recognizeText
         self.linkFetcher = linkFetcher
         self.linkPreviewsEnabled = linkPreviewsEnabled
+        self.askModel = askModel
+        self.labelsEnabled = labelsEnabled
+        self.retryDelay = retryDelay
     }
 
     /// Makes and saves the item's preview, and returns it; nil for text, and for a link without a
@@ -123,6 +141,84 @@ public final class Enricher: Sendable {
                     "could not enrich item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
                 )
             }
+            // The save (or the words just read) put the item on the label queue. Not awaited: the
+            // link card waits on this task for its icon, and must not wait for the model too.
+            labelInBackground()
         }
+    }
+
+    /// Works through the label queue at background priority, one item at a time, until it is
+    /// empty or labelling is turned off. The app calls it at launch, after each copy, and when
+    /// the switch or the category list changes. Returns nil when a run is already going: that
+    /// run picks up whatever was queued.
+    @discardableResult
+    public func labelInBackground() -> Task<Void, Never>? {
+        guard let askModel else { return nil }
+        let starts = labelling.withLock { state in
+            guard !state.running else {
+                state.again = true
+                return false
+            }
+            state.running = true
+            return true
+        }
+        guard starts else { return nil }
+        return Task(priority: .background) { await labelQueue(with: askModel) }
+    }
+
+    private func labelQueue(with askModel: AskModel) async {
+        repeat {
+            do {
+                while labelsEnabled(), let (item, text) = try await store.nextToLabel() {
+                    try await label(item, text, with: askModel)
+                }
+            } catch {
+                Log.store.error("labelling stopped: \(error.logDescription, privacy: .public)")
+            }
+        } while labelling.withLock { state in
+            // Asked again during the run: go round once more, else the run ends.
+            if state.again {
+                state.again = false
+                return true
+            }
+            state.running = false
+            return false
+        }
+    }
+
+    /// One model call and its save. Read fresh each time, so an edit to the list counts from the
+    /// next item. Credential is not offered (only its patterns set it), nor a category with no
+    /// description yet: one just added in Settings would otherwise catch items while it is named.
+    private func label(_ item: ClipboardItem, _ text: String, with askModel: AskModel) async throws {
+        let categories = try await store.categories().filter {
+            $0.id != ItemCategory.credentialId && !$0.about.isEmpty
+        }
+        let labels: Labels
+        do {
+            labels = try await askModel(text, categories)
+        } catch is ModelNotReady {
+            // The item stays first in the queue, so the run asks for it again after the wait.
+            // shortcut: a fixed wait however long the model stays away; back off if the retries
+            // ever show up in energy use.
+            Log.store.notice("model not ready for item \(item.id, privacy: .public), asking again later")
+            try await Task.sleep(for: retryDelay)
+            return
+        } catch {
+            // About this text (a refusal, say): asking again would get the same answer. It is
+            // tried again when a category change queues it.
+            Log.store.error(
+                "could not label item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
+            )
+            try await store.dropFromLabelQueue(itemId: item.id)
+            return
+        }
+        let language = Language.all.contains(labels.language) ? labels.language : Language.none
+        // A title only where the first line says little: code, and text longer than a card.
+        let words = labels.title.split(whereSeparator: \.isWhitespace).prefix(6).joined(separator: " ")
+        let wantsTitle = language != Language.none || text.count > CardText.maxLength
+        try await store.setLabels(
+            categoryId: categories.first { $0.name == labels.category }?.id ?? ItemCategory.otherId,
+            language: language, title: wantsTitle && !words.isEmpty ? words : nil, for: item.id)
+        Log.store.info("labelled item \(item.id, privacy: .public)")
     }
 }

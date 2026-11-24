@@ -11,27 +11,29 @@ struct CardRow: View {
 
     var body: some View {
         @Bindable var model = model
-        // The width follows the height, so a taller panel gets bigger cards, not just taller
-        // ones. 12 is the bottom padding.
-        let cardWidth = max(120, (height - 12) * 0.82)
+        // Square cards, as in Paste: the width is the row's height less its 4 top and 24 bottom
+        // padding, so a taller panel gets bigger cards, not just taller ones.
+        let cardWidth = max(120, height - 28)
         // Scrolling follows the selection one way only: the wheel or trackpad never changes
         // what is selected.
         ScrollViewReader { proxy in
             ScrollView(.horizontal) {
-                LazyHStack(spacing: 10) {
+                LazyHStack(spacing: 24) {
                     ForEach(Array(model.items.enumerated()), id: \.element.id) { index, item in
                         let isLead = item.id == model.selectedId
                         ItemCard(
                             item: item, shortcutNumber: index < 9 ? index + 1 : nil,
                             isSelected: model.selection.contains(item.id), isLead: isLead,
                             fileIsMissing: model.missingFileIds.contains(item.id), width: cardWidth,
-                            position: index + 1, listSize: model.listSizeDescription
+                            position: index + 1, listSize: model.listSizeDescription,
+                            categoryName: model.categories.first { $0.id == item.categoryId }?.name,
+                            loadText: { await model.fullText(for: item) }
                         )
                         // The double-click must come before the single click, or the single
                         // click wins and it never fires. SwiftUI's tap gives no modifier keys,
                         // so they are read from AppKit's current keyboard state.
                         .onTapGesture(count: 2) {
-                            model.paste(item, plainText: NSEvent.modifierFlags.contains(.shift))
+                            model.paste([item], plainText: NSEvent.modifierFlags.contains(.shift))
                         }
                         .onTapGesture {
                             if NSEvent.modifierFlags.contains(.command) {
@@ -60,6 +62,17 @@ struct CardRow: View {
                             case .actions: ActionsPopover(item: item, model: model)
                             case .rename: RenamePrompt(item: item, model: model)
                             case .delete(let ids, _): DeletePrompt(ids: ids, model: model)
+                            case .category:
+                                ChoiceList(
+                                    choices: model.categories.map(\.id), current: item.categoryId,
+                                    title: { id in model.categories.first { $0.id == id }?.name ?? "" }
+                                ) { model.setCategory($0, for: item) }
+                            case .language:
+                                ChoiceList(
+                                    choices: Language.all, current: item.language, title: Language.displayName
+                                ) {
+                                    model.setLanguage($0, for: item)
+                                }
                             case nil: EmptyView()
                             }
                         }
@@ -83,8 +96,11 @@ struct CardRow: View {
                         .onAppear { model.cardDidAppear(at: index) }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 12)
+                // The 4 points on top leave room for the selected card's outline, which is
+                // drawn outside the card.
+                .padding(.horizontal, 24)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
                 // One named group, so VoiceOver announces "Cards" on the way in; each card
                 // stays its own element inside it.
                 .accessibilityElement(children: .contain)

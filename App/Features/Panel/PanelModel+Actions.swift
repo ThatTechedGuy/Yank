@@ -13,10 +13,13 @@ enum CardPrompt: Equatable {
     case rename(anchorId: Int64)
     /// "Delete N items?" for the selected cards; the lead card anchors it.
     case delete(ids: [Int64], anchorId: Int64)
+    /// The category or language list, from Return on that ⌘K row.
+    case category(anchorId: Int64)
+    case language(anchorId: Int64)
 
     var anchorId: Int64 {
         switch self {
-        case .actions(let id), .rename(let id), .delete(_, let id): id
+        case .actions(let id), .rename(let id), .delete(_, let id), .category(let id), .language(let id): id
         }
     }
 }
@@ -24,8 +27,8 @@ enum CardPrompt: Equatable {
 /// Everything the actions menu offers, in menu order. One enum, so the right-click menu and
 /// the ⌘K list show the same rows and the keyboard can walk them.
 enum ItemAction: String, CaseIterable, Identifiable {
-    case paste, pasteAsPlainText, copy, pinTo, addToStack, edit, rename, duplicate, share, openWith,
-        showInFinder, delete
+    case paste, pasteAsPlainText, pasteCleaned, copy, pinTo, category, language, addToStack, edit, rename,
+        duplicate, share, openWith, showInFinder, delete
 
     var id: String { rawValue }
 
@@ -33,8 +36,11 @@ enum ItemAction: String, CaseIterable, Identifiable {
         switch self {
         case .paste: "Paste"
         case .pasteAsPlainText: "Paste as Plain Text"
+        case .pasteCleaned: "Paste Cleaned"
         case .copy: "Copy"
         case .pinTo: "Pin to…"
+        case .category: "Category"
+        case .language: "Language"
         case .addToStack: "Add to Stack"
         case .edit: "Edit"
         case .rename: "Rename…"
@@ -52,9 +58,12 @@ enum ItemAction: String, CaseIterable, Identifiable {
 
     /// The rows this card gets: Show in Finder only for a file card, and Edit for text, links
     /// and images. A file is not Yank's to change, and a colour has nothing the editor can show.
+    /// Cleaning and a language are for text; a category for what can be labelled.
     static func available(for item: ClipboardItem) -> [ItemAction] {
         allCases.filter { action in
             switch action {
+            case .pasteCleaned, .language: item.kind == .text
+            case .category: item.kind == .text || item.kind == .image
             case .showInFinder: item.kind == .file
             case .edit: item.kind != .file && item.kind != .color
             default: true
@@ -80,6 +89,7 @@ extension PanelModel {
         switch action {
         case .paste: paste(targets, plainText: false)
         case .pasteAsPlainText: paste(targets, plainText: true)
+        case .pasteCleaned: paste(targets, plainText: false, cleaned: true)
         case .copy: paste(targets, plainText: false, destination: .clipboardOnly)
         case .pinTo:
             selectedId = item.id
@@ -91,7 +101,27 @@ extension PanelModel {
         case .showInFinder: showInFinder(item)
         case .delete: confirmDelete(of: targets)
         case .edit: openEditor(item)
+        // A list takes the keyboard only in a popover that opens with it, so ⌘K's popover closes
+        // first and the choices open in a new one.
+        case .category: Task { prompt = .category(anchorId: item.id) }
+        case .language: Task { prompt = .language(anchorId: item.id) }
         case .share: break
+        }
+    }
+
+    /// The category picked by hand in the card's menu; the model leaves it alone from then on.
+    func setCategory(_ categoryId: Int64, for item: ClipboardItem) {
+        prompt = nil
+        change("set the category of \(item.id)") { [store] in
+            try await store.setCategory(categoryId, for: item.id)
+        }
+    }
+
+    /// The language picked by hand in the card's menu; the model leaves it alone from then on.
+    func setLanguage(_ language: String, for item: ClipboardItem) {
+        prompt = nil
+        change("set the language of \(item.id)") { [store] in
+            try await store.setLanguage(language, for: item.id)
         }
     }
 
@@ -110,46 +140,33 @@ extension PanelModel {
     /// Deletes the cards the prompt named, after "Delete". The live list drops them in one go.
     func delete(ids: [Int64]) {
         prompt = nil
-        Task { [store] in
-            do {
-                try await store.delete(ids: ids)
-                refreshSearch()
-            } catch {
-                Log.ui.error(
-                    "could not delete \(ids.count, privacy: .public) items: \(error.logDescription, privacy: .public)"
-                )
-            }
-        }
+        change("delete \(ids.count) items") { [store] in try await store.delete(ids: ids) }
     }
 
     /// Gives a card a name of the user's own, shown instead of its first line and found by
     /// search; a blank name takes it away again (the Store does the trimming).
     func rename(_ item: ClipboardItem, to title: String) {
         prompt = nil
-        Task { [store] in
-            do {
-                try await store.rename(id: item.id, to: title)
-                refreshSearch()
-            } catch {
-                Log.ui.error(
-                    "could not rename item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
-            }
-        }
+        change("rename item \(item.id)") { [store] in try await store.rename(id: item.id, to: title) }
     }
 
     /// Makes a separate copy of the card at the top of the list and selects it.
     func duplicate(_ item: ClipboardItem) {
-        Task { [store] in
+        change("duplicate item \(item.id)") { [store] in
+            if let copy = try await store.duplicate(id: item.id) { self.selectedId = copy.id }
+        }
+    }
+
+    /// Runs one Store change in the background; the live lists show its result. `refresh`
+    /// re-reads the search results, which are a snapshot. A failure is logged as "could not
+    /// <what>", and the panel stays as it was.
+    func change(_ what: String, refresh: Bool = true, _ work: @escaping @MainActor () async throws -> Void) {
+        Task {
             do {
-                if let copy = try await store.duplicate(id: item.id) {
-                    selectedId = copy.id
-                    refreshSearch()
-                }
+                try await work()
+                if refresh { refreshSearch() }
             } catch {
-                Log.ui.error(
-                    "could not duplicate item \(item.id, privacy: .public): \(error.logDescription, privacy: .public)"
-                )
+                Log.ui.error("could not \(what, privacy: .public): \(error.logDescription, privacy: .public)")
             }
         }
     }

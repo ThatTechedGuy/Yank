@@ -35,6 +35,9 @@ final class PanelWindow: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         // Yank is never the active app, so hiding on deactivate would hide the panel at once.
         isMovable = false
+        // Clear, so only the view's rounded glass slab and its own shadow show.
+        isOpaque = false
+        backgroundColor = .clear
         hasShadow = false
         hidesOnDeactivate = false
         isReleasedWhenClosed = false

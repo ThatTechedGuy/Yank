@@ -25,6 +25,9 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift", exact: "7.12.0"),
         .package(url: "https://github.com/Clipy/Sauce", exact: "2.5.2"),
+        // HighlighterSwift (MIT; bundles highlight.js, BSD) colours code on the cards. Its own
+        // HTML reader, not AppKit's, so it runs off the main thread: 2 ms a card.
+        .package(url: "https://github.com/smittytone/HighlighterSwift", exact: "3.1.0"),
     ],
     targets: [
         // The model, rules, storage and services. No UI, so its tests run in milliseconds without
@@ -39,7 +42,10 @@ let package = Package(
         // ports.
         .target(
             name: "ClipSystem",
-            dependencies: ["ClipCore", .product(name: "Sauce", package: "Sauce")],
+            dependencies: [
+                "ClipCore", .product(name: "Sauce", package: "Sauce"),
+                .product(name: "Highlighter", package: "HighlighterSwift"),
+            ],
             swiftSettings: strict
         ),
         // ClipCoreTests also sees GRDB, so a test can open the database file itself (to checkpoint

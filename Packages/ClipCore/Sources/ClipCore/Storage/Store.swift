@@ -5,7 +5,9 @@ import GRDB
 // files goes through the Store, with GRDB's record API (see Records.swift), never hand-written SQL.
 /// Saves, lists and searches clipboard items. One instance per app.
 public final class Store: Sendable {
-    private let pool: DatabasePool
+    /// Internal, not private, so the Store's extensions in this folder (Store+Labels.swift) can
+    /// use it; nothing outside Storage/ can, because only Storage/ imports GRDB.
+    let pool: DatabasePool
     private let files: LargeDataFiles
     /// Where Quick Look, Share and Open With get their temporary copies of an item's bytes. One
     /// folder per Store folder, so clearing it can never touch another Store's copies.
@@ -76,20 +78,24 @@ public final class Store: Sendable {
                 existing.cardDetail = cardDetail ?? existing.cardDetail
                 existing.sourceAppBundleId = copy.sourceApp?.bundleId
                 existing.sourceAppName = copy.sourceApp?.name
-                try existing.update(db)
-                _ = try ClipboardItem.filter(key: existing.id)
-                    .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
+                try Self.update(db, existing, searchText: searchText)
                 item = existing
                 let oldRows = ClipboardItemDataRow.ofItem(item.id)
                 oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
                 try oldRows.deleteAll(db)
             } else {
-                item = try NewClipboardItem(
+                // A text is labelled now if it holds a key, else queued for the model. An image
+                // waits for its words (`setPreview`).
+                var saved = try NewClipboardItem(
                     kind: kind, cardText: cardText, searchText: searchText, cardDetail: cardDetail,
                     sourceAppBundleId: copy.sourceApp?.bundleId,
                     sourceAppName: copy.sourceApp?.name, createdAt: copy.copiedAt,
                     copiedAt: copy.copiedAt, contentFingerprint: fingerprint
                 ).insertAndFetch(db, as: ClipboardItem.self)
+                if kind == .text {
+                    try saved.updateChanges(db) { try Self.labelOrQueue(db, &$0, text: searchText) }
+                }
+                item = saved
             }
             try Self.insertDataRows(db, of: item.id, data: copy.data, fileNames: fileNames)
             let verb = existing == nil ? "saved" : "moved to top"
@@ -118,9 +124,9 @@ public final class Store: Sendable {
             item.contentFingerprint = fingerprint
             item.imageText = nil
             item.linkPageTitle = nil
-            try item.update(db)
-            _ = try ClipboardItem.filter(key: id)
-                .updateAll(db, [ClipboardItemColumns.searchText.set(to: searchText)])
+            item.labelTitle = nil
+            if kind == .text { try Self.labelOrQueue(db, &item, text: searchText) }
+            try Self.update(db, item, searchText: searchText)
             let oldRows = ClipboardItemDataRow.ofItem(id)
             let oldFileNames = try ClipboardItemDataRow.fileNames(in: oldRows).fetchAll(db)
             try oldRows.deleteAll(db)
@@ -142,6 +148,14 @@ public final class Store: Sendable {
             kind, DuplicateKey.make(kind: kind, data: data), CardText.make(kind: kind, data: data),
             CardDetail.make(kind: kind, data: data), CardText.searchText(kind: kind, data: data)
         )
+    }
+
+    /// Writes an item's row and its `searchText`, which `ClipboardItem` does not carry, in one
+    /// statement: each update of the row makes the search index rewrite that row's entry.
+    private static func update(_ db: Database, _ item: ClipboardItem, searchText: String) throws {
+        var values = try item.databaseDictionary
+        values[ClipboardItemColumns.searchText.name] = searchText.databaseValue
+        _ = try ClipboardItem.filter(key: item.id).updateAll(db, values.map { Column($0).set(to: $1) })
     }
 
     /// Writes each piece of data that is too big for its row to a file, and returns one file name
@@ -198,8 +212,8 @@ public final class Store: Sendable {
         }
     }
 
-    /// The newest `limit` items, once. The panel uses the live form, `observeItems`.
-    public func items(limit: Int) async throws -> [ClipboardItem] {
+    /// The newest `limit` items, once. Only the tests read it this way; the panel uses `observeItems`.
+    func items(limit: Int) async throws -> [ClipboardItem] {
         try await pool.read { db in try ClipboardItem.newestFirst.limit(limit).fetchAll(db) }
     }
 
@@ -280,8 +294,8 @@ public final class Store: Sendable {
         }
     }
 
-    /// How many items are saved, once. The tests check it; the menu watches `observeCount`.
-    public func count() async throws -> Int {
+    /// How many items are saved, once. Only the tests read it; the menu watches `observeCount`.
+    func count() async throws -> Int {
         try await pool.read { db in try ClipboardItem.fetchCount(db) }
     }
 
@@ -322,6 +336,12 @@ public final class Store: Sendable {
                 _ = try ClipboardItem.filter(key: itemId).updateAll(db, changes)
             }
             try preview.thumbnail?.upsert(db)
+            // Words found in an image make it labelable, as a text is when saved.
+            if let text = preview.imageText, !text.isEmpty,
+                var item = try ClipboardItem.fetchOne(db, key: itemId), item.kind == .image
+            {
+                try item.updateChanges(db) { try Self.labelOrQueue(db, &$0, text: text) }
+            }
         }
     }
 
@@ -482,7 +502,9 @@ public final class Store: Sendable {
                 cardDetail: original.cardDetail, sourceAppBundleId: original.sourceAppBundleId,
                 sourceAppName: original.sourceAppName, createdAt: now, copiedAt: now,
                 contentFingerprint: original.contentFingerprint, imageText: original.imageText,
-                linkPageTitle: original.linkPageTitle, pinboardId: original.pinboardId
+                linkPageTitle: original.linkPageTitle, pinboardId: original.pinboardId,
+                categoryId: original.categoryId, language: original.language, labelTitle: original.labelTitle,
+                categorySetByHand: original.categorySetByHand, languageSetByHand: original.languageSetByHand
             ).insertAndFetch(db, as: ClipboardItem.self)
             for (row, fileName) in zip(rows, copiedFileNames) {
                 var row = row
@@ -490,6 +512,9 @@ public final class Store: Sendable {
                 row.clipboardItemId = copy.id
                 row.largeDataFileName = fileName
                 try row.insert(db)
+            }
+            if try LabelQueueEntry.exists(db, key: id) {
+                try LabelQueueEntry(clipboardItemId: copy.id).insert(db)
             }
             // The thumbnail is keyed by item id, so the copy gets its own row of it.
             if var thumbnail = try CardThumbnail.fetchOne(db, key: id) {
